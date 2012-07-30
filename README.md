@@ -1,4 +1,5 @@
-iris
-====
+Iris - Distributed Messaging Framework
+======================================
 
-Distributed Messaging Framework
+Code released as articles get published!
+
