@@ -10,5 +10,6 @@ Source code is mostly released when publications catch up.
    - Published: 2012 IEEE 10th Jubilee International Symposium on Intelligent Systems and Informatics (SISY)
    - Available: [IEEE Xplore](http://dx.doi.org/10.1109/SISY.2012.6339529)
 
+ 
  - Szilágyi, Péter: *Secure communication in a peer-to-peer based message oriented middleware.*
    - Submitted: Elsevier Computer Networks
