@@ -1,5 +1,5 @@
 // Iris - Distributed Messaging Framework
-// Copyright 2012 Peter Szilagyi. All rights reserved.
+// Copyright 2013 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
 // terms of the GNU General Public License as published by the Free Software
@@ -16,7 +16,6 @@
 // author(s).
 
 // Author: peterke@gmail.com (Peter Szilagyi)
-
 package hkdf
 
 import (

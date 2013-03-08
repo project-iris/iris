@@ -1,5 +1,5 @@
 // Iris - Distributed Messaging Framework
-// Copyright 2012 Peter Szilagyi. All rights reserved.
+// Copyright 2013 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
 // terms of the GNU General Public License as published by the Free Software
@@ -20,14 +20,12 @@
 // Package hkdf implements the HMAC-based Extract-and-Expand Key Derivation
 // Function (HKDF) as defined in Internet Engineering Task Force, Request for
 // Comments 5869.
-
+//
 // An HKDF is a cryptographic key derivation function (KDF) with the goal of
 // expanding some limited size input keying material into one or more
 // cryptographically strong secret keys.
-
-// RFC 5869:
-// https://tools.ietf.org/html/rfc5869
-
+//
+// RFC 5869: https://tools.ietf.org/html/rfc5869
 package hkdf
 
 import (
@@ -75,8 +73,8 @@ func (f *hkdf) Read(p []byte) (n int, err error) {
 	return need, nil
 }
 
-// New returns a new HKDF using the given hash.Hash type, the mater keying material
-// to expand and optional salt and info fields.
+// New returns a new HKDF using the given hash, the master keying material to expand
+// and optional salt and info fields.
 func New(hash func() hash.Hash, master []byte, salt []byte, info []byte) io.Reader {
 	extractor := hmac.New(hash, salt)
 	extractor.Write(master)
