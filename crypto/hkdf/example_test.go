@@ -20,11 +20,11 @@ package hkdf_test
 
 import (
 	"bytes"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
 	"io"
-	"iris/crypto/hkdf"
 )
 
 // Usage example that expands one master key into three other cryptographically
