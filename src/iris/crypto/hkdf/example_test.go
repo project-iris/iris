@@ -29,7 +29,7 @@ import (
 
 // Usage example that expands one master key into three other cryptographically
 // secure keys.
-func ExampleUsage() {
+func Example_usage() {
 	// Underlying hash function to use
 	hash := sha1.New
 
