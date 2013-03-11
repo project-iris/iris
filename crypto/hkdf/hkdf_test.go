@@ -14,21 +14,19 @@
 // Alternatively, the Iris framework may be used in accordance with the terms
 // and conditions contained in a signed written agreement between you and the
 // author(s).
-
+//
 // Author: peterke@gmail.com (Peter Szilagyi)
 package hkdf
 
 import (
 	"bytes"
-	"crypto/sha1"
-	"crypto/sha256"
-	"hash"
+	"crypto"
 	"io"
 	"testing"
 )
 
 type hkdfTest struct {
-	hash   func() hash.Hash
+	hash   crypto.Hash
 	master []byte
 	salt   []byte
 	info   []byte
@@ -38,7 +36,7 @@ type hkdfTest struct {
 var hkdfTests = []hkdfTest{
 	// Tests from RFC 5869
 	{
-		sha256.New,
+		crypto.SHA256,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -62,7 +60,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha256.New,
+		crypto.SHA256,
 		[]byte{
 			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -114,7 +112,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha256.New,
+		crypto.SHA256,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -132,7 +130,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha1.New,
+		crypto.SHA1,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b,
@@ -155,7 +153,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha1.New,
+		crypto.SHA1,
 		[]byte{
 			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -207,7 +205,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha1.New,
+		crypto.SHA1,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -225,7 +223,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		sha1.New,
+		crypto.SHA1,
 		[]byte{
 			0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c,
 			0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c,
@@ -279,12 +277,12 @@ func TestHKDFMultiRead(t *testing.T) {
 }
 
 func TestHKDFLimit(t *testing.T) {
-	hash := sha1.New
+	hash := crypto.SHA1
 	master := []byte{0x00, 0x01, 0x02, 0x03}
 	info := []byte{}
 
 	hkdf := New(hash, master, nil, info)
-	limit := hash().Size() * 255
+	limit := hash.Size() * 255
 	out := make([]byte, limit)
 
 	// The maximum output bytes should be extractable

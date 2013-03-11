@@ -14,7 +14,7 @@
 // Alternatively, the Iris framework may be used in accordance with the terms
 // and conditions contained in a signed written agreement between you and the
 // author(s).
-
+//
 // Author: peterke@gmail.com (Peter Szilagyi)
 
 // Package hkdf implements the HMAC-based Extract-and-Expand Key Derivation
@@ -29,7 +29,10 @@
 package hkdf
 
 import (
+	"crypto"
 	"crypto/hmac"
+	_ "crypto/sha1"
+	_ "crypto/sha256"
 	"errors"
 	"fmt"
 	"hash"
@@ -37,8 +40,8 @@ import (
 )
 
 type hkdf struct {
-	hash func() hash.Hash
-	size int
+	hasher func() hash.Hash
+	size   int
 
 	prk     []byte
 	info    []byte
@@ -58,7 +61,7 @@ func (f *hkdf) Read(p []byte) (n int, err error) {
 	for len(f.cache) < need {
 		input := append(f.prev, append(f.info, f.counter)...)
 
-		expander := hmac.New(f.hash, f.prk)
+		expander := hmac.New(f.hasher, f.prk)
 		expander.Write(input)
 		output := expander.Sum(nil)
 
@@ -75,9 +78,10 @@ func (f *hkdf) Read(p []byte) (n int, err error) {
 
 // New returns a new HKDF using the given hash, the master keying material to expand
 // and optional salt and info fields.
-func New(hash func() hash.Hash, master []byte, salt []byte, info []byte) io.Reader {
+func New(hasher crypto.Hash, master []byte, salt []byte, info []byte) io.Reader {
+	hash := func() hash.Hash { return hasher.New() }
 	extractor := hmac.New(hash, salt)
 	extractor.Write(master)
 
-	return &hkdf{hash, hash().Size(), extractor.Sum(nil), info, 1, []byte{}, []byte{}}
+	return &hkdf{hash, hasher.Size(), extractor.Sum(nil), info, 1, []byte{}, []byte{}}
 }
