@@ -31,8 +31,6 @@ package hkdf
 import (
 	"crypto"
 	"crypto/hmac"
-	_ "crypto/sha1"
-	_ "crypto/sha256"
 	"errors"
 	"fmt"
 	"hash"

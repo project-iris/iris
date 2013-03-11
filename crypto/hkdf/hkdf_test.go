@@ -21,6 +21,8 @@ package hkdf
 import (
 	"bytes"
 	"crypto"
+	_ "crypto/sha1"
+	_ "crypto/sha256"
 	"io"
 	"testing"
 )
