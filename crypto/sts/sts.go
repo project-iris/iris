@@ -17,7 +17,7 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Station-to-station key exchange protocol implementation. Details:
+// Package sts implements the Station-to-station (STS) key exchange protocol.
 //   Wikipedia: http://en.wikipedia.org/wiki/Station-to-Station_protocol
 //   Diagram: http://goo.gl/5EiDV
 //
