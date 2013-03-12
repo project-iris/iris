@@ -19,12 +19,12 @@
 package sts
 
 import (
-	"math/big"
-	"crypto"
-	"crypto/cipher"
-	"crypto/aes"
-	"testing"
 	"bytes"
+	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
+	"math/big"
+	"testing"
 )
 
 type stsTest struct {
@@ -39,7 +39,7 @@ type stsTest struct {
 	accExponent    *big.Int
 }
 
-var stsTests = []stsTest {
+var stsTests = []stsTest{
 	{
 		aes.NewCipher,
 		128,
@@ -118,7 +118,7 @@ func TestNew(t *testing.T) {
 
 func TestInitiate(t *testing.T) {
 	for i, tt := range stsTests {
-		ses, _   := New(bytes.NewReader(tt.iniExponent.Bytes()), tt.group, tt.generator, tt.cipher, tt.bits, tt.hash)
+		ses, _ := New(bytes.NewReader(tt.iniExponent.Bytes()), tt.group, tt.generator, tt.cipher, tt.bits, tt.hash)
 		exp, err := ses.Initiate()
 		if err != nil {
 			t.Errorf("test %d: failed to initiate session: %v", i, err)

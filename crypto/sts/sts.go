@@ -18,21 +18,21 @@
 // Author: peterke@gmail.com (Peter Szilagyi)
 
 // Station-to-station key exchange protocol implementation. Details:
-//   * Wikipedia: http://en.wikipedia.org/wiki/Station-to-Station_protocol
-//   * Diagram: http://goo.gl/5EiDV
+//   Wikipedia: http://en.wikipedia.org/wiki/Station-to-Station_protocol
+//   Diagram: http://goo.gl/5EiDV
 //
 // Although STS is a generic key exchange protocol, some assumptions were hard
 // coded into the implementation:
-//   - The asymmetric signature algorithm is RSA
-//   - The symmetric encryption uses CTR mode
-//   - The stream crypto key and IV are expanded with HKDF from the master key
+//   The asymmetric signature algorithm is RSA
+//   The symmetric encryption uses CTR mode
+//   The stream crypto key and IV are expanded with HKDF from the master key
 //
 // The cryptographic strength of the protocol is based on the analysis of the
 // general number field sieve algorithm, it being the fastest factoring method
 // till now. Matching STS bit sizes to AES (approx!):
-//   * AES-128: 2248 bits
-//   * AES-192: 5912 bits
-//   * AES-256: 11920 bits
+//   AES-128: 2248 bits
+//   AES-192: 5912 bits
+//   AES-256: 11920 bits
 package sts
 
 import (
@@ -49,11 +49,11 @@ import (
 type state uint8
 
 const (
-	NEW state = iota
-	INITIATED
-	ACCEPTED
-	VERIFIED
-	FINALIZED
+	created state = iota
+	initiated
+	accepted
+	verified
+	finalized
 )
 
 // Protocol state structure
@@ -112,11 +112,11 @@ func New(random io.Reader, group, generator *big.Int, cipher func([]byte) (ciphe
 // Initiates an STS exchange session, returning the local exponential to connect with.
 func (s *session) Initiate() (*big.Int, error) {
 	// Sanity check
-	if s.state != NEW {
+	if s.state != created {
 		return nil, errors.New("only a new session can initiate key exchanges")
 	}
 	s.localExp = new(big.Int).Exp(s.generator, s.exponent, s.group)
-	s.state = INITIATED
+	s.state = initiated
 	return s.localExp, nil
 }
 
@@ -124,7 +124,7 @@ func (s *session) Initiate() (*big.Int, error) {
 // used to authenticate the token for teh other side, whilst the exp is the foreign exponential.
 func (s *session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*big.Int, []byte, error) {
 	// Sanity check
-	if s.state != NEW {
+	if s.state != created {
 		return nil, nil, errors.New("only a new session can accept key exchange requests")
 	}
 	s.localExp = new(big.Int).Exp(s.generator, s.exponent, s.group)
@@ -135,7 +135,7 @@ func (s *session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	s.state = ACCEPTED
+	s.state = accepted
 	return s.localExp, token, nil
 }
 
@@ -145,7 +145,7 @@ func (s *session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*
 func (s *session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.PublicKey,
 	exp *big.Int, token []byte) ([]byte, error) {
 	// Sanity check
-	if s.state != INITIATED {
+	if s.state != initiated {
 		return nil, errors.New("only an initiated session can verify the acceptor")
 	}
 	// Verify the authorization token
@@ -160,7 +160,7 @@ func (s *session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.Publi
 	if err != nil {
 		return nil, err
 	}
-	s.state = VERIFIED
+	s.state = verified
 	return token, nil
 }
 
@@ -168,7 +168,7 @@ func (s *session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.Publi
 // if verification succeeded.
 func (s *session) Finalize(key *rsa.PublicKey, token []byte) error {
 	// Sanity check
-	if s.state != ACCEPTED {
+	if s.state != accepted {
 		return errors.New("only an initiated session can verify the acceptor")
 	}
 	// Verify the authorization token
@@ -176,13 +176,13 @@ func (s *session) Finalize(key *rsa.PublicKey, token []byte) error {
 	if err != nil {
 		return err
 	}
-	s.state = FINALIZED
+	s.state = finalized
 	return nil
 }
 
 // Retrieves the shared secret that the communicating parties agreed upon.
 func (s *session) Secret() ([]byte, error) {
-	if s.state != VERIFIED && s.state != FINALIZED {
+	if s.state != verified && s.state != finalized {
 		return nil, errors.New("only a verified or finalized session can return a reliable shared secret")
 	}
 	return s.secret.Bytes(), nil
