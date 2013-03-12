@@ -95,11 +95,10 @@ func New(random io.Reader, group, generator *big.Int, cipher func([]byte) (ciphe
 	if clear == 0 {
 		clear = 8
 	}
-	secret[0] &= uint8(int(1<<(clear%8)) - 1)
+	secret[0] &= uint8(int(1<<clear) - 1)
 
 	exp := new(big.Int).SetBytes(secret)
 	ses := new(session)
-
 	ses.group = group
 	ses.generator = generator
 	ses.exponent = exp
