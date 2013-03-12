@@ -41,9 +41,9 @@ import (
 	"crypto/hkdf"
 	"crypto/rsa"
 	"errors"
+	"hash"
 	"io"
 	"math/big"
-	"hash"
 )
 
 // Current step in the protocol to prevent user errors
@@ -199,18 +199,12 @@ func (s *session) genToken(random io.Reader, key *rsa.PrivateKey) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	// Extract a usable symmetric key and IV for the stream cipher
-	symkey, iv, err := s.makeKeys()
+	// Create a stream cipher and encrypt the RSA signature
+	stream, err := s.makeCipher()
 	if err != nil {
 		return nil, err
 	}
-	// Encrypt the signature
-	block, err := s.crypter(symkey)
-	if err != nil {
-		return nil, err
-	}
-	crypter := cipher.NewCTR(block, iv)
-	crypter.XORKeyStream(sig, sig)
+	stream.XORKeyStream(sig, sig)
 	return sig, nil
 }
 
@@ -221,37 +215,41 @@ func (s *session) verToken(key *rsa.PublicKey, token []byte) error {
 	hasher.Write(append(s.foreignExp.Bytes(), s.localExp.Bytes()...))
 	hashsum := hasher.Sum(nil)
 
-	// Extract a usable symmetric key and IV for the stream cipher
-	symkey, iv, err := s.makeKeys()
+	// Create the stream cipher and decrypt the RSA signature
+	stream, err := s.makeCipher()
 	if err != nil {
 		return err
 	}
-	// Decrypt the RSA signature
-	block, err := s.crypter(symkey)
-	if err != nil {
-		return err
-	}
-	crypter := cipher.NewCTR(block, iv)
-	crypter.XORKeyStream(token, token)
+	stream.XORKeyStream(token, token)
 
 	// Verify the signature
 	return rsa.VerifyPKCS1v15(key, s.hash, hashsum, token)
 }
 
-// Extracts a usable sized symmetric key and IV for the stream cipher from the huge master key
-func (s *session) makeKeys() ([]byte, []byte, error) {
-	makeHash := func() (hash.Hash) { return s.hash.New() }
-	hkdf := hkdf.New(makeHash, s.secret.Bytes(), hkdfSalt, hkdfInfo)
+// Extracts a usable sized symmetric key and IV for the stream cipher from the huge master key, and
+// creates a CTR stream cipher.
+func (s *session) makeCipher() (cipher.Stream, error) {
+	// Create the key derivation function
+	hasher := func() hash.Hash { return s.hash.New() }
+	hkdf := hkdf.New(hasher, s.secret.Bytes(), hkdfSalt, hkdfInfo)
 
-	symkey := make([]byte, s.keybits/8)
-	n, err := io.ReadFull(hkdf, symkey)
-	if n != len(symkey) || err != nil {
-		return nil, nil, err
+	// Extract the symmetric key
+	key := make([]byte, s.keybits/8)
+	n, err := io.ReadFull(hkdf, key)
+	if n != len(key) || err != nil {
+		return nil, err
 	}
-	iv := make([]byte, s.keybits/8)
+	// Create the block cipher
+	block, err := s.crypter(key)
+	if err != nil {
+		return nil, err
+	}
+	// Extract the IV for the counter mode
+	iv := make([]byte, block.BlockSize())
 	n, err = io.ReadFull(hkdf, iv)
 	if n != len(iv) || err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return symkey, iv, nil
+	// Create the stream cipher
+	return cipher.NewCTR(block, iv), nil
 }
