@@ -58,7 +58,7 @@ const (
 )
 
 // Protocol state structure
-type session struct {
+type Session struct {
 	state state
 
 	group     *big.Int
@@ -82,7 +82,7 @@ var hkdfInfo = []byte("crypto.sts.hkdf.info")
 // cyclic group on which STS will operate. cipher and bits are used during the authentication token's symmetric
 // encryption, whilst hash is needed during RSA signing.
 func New(random io.Reader, group, generator *big.Int, cipher func([]byte) (cipher.Block, error),
-	bits int, hash crypto.Hash) (*session, error) {
+	bits int, hash crypto.Hash) (*Session, error) {
 	// Generate a random secret exponent
 	expbits := group.BitLen()
 	secret := make([]byte, (expbits+7)/8)
@@ -99,7 +99,7 @@ func New(random io.Reader, group, generator *big.Int, cipher func([]byte) (ciphe
 	secret[0] &= uint8(int(1<<clear) - 1)
 
 	exp := new(big.Int).SetBytes(secret)
-	ses := new(session)
+	ses := new(Session)
 	ses.group = group
 	ses.generator = generator
 	ses.exponent = exp
@@ -111,7 +111,7 @@ func New(random io.Reader, group, generator *big.Int, cipher func([]byte) (ciphe
 }
 
 // Initiates an STS exchange session, returning the local exponential to connect with.
-func (s *session) Initiate() (*big.Int, error) {
+func (s *Session) Initiate() (*big.Int, error) {
 	// Sanity check
 	if s.state != created {
 		return nil, errors.New("only a new session can initiate key exchanges")
@@ -123,7 +123,7 @@ func (s *session) Initiate() (*big.Int, error) {
 
 // Accepts an incoming STS exchange session, returning the local exponential and the authorization token. The key is
 // used to authenticate the token for teh other side, whilst the exp is the foreign exponential.
-func (s *session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*big.Int, []byte, error) {
+func (s *Session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*big.Int, []byte, error) {
 	// Sanity check
 	if s.state != created {
 		return nil, nil, errors.New("only a new session can accept key exchange requests")
@@ -143,7 +143,7 @@ func (s *session) Accept(random io.Reader, key *rsa.PrivateKey, exp *big.Int) (*
 // Verifies the authenticity of a remote STS acceptor and returns the local auth token if successful. The exp is the
 // foreign exponential used in calculating the token. pkey is used to verify the foreign signature whilst skey to
 // generate the local signature.
-func (s *session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.PublicKey,
+func (s *Session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.PublicKey,
 	exp *big.Int, token []byte) ([]byte, error) {
 	// Sanity check
 	if s.state != initiated {
@@ -167,7 +167,7 @@ func (s *session) Verify(random io.Reader, skey *rsa.PrivateKey, pkey *rsa.Publi
 
 // Finalizes an STS key exchange by authenticating the initiator's token with the local public key. Returns nil error
 // if verification succeeded.
-func (s *session) Finalize(key *rsa.PublicKey, token []byte) error {
+func (s *Session) Finalize(key *rsa.PublicKey, token []byte) error {
 	// Sanity check
 	if s.state != accepted {
 		return errors.New("only an initiated session can verify the acceptor")
@@ -182,7 +182,7 @@ func (s *session) Finalize(key *rsa.PublicKey, token []byte) error {
 }
 
 // Retrieves the shared secret that the communicating parties agreed upon.
-func (s *session) Secret() ([]byte, error) {
+func (s *Session) Secret() ([]byte, error) {
 	if s.state != verified && s.state != finalized {
 		return nil, errors.New("only a verified or finalized session can return a reliable shared secret")
 	}
@@ -190,7 +190,7 @@ func (s *session) Secret() ([]byte, error) {
 }
 
 // Calculates the authorization token: the encrypted RSA signature of the two exponentials (local first!)
-func (s *session) genToken(random io.Reader, key *rsa.PrivateKey) ([]byte, error) {
+func (s *Session) genToken(random io.Reader, key *rsa.PrivateKey) ([]byte, error) {
 	// Calculate the RSA signature
 	hasher := s.hash.New()
 	hasher.Write(append(s.localExp.Bytes(), s.foreignExp.Bytes()...))
@@ -209,7 +209,7 @@ func (s *session) genToken(random io.Reader, key *rsa.PrivateKey) ([]byte, error
 }
 
 // Verify the authorization token: the encrypted RSA signature of the two exponentials (foreign first!)
-func (s *session) verToken(key *rsa.PublicKey, token []byte) error {
+func (s *Session) verToken(key *rsa.PublicKey, token []byte) error {
 	// Calculate the required hash sum
 	hasher := s.hash.New()
 	hasher.Write(append(s.foreignExp.Bytes(), s.localExp.Bytes()...))
@@ -228,7 +228,7 @@ func (s *session) verToken(key *rsa.PublicKey, token []byte) error {
 
 // Extracts a usable sized symmetric key and IV for the stream cipher from the huge master key, and
 // creates a CTR stream cipher.
-func (s *session) makeCipher() (cipher.Stream, error) {
+func (s *Session) makeCipher() (cipher.Stream, error) {
 	// Create the key derivation function
 	hasher := func() hash.Hash { return s.hash.New() }
 	hkdf := hkdf.New(hasher, s.secret.Bytes(), hkdfSalt, hkdfInfo)
