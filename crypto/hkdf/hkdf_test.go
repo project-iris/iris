@@ -20,15 +20,15 @@ package hkdf
 
 import (
 	"bytes"
-	"crypto"
-	_ "crypto/sha1"
-	_ "crypto/sha256"
+	"crypto/sha1"
+	"crypto/sha256"
+	"hash"
 	"io"
 	"testing"
 )
 
 type hkdfTest struct {
-	hash   crypto.Hash
+	hash   func() hash.Hash
 	master []byte
 	salt   []byte
 	info   []byte
@@ -38,7 +38,7 @@ type hkdfTest struct {
 var hkdfTests = []hkdfTest{
 	// Tests from RFC 5869
 	{
-		crypto.SHA256,
+		sha256.New,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -62,7 +62,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA256,
+		sha256.New,
 		[]byte{
 			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -114,7 +114,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA256,
+		sha256.New,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -132,7 +132,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA1,
+		sha1.New,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b,
@@ -155,7 +155,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA1,
+		sha1.New,
 		[]byte{
 			0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 			0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
@@ -207,7 +207,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA1,
+		sha1.New,
 		[]byte{
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
 			0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
@@ -225,7 +225,7 @@ var hkdfTests = []hkdfTest{
 		},
 	},
 	{
-		crypto.SHA1,
+		sha1.New,
 		[]byte{
 			0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c,
 			0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c,
@@ -255,7 +255,7 @@ func TestHKDF(t *testing.T) {
 		}
 
 		if !bytes.Equal(out, tt.out) {
-			t.Errorf("test %d: incorrect output: %v != %v.", i, out, tt.out)
+			t.Errorf("test %d: incorrect output: have %v, need %v.", i, out, tt.out)
 		}
 	}
 }
@@ -268,23 +268,23 @@ func TestHKDFMultiRead(t *testing.T) {
 		for b := 0; b < len(tt.out); b++ {
 			n, err := io.ReadFull(hkdf, out[b:b+1])
 			if n != 1 || err != nil {
-				t.Errorf("test %d.%d: not enough output bytes: %d != %d .", i, b, n, len(tt.out))
+				t.Errorf("test %d.%d: not enough output bytes: have %d, need %d .", i, b, n, len(tt.out))
 			}
 		}
 
 		if !bytes.Equal(out, tt.out) {
-			t.Errorf("test %d: incorrect output: %v != %v.", i, out, tt.out)
+			t.Errorf("test %d: incorrect output: have %v, need %v.", i, out, tt.out)
 		}
 	}
 }
 
 func TestHKDFLimit(t *testing.T) {
-	hash := crypto.SHA1
+	hash := sha1.New
 	master := []byte{0x00, 0x01, 0x02, 0x03}
 	info := []byte{}
 
 	hkdf := New(hash, master, nil, info)
-	limit := hash.Size() * 255
+	limit := hash().Size() * 255
 	out := make([]byte, limit)
 
 	// The maximum output bytes should be extractable

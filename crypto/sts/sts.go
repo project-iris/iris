@@ -43,6 +43,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"hash"
 )
 
 // Current step in the protocol to prevent user errors
@@ -239,7 +240,9 @@ func (s *session) verToken(key *rsa.PublicKey, token []byte) error {
 
 // Extracts a usable sized symmetric key and IV for the stream cipher from the huge master key
 func (s *session) makeKeys() ([]byte, []byte, error) {
-	hkdf := hkdf.New(s.hash, s.secret.Bytes(), hkdfSalt, hkdfInfo)
+	makeHash := func() (hash.Hash) { return s.hash.New() }
+	hkdf := hkdf.New(makeHash, s.secret.Bytes(), hkdfSalt, hkdfInfo)
+
 	symkey := make([]byte, s.keybits/8)
 	n, err := io.ReadFull(hkdf, symkey)
 	if n != len(symkey) || err != nil {

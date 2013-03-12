@@ -20,10 +20,9 @@ package hkdf_test
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/hkdf"
 	"crypto/rand"
-	_ "crypto/sha1"
+	"crypto/sha1"
 	"fmt"
 	"io"
 )
@@ -32,14 +31,14 @@ import (
 // secure keys.
 func Example_usage() {
 	// Underlying hash function to use
-	hash := crypto.SHA1
+	hash := sha1.New
 
 	// Cryptographically secure - secret - master key
 	master := []byte{0x00, 0x01, 0x02, 0x03} // i.e. NOT this
 
 	// Non secret salt, optional (can be nil)
 	// Recommended: hash-length sized random
-	salt := make([]byte, hash.Size())
+	salt := make([]byte, hash().Size())
 	n, err := io.ReadFull(rand.Reader, salt)
 	if n != len(salt) || err != nil {
 		fmt.Println("error:", err)
