@@ -19,14 +19,11 @@
 package session
 
 import (
-	"crypto"
-	"crypto/aes"
 	_ "crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sts"
 	"log"
-	"math/big"
 	"proto/stream"
 )
 
@@ -35,13 +32,6 @@ type Session struct {
 
 	master []byte
 }
-
-// Constants for the protocol authentication layer
-var stsGroup = big.NewInt(3910779947)
-var stsGenerator = big.NewInt(1213725007)
-var stsCipher = aes.NewCipher
-var stsCipherBits = 128
-var stsSigHash = crypto.MD5
 
 func Listen(port int, key *rsa.PrivateKey) (chan int, chan *Session, error) {
 	// Open the TCP socket
@@ -52,7 +42,7 @@ func Listen(port int, key *rsa.PrivateKey) (chan int, chan *Session, error) {
 	// For each incoming connection, execute auth negotiation
 	ops := make(chan int)
 	sink := make(chan *Session)
-	go negotiate(key, ops, sink, netOps, netSink)
+	go accept(key, ops, sink, netOps, netSink)
 	return ops, sink, nil
 }
 
@@ -67,7 +57,7 @@ func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.Pu
 
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
-func negotiate(key *rsa.PrivateKey, ops chan int, sink chan *Session, netOps chan int, netSink chan *stream.Stream) {
+func accept(key *rsa.PrivateKey, ops chan int, sink chan *Session, netOps chan int, netSink chan *stream.Stream) {
 	for {
 		select {
 		case msg := <-ops:
@@ -84,66 +74,71 @@ func negotiate(key *rsa.PrivateKey, ops chan int, sink chan *Session, netOps cha
 	}
 }
 
-func connect(strm *stream.Stream, self []byte, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
+func connect(strm *stream.Stream, self []byte, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
+	// Defer an error handler that will ensure a closed stream
+	defer func() {
+		if err != nil {
+			strm.Close()
+			ses = nil
+		}
+	}()
 	// Create a new empty session
 	session, err := sts.New(rand.Reader, stsGroup, stsGenerator, stsCipher, stsCipherBits, stsSigHash)
 	if err != nil {
 		log.Printf("failed to create new session: %v\n", err)
-		strm.Close()
-		return nil, err
+		return
 	}
-
 	// Initiate a key exchange, send the exponential
 	exp, err := session.Initiate()
 	if err != nil {
 		log.Printf("failed to initiate key exchange: %v\n", err)
-		strm.Close()
-		return nil, err
+		return
 	}
 	err = strm.Send(authRequest{self, exp})
 	if err != nil {
-		log.Printf("failed to encode auth request: %v\n", err)
-		return nil, err
+		log.Printf("failed to send auth request: %v\n", err)
+		return
 	}
-
 	// Receive the foreign exponential and auth token and if verifies, send own auth
 	chall := new(authChallenge)
 	err = strm.Recv(chall)
 	if err != nil {
-		log.Printf("failed to initiate key exchange: %v\n", err)
-		return nil, err
+		log.Printf("failed to receive auth challenge: %v\n", err)
+		return
 	}
 	token, err := session.Verify(rand.Reader, skey, pkey, chall.Exp, chall.Token)
 	if err != nil {
 		log.Printf("failed to verify acceptor auth token: %v\n", err)
-		strm.Close()
-		return nil, err
+		return
 	}
 	err = strm.Send(authResponse{token})
 	if err != nil {
 		log.Printf("failed to send auth response: %v\n", err)
-		return nil, err
+		return
 	}
-
 	// Protocol done, other side should finalize if all is correct
 	secret, err := session.Secret()
 	if err != nil {
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
-		strm.Close()
-		return nil, err
+		return
 	}
 	return &Session{*strm, secret}, nil
 }
 
 func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) {
+	// Defer an error handler that will ensure a closed stream
+	var err error
+	defer func() {
+		if err != nil {
+			strm.Close()
+		}
+	}()
 	// Create a new STS session
 	session, err := sts.New(rand.Reader, stsGroup, stsGenerator, stsCipher, stsCipherBits, stsSigHash)
 	if err != nil {
 		log.Printf("failed to create new session: %v\n", err)
-		strm.Close()
 		return
 	}
-
 	// Receive foreign exponential, accept the incoming key exchange request and send back own exp + auth token
 	req := new(authRequest)
 	err = strm.Recv(req)
@@ -154,7 +149,6 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) 
 	exp, token, err := session.Accept(rand.Reader, key, req.Exp)
 	if err != nil {
 		log.Printf("failed to accept incoming exchange: %v\n", err)
-		strm.Close()
 		return
 	}
 	err = strm.Send(authChallenge{exp, token})
@@ -162,7 +156,6 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) 
 		log.Printf("failed to encode auth challenge: %v\n", err)
 		return
 	}
-
 	// Receive the foreign auth token and if verifies conclude session
 	resp := new(authResponse)
 	err = strm.Recv(resp)
@@ -173,15 +166,12 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) 
 	err = session.Finalize(&key.PublicKey, resp.Token) // TODO: Key-store!!!
 	if err != nil {
 		log.Printf("failed to finalize exchange: %v\n", err)
-		strm.Close()
 		return
 	}
-
 	// Protocol done
 	secret, err := session.Secret()
 	if err != nil {
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
-		strm.Close()
 		return
 	}
 	sink <- &Session{*strm, secret}
