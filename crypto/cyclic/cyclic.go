@@ -36,14 +36,14 @@ var negligibleExp = 82
 
 // Cyclic group with a safe-prime base.
 type Group struct {
-	base      *big.Int
-	generator *big.Int
+	Base      *big.Int
+	Generator *big.Int
 }
 
 // Generate a new cyclic group and generator of given bits size.
 func New(random io.Reader, bits int) (*Group, error) {
 	for {
-		// Generate a large prime of size 'bits'
+		// Generate a large prime of size 'bits'-1
 		q, err := rand.Prime(random, bits-1)
 		if err != nil {
 			return nil, err
