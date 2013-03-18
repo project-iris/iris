@@ -19,14 +19,14 @@
 package session
 
 import (
-	"math/big"
+	"crypto"
 	"crypto/aes"
 	_ "crypto/md5"
-	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sts"
 	"log"
-	"crypto/rsa"
+	"math/big"
 	"proto/stream"
 )
 
@@ -37,12 +37,11 @@ type Session struct {
 }
 
 // Constants for the protocol authentication layer
-var stsGroup      = big.NewInt(3910779947)
-var stsGenerator  = big.NewInt(1213725007)
-var stsCipher     = aes.NewCipher
+var stsGroup = big.NewInt(3910779947)
+var stsGenerator = big.NewInt(1213725007)
+var stsCipher = aes.NewCipher
 var stsCipherBits = 128
-var stsSigHash    = crypto.MD5
-
+var stsSigHash = crypto.MD5
 
 func Listen(port int, key *rsa.PrivateKey) (chan int, chan *Session, error) {
 	// Open the TCP socket
@@ -51,7 +50,7 @@ func Listen(port int, key *rsa.PrivateKey) (chan int, chan *Session, error) {
 		return nil, nil, err
 	}
 	// For each incoming connection, execute auth negotiation
-	ops  := make(chan int)
+	ops := make(chan int)
 	sink := make(chan *Session)
 	go negotiate(key, ops, sink, netOps, netSink)
 	return ops, sink, nil
@@ -71,11 +70,11 @@ func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.Pu
 func negotiate(key *rsa.PrivateKey, ops chan int, sink chan *Session, netOps chan int, netSink chan *stream.Stream) {
 	for {
 		select {
-		case msg := <- ops:
+		case msg := <-ops:
 			// Process any control messages (exit for the moment)
 			netOps <- msg
 			return
-		case conn, ok := <- netSink:
+		case conn, ok := <-netSink:
 			// Negotiate an STS session (if channel has not been closed)
 			if !ok {
 				return
@@ -99,12 +98,12 @@ func connect(strm *stream.Stream, self []byte, skey *rsa.PrivateKey, pkey *rsa.P
 	if err != nil {
 		log.Printf("failed to initiate key exchange: %v\n", err)
 		strm.Close()
-		return  nil, err
+		return nil, err
 	}
 	err = strm.Send(authRequest{self, exp})
 	if err != nil {
 		log.Printf("failed to encode auth request: %v\n", err)
-		return  nil, err
+		return nil, err
 	}
 
 	// Receive the foreign exponential and auth token and if verifies, send own auth
