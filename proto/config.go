@@ -16,13 +16,13 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package session
+package proto
 
 import (
 	"crypto"
 	"crypto/aes"
-	"math/big"
 	"crypto/md5"
+	"math/big"
 )
 
 // Cyclic group for the STS cryptography (2248 bits)

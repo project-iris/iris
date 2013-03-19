@@ -16,7 +16,7 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package session
+package proto
 
 import "math/big"
 
