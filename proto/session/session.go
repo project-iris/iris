@@ -61,8 +61,8 @@ func accept(key *rsa.PrivateKey, sink chan *Session, quit chan struct{},
 	netSink chan *stream.Stream, netQuit chan struct{}) {
 	for {
 		select {
-		case msg := <-quit:
-			netQuit <- msg
+		case <-quit:
+			close(netQuit)
 			return
 		case conn, ok := <-netSink:
 			// Negotiate an STS session (if channel has not been closed)
