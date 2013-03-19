@@ -30,8 +30,32 @@ import (
 	"io"
 	"log"
 	"proto/stream"
+	"math/big"
 )
 
+// Authenticated connection request message. Contains the originators ID for
+// key lookup and the client exponential.
+type authRequest struct {
+	Id  string
+	Exp *big.Int
+}
+
+// Authentication challenge message. Contains the server exponential and the
+// server side auth token (both verification and challenge at the same time).
+type authChallenge struct {
+	Exp   *big.Int
+	Token []byte
+}
+
+// Authentication challenge response message. Contains the client side token.
+type authResponse struct {
+	Token []byte
+}
+
+// Starts a listener on port to accept incoming sessions. The key/store pairs
+// are used for the mutual authentication. On success, a session channel is
+// returned which will receive the successfully authenticated clients; and a
+// quit channel to be able to terminate the listener.
 func Listen(port int, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
 	// Open the TCP socket
 	netSink, netQuit, err := stream.Listen(port)
@@ -45,6 +69,9 @@ func Listen(port int, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (cha
 	return sink, quit, nil
 }
 
+// Connects to a remote node and negotiates a session using the local secret key
+// and the remote public key. On success, a new Session is returned to handle
+// further communication.
 func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
 	// Open the TCP socket
 	conn, err := stream.Dial(host, port)
@@ -73,6 +100,7 @@ func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Ses
 	}
 }
 
+// Client side of the STS session negotiation.
 func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
 	// Defer an error handler that will ensure a closed stream
 	defer func() {
@@ -124,6 +152,7 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 	return newSession(strm, secret), nil
 }
 
+// Server side of the STS session negotiation.
 func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session) {
 	// Defer an error handler that will ensure a closed stream
 	var err error
