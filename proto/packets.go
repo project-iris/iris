@@ -23,7 +23,7 @@ import "math/big"
 // Authenticated connection request message. Contains the originators ID for
 // key lookup and the client exponential.
 type authRequest struct {
-	Id  []byte
+	Id  string
 	Exp *big.Int
 }
 

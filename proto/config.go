@@ -22,9 +22,10 @@ import (
 	"crypto"
 	"crypto/aes"
 	"math/big"
+	"crypto/md5"
 )
 
-// Cyclic group for the STS cryptography
+// Cyclic group for the STS cryptography (2248 bits)
 var stsGroup = new(big.Int).SetBytes([]byte{
 	0xaa, 0x26, 0xaa, 0x7c, 0xc7, 0x88, 0x60, 0x72,
 	0xea, 0x16, 0x8c, 0xcd, 0xdd, 0x36, 0x68, 0x0b,
@@ -63,7 +64,7 @@ var stsGroup = new(big.Int).SetBytes([]byte{
 	0x3f, 0xfe, 0x8f, 0xa1, 0x4d, 0x12, 0x7a, 0x65,
 })
 
-// Cyclic group generator for the STS cryptography
+// Cyclic group generator for the STS cryptography (2248 bits)
 var stsGenerator = new(big.Int).SetBytes([]byte{
 	0x4f, 0x9d, 0xdc, 0x27, 0x70, 0xc9, 0xd9, 0x14,
 	0x31, 0x0c, 0xf6, 0x12, 0xce, 0xbd, 0xa5, 0x8f,
@@ -110,3 +111,21 @@ var stsCipherBits = 128
 
 // Hash type for the RSA signature/verification
 var stsSigHash = crypto.MD5
+
+// Hash type for the HMAC within HKDF
+var hkdfHash = crypto.MD5
+
+// Salt value for the HKDF key extraction
+var hkdfSalt = []byte("iris.proto.session.hkdf.salt")
+
+// Info value for the HKDF key expansion
+var hkdfInfo = []byte("iris.proto.session.hkdf.info")
+
+// Symmetric cipher to use for session encryption
+var sesCipher = aes.NewCipher
+
+// Key size for the session symmetric cipher
+var sesCipherBits = 128
+
+// Hash creator for the session HMAC
+var sesHash = md5.New

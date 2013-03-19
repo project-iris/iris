@@ -19,21 +19,27 @@
 package session
 
 import (
-	_ "crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sts"
 	"log"
 	"proto/stream"
+	"crypto/cipher"
+	"hash"
+	"io"
+	"crypto/hkdf"
+	"crypto/hmac"
+	"fmt"
 )
 
 type Session struct {
 	stream.Stream
 
-	master []byte
+	cipher cipher.Stream
+	mac    hash.Hash
 }
 
-func Listen(port int, key *rsa.PrivateKey) (chan *Session, chan struct{}, error) {
+func Listen(port int, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
 	// Open the TCP socket
 	netSink, netQuit, err := stream.Listen(port)
 	if err != nil {
@@ -42,11 +48,11 @@ func Listen(port int, key *rsa.PrivateKey) (chan *Session, chan struct{}, error)
 	// For each incoming connection, execute auth negotiation
 	sink := make(chan *Session)
 	quit := make(chan struct{})
-	go accept(key, sink, quit, netSink, netQuit)
+	go accept(key, store, sink, quit, netSink, netQuit)
 	return sink, quit, nil
 }
 
-func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
+func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
 	// Open the TCP socket
 	conn, err := stream.Dial(host, port)
 	if err != nil {
@@ -57,7 +63,7 @@ func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.Pu
 
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
-func accept(key *rsa.PrivateKey, sink chan *Session, quit chan struct{},
+func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session, quit chan struct{},
 	netSink chan *stream.Stream, netQuit chan struct{}) {
 	for {
 		select {
@@ -69,12 +75,12 @@ func accept(key *rsa.PrivateKey, sink chan *Session, quit chan struct{},
 			if !ok {
 				return
 			}
-			go authenticate(conn, key, sink)
+			go authenticate(conn, key, store, sink)
 		}
 	}
 }
 
-func connect(strm *stream.Stream, self []byte, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
+func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
 	// Defer an error handler that will ensure a closed stream
 	defer func() {
 		if err != nil {
@@ -122,10 +128,10 @@ func connect(strm *stream.Stream, self []byte, skey *rsa.PrivateKey, pkey *rsa.P
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
-	return &Session{*strm, secret}, nil
+	return newSession(strm, secret), nil
 }
 
-func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) {
+func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session) {
 	// Defer an error handler that will ensure a closed stream
 	var err error
 	defer func() {
@@ -163,7 +169,7 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) 
 		log.Printf("failed to decode auth response: %v\n", err)
 		return
 	}
-	err = session.Finalize(&key.PublicKey, resp.Token) // TODO: Key-store!!!
+	err = session.Finalize(store[req.Id], resp.Token)
 	if err != nil {
 		log.Printf("failed to finalize exchange: %v\n", err)
 		return
@@ -174,5 +180,42 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, sink chan *Session) 
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
-	sink <- &Session{*strm, secret}
+	sink <- newSession(strm, secret)
+}
+
+// Creates a new session from the given data stream and negotiated secret. The
+// derived cryptographic primitives are configured in the config.go file. Any
+// failure here means invalid/corrupt configurations, thus will lead to a panic.
+func newSession(strm *stream.Stream, secret []byte) *Session {
+	// Create the key derivation function
+	hasher := func() hash.Hash { return hkdfHash.New() }
+	hkdf := hkdf.New(hasher, secret, hkdfSalt, hkdfInfo)
+
+	// Extract the symmetric key and create the block cipher
+	key := make([]byte, sesCipherBits / 8)
+	n, err := io.ReadFull(hkdf, key)
+	if n != len(key) || err != nil {
+		panic(fmt.Sprintf("Failed to extract session key: %v", err))
+	}
+	block, err := sesCipher(key)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create session cipher: %v", err))
+	}
+	// Extract the IV for the counter mode and create the stream cipher
+	iv := make([]byte, block.BlockSize())
+	n, err = io.ReadFull(hkdf, iv)
+	if n != len(iv) || err != nil {
+		panic(fmt.Sprintf("Failed to extract session IV: %v", err))
+	}
+	stream := cipher.NewCTR(block, iv)
+
+	// Extract the HMAC key and create the session MACer
+	salt := make([]byte, sesHash().Size())
+	n, err = io.ReadFull(hkdf, salt)
+	if n != len(salt) || err != nil {
+		panic(fmt.Sprintf("Failed to extract session mac salt: %v", err))
+	}
+	mac := hmac.New(sesHash, salt)
+
+  return &Session{*strm, stream, mac}
 }
