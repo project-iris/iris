@@ -44,8 +44,8 @@ var acceptTimeout = time.Second
 var dialTimeout = time.Second
 
 // Opens a tcp server socket, and if successful, starts a go routine for
-// accepting incoming connections and returns a control and a stream channel.
-func Listen(port int) (chan int, chan *Stream, error) {
+// accepting incoming connections and returns a stream and a quit channel.
+func Listen(port int) (chan *Stream, chan struct{}, error) {
 	// Open the server socket
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -56,10 +56,10 @@ func Listen(port int) (chan int, chan *Stream, error) {
 		return nil, nil, err
 	}
 	// Create the two channels, start the acceptor and return
-	ops := make(chan int)
 	sink := make(chan *Stream)
-	go accept(sock, ops, sink)
-	return ops, sink, nil
+	quit := make(chan struct{})
+	go accept(sock, sink, quit)
+	return sink, quit, nil
 }
 
 // Connects to a remote host and returns the connection stream.
@@ -74,13 +74,12 @@ func Dial(host string, port int) (*Stream, error) {
 
 // Accepts incoming connection requests, converts them info a TCP/IP gob stream
 // and send them back on the sink channel.
-func accept(sock *net.TCPListener, ops chan int, sink chan *Stream) {
+func accept(sock *net.TCPListener, sink chan *Stream, quit chan struct{}) {
 	defer close(sink)
 	defer sock.Close()
 	for {
 		select {
-		case <-ops:
-			// Process any control messages (exit for the moment)
+		case <-quit:
 			return
 		default:
 			// Accept an incoming connection but without blocking for too long

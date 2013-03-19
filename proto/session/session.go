@@ -33,17 +33,17 @@ type Session struct {
 	master []byte
 }
 
-func Listen(port int, key *rsa.PrivateKey) (chan int, chan *Session, error) {
+func Listen(port int, key *rsa.PrivateKey) (chan *Session, chan struct{}, error) {
 	// Open the TCP socket
-	netOps, netSink, err := stream.Listen(port)
+	netSink, netQuit, err := stream.Listen(port)
 	if err != nil {
 		return nil, nil, err
 	}
 	// For each incoming connection, execute auth negotiation
-	ops := make(chan int)
 	sink := make(chan *Session)
-	go accept(key, ops, sink, netOps, netSink)
-	return ops, sink, nil
+	quit := make(chan struct{})
+	go accept(key, sink, quit, netSink, netQuit)
+	return sink, quit, nil
 }
 
 func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
@@ -57,12 +57,12 @@ func Dial(host string, port int, self []byte, skey *rsa.PrivateKey, pkey *rsa.Pu
 
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
-func accept(key *rsa.PrivateKey, ops chan int, sink chan *Session, netOps chan int, netSink chan *stream.Stream) {
+func accept(key *rsa.PrivateKey, sink chan *Session, quit chan struct{},
+	netSink chan *stream.Stream, netQuit chan struct{}) {
 	for {
 		select {
-		case msg := <-ops:
-			// Process any control messages (exit for the moment)
-			netOps <- msg
+		case msg := <-quit:
+			netQuit <- msg
 			return
 		case conn, ok := <-netSink:
 			// Negotiate an STS session (if channel has not been closed)
