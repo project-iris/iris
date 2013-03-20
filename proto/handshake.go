@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sts"
+	"errors"
 	"log"
 	"math/big"
 	"proto/stream"
@@ -171,6 +172,7 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 	_, ok := store[req.Id]
 	if !ok {
 		log.Printf("unknown connecting client: %v\n", req.Id)
+		err = errors.New("unknown client")
 		return
 	}
 	exp, token, err := session.Accept(rand.Reader, key, req.Exp)

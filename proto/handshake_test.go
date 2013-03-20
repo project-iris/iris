@@ -26,7 +26,7 @@ import (
 )
 
 func TestHandshake(t *testing.T) {
-	tcpPort := 31420
+	tcpPort := 31419
 
 	// Generate the key-pairs
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
