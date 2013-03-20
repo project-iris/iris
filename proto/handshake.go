@@ -168,6 +168,11 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 		log.Printf("failed to decode auth request: %v\n", err)
 		return
 	}
+	_, ok := store[req.Id]
+	if !ok {
+		log.Printf("unknown connecting client: %v\n", req.Id)
+		return
+	}
 	exp, token, err := session.Accept(rand.Reader, key, req.Exp)
 	if err != nil {
 		log.Printf("failed to accept incoming exchange: %v\n", err)
