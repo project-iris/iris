@@ -44,7 +44,7 @@ func TestCyclic(t *testing.T) {
 			t.Errorf("test %d: non-safe-prime base: %v = 2*%v + 1.", i, group.Base, q)
 		}
 		if new(big.Int).Exp(group.Generator, q, group.Base).Cmp(big.NewInt(1)) != 0 {
-			t.Errorf("test %d: invalid generator: %v.", i, group.Generator, q)
+			t.Errorf("test %d: invalid generator: %v.", i, group.Generator)
 		}
 	}
 }

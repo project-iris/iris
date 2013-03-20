@@ -26,26 +26,28 @@ import (
 
 func Example_usage() {
 	// Generate the cyclic group
-	group, err := cyclic.New(rand.Reader, 512)
+	group, err := cyclic.New(rand.Reader, 120)
 	if err != nil {
 		fmt.Println("Failed to generate cyclic group:", err)
 	}
 	// Output in a nice, source friendly byte format
 	fmt.Println("Cyclic group base:")
 	bytes := group.Base.Bytes()
-	for row := 0; row < len(bytes)/8; row++ {
-		for col := 0; col < 8; col++ {
-			fmt.Printf("0x%02x, ", bytes[8*row+col])
+	for byte := 0; byte < len(bytes); byte++ {
+		fmt.Printf("0x%02x, ", bytes[byte])
+		if byte%8 == 7 {
+			fmt.Println()
 		}
-		fmt.Println()
 	}
+	fmt.Println()
 	// Output in a nice, source friendly byte format
 	fmt.Println("Cyclic group generator:")
 	bytes = group.Generator.Bytes()
-	for row := 0; row < len(bytes)/8; row++ {
-		for col := 0; col < 8; col++ {
-			fmt.Printf("0x%02x, ", bytes[8*row+col])
+	for byte := 0; byte < len(bytes); byte++ {
+		fmt.Printf("0x%02x, ", bytes[byte])
+		if byte%8 == 7 {
+			fmt.Println()
 		}
-		fmt.Println()
 	}
+	fmt.Println()
 }
