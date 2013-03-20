@@ -16,9 +16,10 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package proto
+package session
 
 import (
+	"config"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sts"
@@ -105,7 +106,8 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 		}
 	}()
 	// Create a new empty session
-	session, err := sts.New(rand.Reader, stsGroup, stsGenerator, stsCipher, stsCipherBits, stsSigHash)
+	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
+		config.StsCipher, config.StsCipherBits, config.StsSigHash)
 	if err != nil {
 		log.Printf("failed to create new session: %v\n", err)
 		return
@@ -157,7 +159,8 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 		}
 	}()
 	// Create a new STS session
-	session, err := sts.New(rand.Reader, stsGroup, stsGenerator, stsCipher, stsCipherBits, stsSigHash)
+	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
+		config.StsCipher, config.StsCipherBits, config.StsSigHash)
 	if err != nil {
 		log.Printf("failed to create new session: %v\n", err)
 		return

@@ -16,7 +16,7 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package proto
+package session
 
 import (
 	"crypto/rand"

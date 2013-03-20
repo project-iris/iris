@@ -16,7 +16,7 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package proto
+package config
 
 import (
 	"crypto"
@@ -26,7 +26,7 @@ import (
 )
 
 // Cyclic group for the STS cryptography (2248 bits)
-var stsGroup = new(big.Int).SetBytes([]byte{
+var StsGroup = new(big.Int).SetBytes([]byte{
 	0xdc, 0x28, 0x29, 0xab, 0xca, 0xc5, 0x7d, 0x0d,
 	0xf7, 0x44, 0xa4, 0x9a, 0x42, 0x7e, 0x5b, 0xe9,
 	0xa7, 0xf8, 0xd3, 0x3f, 0x87, 0x01, 0xfa, 0x37,
@@ -66,7 +66,7 @@ var stsGroup = new(big.Int).SetBytes([]byte{
 })
 
 // Cyclic group generator for the STS cryptography (2248 bits)
-var stsGenerator = new(big.Int).SetBytes([]byte{
+var StsGenerator = new(big.Int).SetBytes([]byte{
 	0x09, 0x50, 0x1e, 0x53, 0xeb, 0xce, 0xd4, 0xc8,
 	0x05, 0x0d, 0x76, 0x90, 0xee, 0xf5, 0x48, 0x06,
 	0x18, 0xca, 0xd2, 0x9e, 0x75, 0x37, 0x9d, 0x0b,
@@ -106,34 +106,34 @@ var stsGenerator = new(big.Int).SetBytes([]byte{
 })
 
 // Symmetric cipher to use for the STS encryption
-var stsCipher = aes.NewCipher
+var StsCipher = aes.NewCipher
 
 // Key size for the symmetric cipher
-var stsCipherBits = 128
+var StsCipherBits = 128
 
 // Hash type for the RSA signature/verification
-var stsSigHash = crypto.MD5
+var StsSigHash = crypto.MD5
 
 // Hash type for the HMAC within HKDF
-var hkdfHash = crypto.MD5
+var HkdfHash = crypto.MD5
 
 // Salt value for the HKDF key extraction
-var hkdfSalt = []byte("iris.proto.session.hkdf.salt")
+var HkdfSalt = []byte("iris.proto.session.hkdf.salt")
 
 // Info value for the HKDF key expansion
-var hkdfInfo = []byte("iris.proto.session.hkdf.info")
+var HkdfInfo = []byte("iris.proto.session.hkdf.info")
 
 // Symmetric cipher to use for session encryption
-var sesCipher = aes.NewCipher
+var SesCipher = aes.NewCipher
 
 // Key size for the session symmetric cipher
-var sesCipherBits = 128
+var SesCipherBits = 128
 
 // Hash creator for the session HMAC
-var sesHash = md5.New
+var SesHash = md5.New
 
 // Symmetric cipher for the temporary message encryption
-var packCipher = aes.NewCipher
+var PackCipher = aes.NewCipher
 
 // Key size for the temporary cipher
-var packCipherBits = 128
+var PackCipherBits = 128
