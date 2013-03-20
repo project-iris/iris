@@ -26,7 +26,7 @@ import (
 	"testing"
 )
 
-func TestSts(t *testing.T) {
+func TestConfigSts(t *testing.T) {
 	// Ensure cyclic group is safe-prime and a valid (big) generator
 	negligibleExp := 82
 	if !stsGroup.ProbablyPrime(negligibleExp / 2) {
@@ -56,7 +56,7 @@ func TestSts(t *testing.T) {
 	}
 }
 
-func TestHkdf(t *testing.T) {
+func TestConfigHkdf(t *testing.T) {
 	// Ensure the hash is linked to the binary
 	if !hkdfHash.Available() {
 		t.Errorf("proto config (hkdf): requested hash not linked into binary.")
@@ -73,7 +73,7 @@ func TestHkdf(t *testing.T) {
 	}
 }
 
-func TestSession(t *testing.T) {
+func TestConfigSession(t *testing.T) {
 	// Ensure a valid symmetric cipher
 	key := make([]byte, sesCipherBits/8)
 	n, err := io.ReadFull(rand.Reader, key)
@@ -83,5 +83,18 @@ func TestSession(t *testing.T) {
 	_, err = sesCipher(key)
 	if err != nil {
 		t.Errorf("proto config (session): failed to create requested cipher: %v.", err)
+	}
+}
+
+func TestConfigPack(t *testing.T) {
+	// Ensure a valid symmetric cipher
+	key := make([]byte, packCipherBits/8)
+	n, err := io.ReadFull(rand.Reader, key)
+	if n != len(key) || err != nil {
+		t.Errorf("proto config (pack): failed to generate random key: %v.", err)
+	}
+	_, err = packCipher(key)
+	if err != nil {
+		t.Errorf("proto config (pack): failed to create requested cipher: %v.", err)
 	}
 }
