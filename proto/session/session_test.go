@@ -55,8 +55,8 @@ func TestCommunication(t *testing.T) {
 	select {
 	case <-timeout1:
 		t.Errorf("server receive timed out.")
-	case recv := <-srvAppChan:
-		if bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
+	case recv, ok := <-srvAppChan:
+		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
 			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(head.Mac, recv.Head.Mac) != 0 ||
 			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
@@ -71,8 +71,8 @@ func TestCommunication(t *testing.T) {
 	select {
 	case <-timeout2:
 		t.Errorf("server receive timed out.")
-	case recv := <-cliAppChan:
-		if bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
+	case recv, ok := <-cliAppChan:
+		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
 			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(head.Mac, recv.Head.Mac) != 0 ||
 			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)

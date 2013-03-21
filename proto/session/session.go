@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"log"
 	"proto/stream"
 )
 
@@ -181,7 +180,6 @@ func (s *Session) receiver(app chan *Message) {
 	for {
 		msg, err := s.recv()
 		if err != nil {
-			log.Printf("failed to receive new message: %v.", err)
 			return
 		}
 		app <- msg
