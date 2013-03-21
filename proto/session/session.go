@@ -35,7 +35,7 @@ import (
 // Structure containing the message headers:
 //  - sender and recipient
 //  - symmetric key and ctr iv used to encrypt the payload
-//  - mac of the encrypted payload
+//  - mac of the encrypted payload (internal)
 type Header struct {
 	Origin string
 	Target string
@@ -135,34 +135,9 @@ func (s *Session) Send(msg *Message) (err error) {
 	pack := new(packet)
 	pack.Payload = msg.Data
 
-	/*	// Flatten the custom message
-		buf := new(bytes.Buffer)
-		enc := gob.NewEncoder(buf)
-		err = enc.Encode(msg)
-		if err != nil {
-			return
-		}
-		// Generate a new temporary key, IV and encrypt the message contents
-		head.key = make([]byte, config.PackCipherBits/8)
-		n, err := io.ReadFull(rand.Reader, head.key)
-		if n != len(head.key) || err != nil {
-			return
-		}
-		block, err := config.PackCipher(head.key)
-		if err != nil {
-			return
-		}
-		head.iv = make([]byte, block.BlockSize())
-		n, err = io.ReadFull(rand.Reader, head.iv)
-		if n != len(head.iv) || err != nil {
-			return
-		}
-		stream := cipher.NewCTR(block, head.iv)
-		stream.XORKeyStream(pack.payload, buf.Bytes())
-
-		// Generate the MAC of the encrypted payload
-		s.macer.Write(pack.payload)
-		head.mac = s.macer.Sum(nil) */
+	// Generate the MAC of the encrypted payload
+	s.outMacer.Write(msg.Data)
+	msg.Head.Mac = s.outMacer.Sum(nil)
 
 	// Flatten and encrypt the headers
 	buf := new(bytes.Buffer)
@@ -184,7 +159,6 @@ func (s *Session) Recv() (msg *Message, err error) {
 			msg = nil
 		}
 	}()
-
 	msg = new(Message)
 
 	// Retrieve a new package
@@ -209,15 +183,5 @@ func (s *Session) Recv() (msg *Message, err error) {
 		err = errors.New(fmt.Sprintf("mac mismatch: have %v, want %v.", s.inMacer.Sum(nil), msg.Head.Mac))
 		return
 	}
-	/*	// Decrypt and extract the incoming message
-		block, err := config.PackCipher(head.key)
-		if err != nil {
-			return
-		}
-		buf = new(bytes.Buffer)
-		dec = gob.NewDecoder(buf)
-		stream := cipher.NewCTR(block, head.iv)
-		stream.XORKeyStream(buf.Bytes(), pack.payload)
-		return dec.Decode(msg)  */
 	return msg, nil
 }
