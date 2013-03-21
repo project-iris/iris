@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-func TestSession(t *testing.T) {
+func TestCommunication(t *testing.T) {
 	tcpPort := 31420
 
 	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
