@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log"
 	"proto/stream"
 )
 
@@ -125,13 +126,34 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 	return stream, mac
 }
 
-func (s *Session) Send(msg *Message) (err error) {
-	// Close session on any error
-	defer func() {
-		if err != nil {
-			s.socket.Close()
+// Starts the session data transfer between from stream to app (sink) and app to
+// stream (returned channel).
+func (s *Session) Communicate(sink chan *Message, quit chan struct{}) chan *Message {
+	ch := make(chan *Message)
+	go s.sender(ch, quit)
+	go s.receiver(sink)
+	return ch
+}
+
+// Sends messages from the upper layers into the session stream.
+func (s *Session) sender(net chan *Message, quit chan struct{}) {
+	defer s.socket.Close()
+	for {
+		select {
+		case <-quit:
+			return
+		case msg := <-net:
+			err := s.send(msg)
+			if err != nil {
+				return
+			}
 		}
-	}()
+	}
+}
+
+// The actual message sending logic. Calculates the payload mac, encrypts the
+// headers and sends it down to the stream.
+func (s *Session) send(msg *Message) (err error) {
 	pack := new(packet)
 	pack.Payload = msg.Data
 
@@ -146,12 +168,29 @@ func (s *Session) Send(msg *Message) (err error) {
 	if err != nil {
 		return
 	}
+	pack.Headers = make([]byte, buf.Len())
 	s.outCipher.XORKeyStream(pack.Headers, buf.Bytes())
 
 	return s.socket.Send(pack)
 }
 
-func (s *Session) Recv() (msg *Message, err error) {
+// Transfers messages from the session to the upper layers decoding the headers.
+// The method will finish on either an error or a close (remote or sender func).
+func (s *Session) receiver(app chan *Message) {
+	defer close(app)
+	for {
+		msg, err := s.recv()
+		if err != nil {
+			log.Printf("failed to receive new message: %v.", err)
+			return
+		}
+		app <- msg
+	}
+}
+
+// The actual message receiving logic. Reads a message from the stream, verifies
+// its mac, decodes the headers and send it upwards.
+func (s *Session) recv() (msg *Message, err error) {
 	// Close session on any error
 	defer func() {
 		if err != nil {
@@ -160,6 +199,7 @@ func (s *Session) Recv() (msg *Message, err error) {
 		}
 	}()
 	msg = new(Message)
+	msg.Head = new(Header)
 
 	// Retrieve a new package
 	pack := new(packet)
@@ -168,7 +208,7 @@ func (s *Session) Recv() (msg *Message, err error) {
 		return
 	}
 	// Extract the package contents
-	buf := []byte{}
+	buf := make([]byte, len(pack.Headers))
 	s.inCipher.XORKeyStream(buf, pack.Headers)
 	dec := gob.NewDecoder(bytes.NewBuffer(buf))
 	err = dec.Decode(msg.Head)
