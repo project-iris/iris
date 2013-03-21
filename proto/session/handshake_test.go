@@ -19,6 +19,7 @@
 package session
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
@@ -46,15 +47,42 @@ func TestHandshake(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to start the session listener: %v.", err)
 	}
-	_, err = Dial("localhost", tcpPort, "client", clientKey, &serverKey.PublicKey)
+	c2sSes, err := Dial("localhost", tcpPort, "client", clientKey, &serverKey.PublicKey)
 	if err != nil {
 		t.Errorf("failed to connect to the server: %v.", err)
 	}
 	// Make sure the server also gets back a live session
 	timeout := time.Tick(time.Second)
 	select {
-	case <-sink:
-		// Ok, do nothing
+	case s2cSes := <-sink:
+		// Ensure server and client side crypto primitives match
+		c2sData := make([]byte, 4096)
+		s2cData := make([]byte, 4096)
+
+		c2sSes.inCipher.XORKeyStream(c2sData, c2sData)
+		s2cSes.outCipher.XORKeyStream(s2cData, s2cData)
+		if !bytes.Equal(c2sData, s2cData) {
+			t.Errorf("cipher mismatch on the session endpoints")
+		}
+		c2sSes.outCipher.XORKeyStream(c2sData, c2sData)
+		s2cSes.inCipher.XORKeyStream(s2cData, s2cData)
+		if !bytes.Equal(c2sData, s2cData) {
+			t.Errorf("cipher mismatch on the session endpoints")
+		}
+		c2sSes.inMacer.Write(c2sData)
+		s2cSes.outMacer.Write(s2cData)
+		c2sData = c2sSes.inMacer.Sum(nil)
+		s2cData = s2cSes.outMacer.Sum(nil)
+		if !bytes.Equal(c2sData, s2cData) {
+			t.Errorf("macer mismatch on the session endpoints")
+		}
+		c2sSes.outMacer.Write(c2sData)
+		s2cSes.inMacer.Write(s2cData)
+		c2sData = c2sSes.outMacer.Sum(nil)
+		s2cData = s2cSes.inMacer.Sum(nil)
+		if !bytes.Equal(c2sData, s2cData) {
+			t.Errorf("macer mismatch on the session endpoints")
+		}
 	case <-timeout:
 		t.Errorf("server-side handshake timed out.")
 	}

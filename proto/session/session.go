@@ -24,7 +24,6 @@ import (
 	"crypto/cipher"
 	"crypto/hkdf"
 	"crypto/hmac"
-	"crypto/rand"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -33,35 +32,70 @@ import (
 	"proto/stream"
 )
 
+// Structure containing the message headers:
+//  - sender and recipient
+//  - symmetric key and ctr iv used to encrypt the payload
+//  - mac of the encrypted payload
+type Header struct {
+	Origin string
+	Target string
+
+	Key []byte
+	Iv  []byte
+	Mac []byte
+}
+
+// Simple container for the header and data to be able to pass them around together.
+type Message struct {
+	Head *Header
+	Data []byte
+}
+
+// Wire packet, same as Message, just with the headers encrypted with the session.
 type packet struct {
-	headers []byte
-	payload []byte
+	Headers []byte
+	Payload []byte
 }
 
-type Headers struct {
-	origin string
-	target string
-
-	key []byte
-	iv  []byte
-	mac []byte
-}
-
-// Accomplishes secure and authenticated communication.
+// Accomplishes secure and authenticated full duplex communication.
 type Session struct {
 	socket *stream.Stream
-	cipher cipher.Stream
-	macer  hash.Hash
+
+	inCipher  cipher.Stream
+	outCipher cipher.Stream
+
+	inMacer  hash.Hash
+	outMacer hash.Hash
 }
 
-// Creates a new session from the given data stream and negotiated secret. The
-// derived cryptographic primitives are configured in the config.go file. Any
+// Creates a new, full-duplex session from the given data stream and negotiated
+// secret. The initiator is used to decide the key derivation order for the two
+// half-duplex channels.
+//
+// Note, the derived cryptographic primitives are configured in config.go. Any
 // failure here means invalid/corrupt configurations, thus will lead to a panic.
-func newSession(strm *stream.Stream, secret []byte) *Session {
+func newSession(strm *stream.Stream, secret []byte, initiator bool) *Session {
+	ses := new(Session)
+	ses.socket = strm
+
 	// Create the key derivation function
 	hasher := func() hash.Hash { return config.HkdfHash.New() }
 	hkdf := hkdf.New(hasher, secret, config.HkdfSalt, config.HkdfInfo)
 
+	// Create the duplex channel
+	sc, sm := makeHalfDuplex(hkdf)
+	cc, cm := makeHalfDuplex(hkdf)
+	if initiator {
+		ses.inCipher, ses.outCipher, ses.inMacer, ses.outMacer = cc, sc, cm, sm
+	} else {
+		ses.inCipher, ses.outCipher, ses.inMacer, ses.outMacer = sc, cc, sm, cm
+	}
+	return ses
+}
+
+// Assembles the crypto primitives needed for a one way communication channel:
+// the stream cipher for encryption and the mac for authentication.
+func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 	// Extract the symmetric key and create the block cipher
 	key := make([]byte, config.SesCipherBits/8)
 	n, err := io.ReadFull(hkdf, key)
@@ -88,95 +122,102 @@ func newSession(strm *stream.Stream, secret []byte) *Session {
 	}
 	mac := hmac.New(config.SesHash, salt)
 
-	return &Session{strm, stream, mac}
+	return stream, mac
 }
 
-func (s *Session) Send(msg interface{}) (err error) {
+func (s *Session) Send(msg *Message) (err error) {
 	// Close session on any error
 	defer func() {
 		if err != nil {
 			s.socket.Close()
 		}
 	}()
-
-	head := new(Headers)
 	pack := new(packet)
+	pack.Payload = msg.Data
 
-	// Flatten the custom message
+	/*	// Flatten the custom message
+		buf := new(bytes.Buffer)
+		enc := gob.NewEncoder(buf)
+		err = enc.Encode(msg)
+		if err != nil {
+			return
+		}
+		// Generate a new temporary key, IV and encrypt the message contents
+		head.key = make([]byte, config.PackCipherBits/8)
+		n, err := io.ReadFull(rand.Reader, head.key)
+		if n != len(head.key) || err != nil {
+			return
+		}
+		block, err := config.PackCipher(head.key)
+		if err != nil {
+			return
+		}
+		head.iv = make([]byte, block.BlockSize())
+		n, err = io.ReadFull(rand.Reader, head.iv)
+		if n != len(head.iv) || err != nil {
+			return
+		}
+		stream := cipher.NewCTR(block, head.iv)
+		stream.XORKeyStream(pack.payload, buf.Bytes())
+
+		// Generate the MAC of the encrypted payload
+		s.macer.Write(pack.payload)
+		head.mac = s.macer.Sum(nil) */
+
+	// Flatten and encrypt the headers
 	buf := new(bytes.Buffer)
 	enc := gob.NewEncoder(buf)
-	err = enc.Encode(msg)
+	err = enc.Encode(msg.Head)
 	if err != nil {
 		return
 	}
-	// Generate a new temporary key, IV and encrypt the message contents
-	head.key = make([]byte, config.PackCipherBits/8)
-	n, err := io.ReadFull(rand.Reader, head.key)
-	if n != len(head.key) || err != nil {
-		return
-	}
-	block, err := config.PackCipher(head.key)
-	if err != nil {
-		return
-	}
-	head.iv = make([]byte, block.BlockSize())
-	n, err = io.ReadFull(rand.Reader, head.iv)
-	if n != len(head.iv) || err != nil {
-		return
-	}
-	stream := cipher.NewCTR(block, head.iv)
-	stream.XORKeyStream(pack.payload, buf.Bytes())
-
-	// Generate the MAC of the encrypted payload
-	s.macer.Write(pack.payload)
-	head.mac = s.macer.Sum(nil)
-
-	// Encrypt the headers
-	buf = new(bytes.Buffer)
-	enc = gob.NewEncoder(buf)
-	err = enc.Encode(head)
-	if err != nil {
-		return
-	}
-	s.cipher.XORKeyStream(pack.headers, buf.Bytes())
+	s.outCipher.XORKeyStream(pack.Headers, buf.Bytes())
 
 	return s.socket.Send(pack)
 }
 
-func (s *Session) Recv(msg interface{}) (err error) {
+func (s *Session) Recv() (msg *Message, err error) {
 	// Close session on any error
 	defer func() {
 		if err != nil {
 			s.socket.Close()
+			msg = nil
 		}
 	}()
+
+	msg = new(Message)
+
 	// Retrieve a new package
 	pack := new(packet)
 	err = s.socket.Recv(pack)
 	if err != nil {
 		return
 	}
-	// Extract the package headers
-	head := new(Headers)
-	buf := bytes.NewBuffer(pack.headers)
-	dec := gob.NewDecoder(buf)
-	err = dec.Decode(head)
+	// Extract the package contents
+	buf := []byte{}
+	s.inCipher.XORKeyStream(buf, pack.Headers)
+	dec := gob.NewDecoder(bytes.NewBuffer(buf))
+	err = dec.Decode(msg.Head)
 	if err != nil {
 		return
 	}
+	msg.Data = pack.Payload
+
 	// Verify the payload contents
-	s.macer.Write(pack.payload)
-	if !bytes.Equal(head.mac, s.macer.Sum(nil)) {
-		return errors.New(fmt.Sprintf("mac mismatch: have %v, want %v.", s.macer.Sum(nil), head.mac))
-	}
-	// Decrypt and extract the incoming message
-	block, err := config.PackCipher(head.key)
-	if err != nil {
+	s.inMacer.Write(msg.Data)
+	if !bytes.Equal(msg.Head.Mac, s.inMacer.Sum(nil)) {
+		err = errors.New(fmt.Sprintf("mac mismatch: have %v, want %v.", s.inMacer.Sum(nil), msg.Head.Mac))
 		return
 	}
-	buf = new(bytes.Buffer)
-	dec = gob.NewDecoder(buf)
-	stream := cipher.NewCTR(block, head.iv)
-	stream.XORKeyStream(buf.Bytes(), pack.payload)
-	return dec.Decode(msg)
+	/*	// Decrypt and extract the incoming message
+		block, err := config.PackCipher(head.key)
+		if err != nil {
+			return
+		}
+		buf = new(bytes.Buffer)
+		dec = gob.NewDecoder(buf)
+		stream := cipher.NewCTR(block, head.iv)
+		stream.XORKeyStream(buf.Bytes(), pack.payload)
+		return dec.Decode(msg)  */
+	return msg, nil
 }

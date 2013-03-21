@@ -146,7 +146,7 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
-	return newSession(strm, secret), nil
+	return newSession(strm, secret, true), nil
 }
 
 // Server side of the STS session negotiation.
@@ -206,5 +206,5 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 		log.Printf("failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
-	sink <- newSession(strm, secret)
+	sink <- newSession(strm, secret, false)
 }
