@@ -22,16 +22,15 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"io"
 	"net"
 	"testing"
 	"time"
 )
 
-func TestCommunication(t *testing.T) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		t.Errorf("failed to resolve local address: %v.", err)
-	}
+func TestForwarding(t *testing.T) {
+	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+
 	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
 	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
 
@@ -80,6 +79,47 @@ func TestCommunication(t *testing.T) {
 			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
 		}
+	}
+	close(quit)
+}
+
+func BenchmarkForwarding(b *testing.B) {
+	b.StopTimer()
+	// Setup the benchmark: public keys, stores and sessions
+	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+
+	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+
+	store := make(map[string]*rsa.PublicKey)
+	store["client"] = &clientKey.PublicKey
+
+	sink, quit, _ := Listen(addr, serverKey, store)
+	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
+	srvSes := <-sink
+
+	// Create the sender and receiver channels for both session sides
+	cliApp := make(chan *Message)
+	srvApp := make(chan *Message)
+
+	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+
+	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
+
+	// Generate a large batch of random data to forward
+	block := 8192
+	payloads := make([]byte, block*b.N)
+	io.ReadFull(rand.Reader, payloads)
+
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		// Create the message
+		msg := Message{&head, payloads[i*block : (i+1)*block]}
+
+		// Send from the client to the server
+		cliNet <- &msg
+		<-srvApp
 	}
 	close(quit)
 }

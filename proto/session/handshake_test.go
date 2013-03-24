@@ -28,20 +28,11 @@ import (
 )
 
 func TestHandshake(t *testing.T) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		t.Errorf("failed to resolve local address: %v.", err)
-	}
-	// Generate the key-pairs
-	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Errorf("failed to generate server key: %v,", err)
-	}
-	clientKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Errorf("failed to generate client key: %v.", err)
-	}
-	// Create the server key-store
+	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+
+	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+
 	store := make(map[string]*rsa.PublicKey)
 	store["client"] = &clientKey.PublicKey
 
@@ -88,6 +79,51 @@ func TestHandshake(t *testing.T) {
 		}
 	case <-timeout:
 		t.Errorf("server-side handshake timed out.")
+	}
+	close(quit)
+}
+
+func BenchmarkHandshake(b *testing.B) {
+	b.StopTimer()
+	// Setup the benchmark: public keys, stores and open TCP socket
+	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+
+	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+
+	store := make(map[string]*rsa.PublicKey)
+	store["client"] = &clientKey.PublicKey
+
+	sink, quit, err := Listen(addr, serverKey, store)
+	if err != nil {
+		b.Errorf("failed to start the session listener: %v.", err)
+	}
+
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		// Start a dialler on a new thread
+		ch := make(chan *Session)
+		go func() {
+			ses, err := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
+			if err != nil {
+				b.Errorf("failed to connect to the server: %v.", err)
+				close(ch)
+			} else {
+				ch <- ses
+			}
+		}()
+		// Wait for the negotiated session from both client and server side
+		_, ok := <-ch
+		if !ok {
+			b.Errorf("client negotiation failed.")
+		}
+		timeout := time.Tick(time.Second)
+		select {
+		case <-sink:
+			// All ok, continue
+		case <-timeout:
+			b.Errorf("server-side handshake timed out.")
+		}
 	}
 	close(quit)
 }
