@@ -25,12 +25,16 @@ import (
 )
 
 func TestListen(t *testing.T) {
-	sink, quit, err := Listen(31415)
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Errorf("failed to resolve local address: %v.", err)
+	}
+	sink, quit, err := Listen(addr)
 	if err != nil {
 		t.Errorf("failed to listen for incomming streams: %v", err)
 	}
 	for c := 0; c < 3; c++ {
-		sock, err := net.Dial("tcp", "localhost:31415")
+		sock, err := net.Dial(addr.Network(), addr.String())
 		if err != nil {
 			t.Errorf("test %d: failed to connect to stream listener: %v", c, err)
 		}
@@ -47,12 +51,16 @@ func TestListen(t *testing.T) {
 }
 
 func TestDial(t *testing.T) {
-	sock, err := net.Listen("tcp", "localhost:31416")
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Errorf("failed to resolve local address: %v.", err)
+	}
+	sock, err := net.Listen(addr.Network(), addr.String())
 	if err != nil {
 		t.Errorf("failed to listen for incoming TCP connections: %v", err)
 	}
 	for c := 0; c < 3; c++ {
-		strm, err := Dial("localhost", 31416)
+		strm, err := Dial("localhost", sock.Addr().(*net.TCPAddr).Port)
 		if err != nil {
 			t.Errorf("test %d: failed to connect to TCP listener: %v", c, err)
 		}
@@ -62,11 +70,15 @@ func TestDial(t *testing.T) {
 }
 
 func TestSendRecv(t *testing.T) {
-	sink, quit, err := Listen(31417)
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Errorf("failed to resolve local address: %v.", err)
+	}
+	sink, quit, err := Listen(addr)
 	if err != nil {
 		t.Errorf("failed to listen for incomming streams: %v", err)
 	}
-	c2s, err := Dial("localhost", 31417)
+	c2s, err := Dial("localhost", addr.Port)
 	if err != nil {
 		t.Errorf("failed to connect to stream listener: %v", err)
 	}

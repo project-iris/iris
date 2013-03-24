@@ -45,16 +45,14 @@ var dialTimeout = time.Second
 
 // Opens a tcp server socket, and if successful, starts a go routine for
 // accepting incoming connections and returns a stream and a quit channel.
-func Listen(port int) (chan *Stream, chan struct{}, error) {
+// If an auto-port (0) was requested, the port is returned in the addr arg.
+func Listen(addr *net.TCPAddr) (chan *Stream, chan struct{}, error) {
 	// Open the server socket
-	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return nil, nil, err
-	}
 	sock, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		return nil, nil, err
 	}
+	addr.Port = sock.Addr().(*net.TCPAddr).Port
 	// Create the two channels, start the acceptor and return
 	sink := make(chan *Stream)
 	quit := make(chan struct{})

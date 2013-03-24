@@ -22,21 +22,24 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"net"
 	"testing"
 	"time"
 )
 
 func TestCommunication(t *testing.T) {
-	tcpPort := 31420
-
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Errorf("failed to resolve local address: %v.", err)
+	}
 	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
 	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
 
 	store := make(map[string]*rsa.PublicKey)
 	store["client"] = &clientKey.PublicKey
 
-	sink, quit, _ := Listen(tcpPort, serverKey, store)
-	cliSes, _ := Dial("localhost", tcpPort, "client", clientKey, &serverKey.PublicKey)
+	sink, quit, _ := Listen(addr, serverKey, store)
+	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
@@ -78,6 +81,5 @@ func TestCommunication(t *testing.T) {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
 		}
 	}
-
 	close(quit)
 }

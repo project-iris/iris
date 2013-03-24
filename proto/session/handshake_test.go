@@ -22,13 +22,16 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"net"
 	"testing"
 	"time"
 )
 
 func TestHandshake(t *testing.T) {
-	tcpPort := 31419
-
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Errorf("failed to resolve local address: %v.", err)
+	}
 	// Generate the key-pairs
 	serverKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
@@ -43,11 +46,11 @@ func TestHandshake(t *testing.T) {
 	store["client"] = &clientKey.PublicKey
 
 	// Start the server and connect with a client
-	sink, quit, err := Listen(tcpPort, serverKey, store)
+	sink, quit, err := Listen(addr, serverKey, store)
 	if err != nil {
 		t.Errorf("failed to start the session listener: %v.", err)
 	}
-	c2sSes, err := Dial("localhost", tcpPort, "client", clientKey, &serverKey.PublicKey)
+	c2sSes, err := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
 	if err != nil {
 		t.Errorf("failed to connect to the server: %v.", err)
 	}

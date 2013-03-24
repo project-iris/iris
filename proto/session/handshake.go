@@ -26,6 +26,7 @@ import (
 	"errors"
 	"log"
 	"math/big"
+	"net"
 	"proto/stream"
 )
 
@@ -52,9 +53,9 @@ type authResponse struct {
 // are used for the mutual authentication. On success, a session channel is
 // returned which will receive the successfully authenticated clients; and a
 // quit channel to be able to terminate the listener.
-func Listen(port int, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
+func Listen(addr *net.TCPAddr, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
 	// Open the TCP socket
-	netSink, netQuit, err := stream.Listen(port)
+	netSink, netQuit, err := stream.Listen(addr)
 	if err != nil {
 		return nil, nil, err
 	}

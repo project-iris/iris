@@ -20,6 +20,7 @@ package stream_test
 
 import (
 	"fmt"
+	"net"
 	"proto/stream"
 )
 
@@ -46,7 +47,12 @@ func Example_usage() {
 
 func server(quit chan struct{}) {
 	// Open a TCP port to accept incoming stream connections
-	sink, strmQuit, err := stream.Listen(port)
+	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		fmt.Println("Failed to resolve local address:", err)
+		return
+	}
+	sink, strmQuit, err := stream.Listen(addr)
 	if err != nil {
 		fmt.Println("Failed to listen for incoming streams:", err)
 		return
