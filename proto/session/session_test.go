@@ -132,7 +132,7 @@ func BenchmarkForwarding(b *testing.B) {
 		}
 		srvDone <- true
 	}
-	// Execute the client and server runners, wait till termaination and exit
+	// Execute the client and server runners, wait till termination and exit
 	b.StartTimer()
 	go cliRun()
 	go srvRun()

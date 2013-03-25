@@ -125,8 +125,8 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 	return stream, mac
 }
 
-// Starts the session data transfer between from stream to app (sink) and app to
-// stream (returned channel).
+// Starts the session data transfer from stream to app (sink) and app to stream
+// (returned channel).
 func (s *Session) Communicate(sink chan *Message, quit chan struct{}) chan *Message {
 	ch := make(chan *Message)
 	go s.sender(ch, quit)
