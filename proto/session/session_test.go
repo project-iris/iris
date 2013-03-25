@@ -108,18 +108,37 @@ func BenchmarkForwarding(b *testing.B) {
 	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
 
 	// Generate a large batch of random data to forward
-	block := 8192
-	payloads := make([]byte, block*b.N)
-	io.ReadFull(rand.Reader, payloads)
-
-	b.StartTimer()
+	block := 1024
+	b.SetBytes(int64(block))
+	msgs := make([]Message, b.N)
 	for i := 0; i < b.N; i++ {
-		// Create the message
-		msg := Message{&head, payloads[i*block : (i+1)*block]}
-
-		// Send from the client to the server
-		cliNet <- &msg
-		<-srvApp
+		msgs[i].Head = &head
+		msgs[i].Data = make([]byte, block)
+		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
+	// Create the client and server runner routines
+	cliDone := make(chan bool)
+	srvDone := make(chan bool)
+
+	cliRun := func() {
+		for i := 0; i < b.N; i++ {
+			cliNet <- &msgs[i]
+		}
+		cliDone <- true
+	}
+	srvRun := func() {
+		for i := 0; i < b.N; i++ {
+			<-srvApp
+		}
+		srvDone <- true
+	}
+	// Execute the client and server runners, wait till termaination and exit
+	b.StartTimer()
+	go cliRun()
+	go srvRun()
+	<-cliDone
+	<-srvDone
+
+	b.StopTimer()
 	close(quit)
 }
