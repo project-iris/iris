@@ -25,7 +25,6 @@ import (
 	"io"
 	"net"
 	"testing"
-	"time"
 )
 
 func TestForwarding(t *testing.T) {
@@ -42,42 +41,56 @@ func TestForwarding(t *testing.T) {
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
-	cliAppChan := make(chan *Message)
-	srvAppChan := make(chan *Message)
+	cliApp := make(chan *Message, 2)
+	srvApp := make(chan *Message, 2)
 
-	cliNetChan := cliSes.Communicate(cliAppChan, quit) // Hack: reuse prev live quit channel
-	srvNetChan := srvSes.Communicate(srvAppChan, quit) // Hack: reuse prev live quit channel
+	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	srvNet := srvSes.Communicate(srvApp, quit) // Hack: reuse prev live quit channel
 
-	// Send a few messages in both directions
-	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
-	pack := Message{head, []byte{0x04, 0x05}}
+	// Generate the messages to transmit
+	msgs := make([]Message, 10)
+	for i := 0; i < len(msgs); i++ {
+		key := make([]byte, 20)
+		iv := make([]byte, 20)
+		data := make([]byte, 20)
 
-	cliNetChan <- &pack
-	timeout1 := time.Tick(time.Second)
-	select {
-	case <-timeout1:
-		t.Errorf("server receive timed out.")
-	case recv, ok := <-srvAppChan:
-		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
-			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(pack.Head.Mac, recv.Head.Mac) != 0 ||
-			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
-			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
+		io.ReadFull(rand.Reader, key)
+		io.ReadFull(rand.Reader, iv)
+		io.ReadFull(rand.Reader, data)
+		msgs[i] = Message{Header{"client", "server", key, iv, nil}, data}
+	}
+	// Send from client to server
+	go func() {
+		for i := 0; i < len(msgs); i++ {
+			cliNet <- &msgs[i]
+		}
+	}()
+	recvs := make([]Message, 10)
+	for i := 0; i < len(msgs); i++ {
+		recvs[i] = *<-srvApp
+	}
+	for i := 0; i < 10; i++ {
+		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
+			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
+			msgs[i].Head.Origin != recvs[i].Head.Origin || msgs[i].Head.Target != recvs[i].Head.Target {
+			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
-
-	head = Header{"server", "client", []byte{0x10, 0x11}, []byte{0x12, 0x13}, nil}
-	pack = Message{head, []byte{0x14, 0x15}}
-
-	srvNetChan <- &pack
-	timeout2 := time.Tick(time.Second)
-	select {
-	case <-timeout2:
-		t.Errorf("server receive timed out.")
-	case recv, ok := <-cliAppChan:
-		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
-			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(pack.Head.Mac, recv.Head.Mac) != 0 ||
-			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
-			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
+	// Send from server to client
+	go func() {
+		for i := 0; i < len(msgs); i++ {
+			srvNet <- &msgs[i]
+		}
+	}()
+	recvs = make([]Message, 10)
+	for i := 0; i < len(msgs); i++ {
+		recvs[i] = *<-cliApp
+	}
+	for i := 0; i < 10; i++ {
+		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
+			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
+			msgs[i].Head.Origin != recvs[i].Head.Origin || msgs[i].Head.Target != recvs[i].Head.Target {
+			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
 	close(quit)
@@ -131,6 +144,10 @@ func BenchmarkForwarding(b *testing.B) {
 		}
 		srvDone <- true
 	}
+	// Send 1 message through to ensure internal caches are up
+	cliNet <- &msgs[0]
+	<-srvApp
+
 	// Execute the client and server runners, wait till termination and exit
 	b.ResetTimer()
 	go cliRun()
