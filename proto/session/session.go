@@ -47,14 +47,8 @@ type Header struct {
 
 // Simple container for the header and data to be able to pass them around together.
 type Message struct {
-	Head *Header
+	Head Header
 	Data []byte
-}
-
-// Wire packet, same as Message, just with the headers encrypted with the session.
-type packet struct {
-	Headers []byte
-	Payload []byte
 }
 
 // Accomplishes secure and authenticated full duplex communication.
@@ -66,6 +60,12 @@ type Session struct {
 
 	inMacer  hash.Hash
 	outMacer hash.Hash
+
+	inBuffer  bytes.Buffer
+	outBuffer bytes.Buffer
+
+	inCoder  *gob.Decoder
+	outCoder *gob.Encoder
 }
 
 // Creates a new, full-duplex session from the given data stream and negotiated
@@ -90,6 +90,9 @@ func newSession(strm *stream.Stream, secret []byte, initiator bool) *Session {
 	} else {
 		ses.inCipher, ses.outCipher, ses.inMacer, ses.outMacer = sc, cc, sm, cm
 	}
+	// Create the two en/de coders for the header
+	ses.inCoder = gob.NewDecoder(&ses.inBuffer)
+	ses.outCoder = gob.NewEncoder(&ses.outBuffer)
 	return ses
 }
 
@@ -128,7 +131,7 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 // Starts the session data transfer from stream to app (sink) and app to stream
 // (returned channel).
 func (s *Session) Communicate(sink chan *Message, quit chan struct{}) chan *Message {
-	ch := make(chan *Message)
+	ch := make(chan *Message, cap(sink))
 	go s.sender(ch, quit)
 	go s.receiver(sink)
 	return ch
@@ -153,24 +156,24 @@ func (s *Session) sender(net chan *Message, quit chan struct{}) {
 // The actual message sending logic. Calculates the payload mac, encrypts the
 // headers and sends it down to the stream.
 func (s *Session) send(msg *Message) (err error) {
-	pack := new(packet)
-	pack.Payload = msg.Data
-
 	// Generate the MAC of the encrypted payload
 	s.outMacer.Write(msg.Data)
 	msg.Head.Mac = s.outMacer.Sum(nil)
 
 	// Flatten and encrypt the headers
-	buf := new(bytes.Buffer)
-	enc := gob.NewEncoder(buf)
-	err = enc.Encode(msg.Head)
+	err = s.outCoder.Encode(msg.Head)
 	if err != nil {
 		return
 	}
-	pack.Headers = make([]byte, buf.Len())
-	s.outCipher.XORKeyStream(pack.Headers, buf.Bytes())
+	s.outCipher.XORKeyStream(s.outBuffer.Bytes(), s.outBuffer.Bytes())
 
-	return s.socket.Send(pack)
+	// Send the multipart message (headers + payload)
+	err = s.socket.Send(s.outBuffer.Bytes())
+	if err != nil {
+		return
+	}
+	s.outBuffer.Reset()
+	return s.socket.Send(msg.Data)
 }
 
 // Transfers messages from the session to the upper layers decoding the headers.
@@ -197,24 +200,24 @@ func (s *Session) recv() (msg *Message, err error) {
 		}
 	}()
 	msg = new(Message)
-	msg.Head = new(Header)
 
 	// Retrieve a new package
-	pack := new(packet)
-	err = s.socket.Recv(pack)
+	var input []byte
+	err = s.socket.Recv(&input)
+	if err != nil {
+		return
+	}
+	err = s.socket.Recv(&msg.Data)
 	if err != nil {
 		return
 	}
 	// Extract the package contents
-	buf := make([]byte, len(pack.Headers))
-	s.inCipher.XORKeyStream(buf, pack.Headers)
-	dec := gob.NewDecoder(bytes.NewBuffer(buf))
-	err = dec.Decode(msg.Head)
+	s.inCipher.XORKeyStream(input, input)
+	s.inBuffer.Write(input)
+	err = s.inCoder.Decode(&msg.Head)
 	if err != nil {
 		return
 	}
-	msg.Data = pack.Payload
-
 	// Verify the payload contents
 	s.inMacer.Write(msg.Data)
 	if !bytes.Equal(msg.Head.Mac, s.inMacer.Sum(nil)) {

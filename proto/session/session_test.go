@@ -48,9 +48,9 @@ func TestForwarding(t *testing.T) {
 	cliNetChan := cliSes.Communicate(cliAppChan, quit) // Hack: reuse prev live quit channel
 	srvNetChan := srvSes.Communicate(srvAppChan, quit) // Hack: reuse prev live quit channel
 
-	// Send a message in both directions
+	// Send a few messages in both directions
 	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
-	pack := Message{&head, []byte{0x04, 0x05}}
+	pack := Message{head, []byte{0x04, 0x05}}
 
 	cliNetChan <- &pack
 	timeout1 := time.Tick(time.Second)
@@ -59,14 +59,14 @@ func TestForwarding(t *testing.T) {
 		t.Errorf("server receive timed out.")
 	case recv, ok := <-srvAppChan:
 		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
-			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(head.Mac, recv.Head.Mac) != 0 ||
+			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(pack.Head.Mac, recv.Head.Mac) != 0 ||
 			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
 		}
 	}
 
 	head = Header{"server", "client", []byte{0x10, 0x11}, []byte{0x12, 0x13}, nil}
-	pack = Message{&head, []byte{0x14, 0x15}}
+	pack = Message{head, []byte{0x14, 0x15}}
 
 	srvNetChan <- &pack
 	timeout2 := time.Tick(time.Second)
@@ -75,7 +75,7 @@ func TestForwarding(t *testing.T) {
 		t.Errorf("server receive timed out.")
 	case recv, ok := <-cliAppChan:
 		if !ok || bytes.Compare(pack.Data, recv.Data) != 0 || bytes.Compare(head.Key, recv.Head.Key) != 0 ||
-			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(head.Mac, recv.Head.Mac) != 0 ||
+			bytes.Compare(head.Iv, recv.Head.Iv) != 0 || bytes.Compare(pack.Head.Mac, recv.Head.Mac) != 0 ||
 			head.Origin != recv.Head.Origin || head.Target != recv.Head.Target {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recv, pack)
 		}
@@ -84,7 +84,6 @@ func TestForwarding(t *testing.T) {
 }
 
 func BenchmarkForwarding(b *testing.B) {
-	b.StopTimer()
 	// Setup the benchmark: public keys, stores and sessions
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
 
@@ -99,8 +98,8 @@ func BenchmarkForwarding(b *testing.B) {
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *Message)
-	srvApp := make(chan *Message)
+	cliApp := make(chan *Message, 2)
+	srvApp := make(chan *Message, 2)
 
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
@@ -108,11 +107,11 @@ func BenchmarkForwarding(b *testing.B) {
 	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
 
 	// Generate a large batch of random data to forward
-	block := 1024
+	block := 8192
 	b.SetBytes(int64(block))
 	msgs := make([]Message, b.N)
 	for i := 0; i < b.N; i++ {
-		msgs[i].Head = &head
+		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
@@ -133,7 +132,7 @@ func BenchmarkForwarding(b *testing.B) {
 		srvDone <- true
 	}
 	// Execute the client and server runners, wait till termination and exit
-	b.StartTimer()
+	b.ResetTimer()
 	go cliRun()
 	go srvRun()
 	<-cliDone
