@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestForwarding(t *testing.T) {
@@ -67,7 +68,14 @@ func TestForwarding(t *testing.T) {
 	}()
 	recvs := make([]Message, 10)
 	for i := 0; i < len(msgs); i++ {
-		recvs[i] = *<-srvApp
+		timeout := time.Tick(250 * time.Millisecond)
+		select {
+		case msg := <-srvApp:
+			recvs[i] = *msg
+		case <-timeout:
+			t.Errorf("receive timed out")
+			break
+		}
 	}
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
@@ -84,7 +92,14 @@ func TestForwarding(t *testing.T) {
 	}()
 	recvs = make([]Message, 10)
 	for i := 0; i < len(msgs); i++ {
-		recvs[i] = *<-cliApp
+		timeout := time.Tick(250 * time.Millisecond)
+		select {
+		case msg := <-cliApp:
+			recvs[i] = *msg
+		case <-timeout:
+			t.Errorf("receive timed out")
+			break
+		}
 	}
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
