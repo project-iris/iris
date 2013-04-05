@@ -137,3 +137,9 @@ var PackCipher = aes.NewCipher
 
 // Key size for the temporary cipher
 var PackCipherBits = 128
+
+// Application magic number for bootstrap filtering
+var BootMagic = []byte("iris.proto.bootstrap.magic")
+
+// Bootstrapping ports to use
+var BootPorts = []uint16{14142, 27182, 31415}
