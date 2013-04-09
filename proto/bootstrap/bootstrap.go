@@ -53,24 +53,41 @@ type bootstrapper struct {
 	events chan *Event
 	beats  chan *net.TCPAddr
 	quit   chan struct{}
+
+	startup bool
 }
 
-func Boot(addr *net.UDPAddr, port uint16) (chan *Event, chan struct{}, error) {
+// Starts up the bootstrapping module. Bootstrapping will listen on the given
+// interface and available port (out of the allowed ones) for incomming requests,
+// and will scan that specific interface for other peers. The overlay argument
+// is used to advertize the overlay TCP listener.
+func Boot(ip net.IP, overlay uint16) (chan *Event, chan struct{}, error) {
 	bs := new(bootstrapper)
-	bs.addr = addr
+	bs.startup = true
 
 	// Open the server socket
 	var err error
-	bs.sock, err = net.ListenUDP("udp", addr)
-	if err != nil {
-		return nil, nil, err
+	for _, port := range config.BootPorts {
+		bs.addr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))))
+		if err != nil {
+			return nil, nil, err
+		}
+		bs.sock, err = net.ListenUDP("udp", bs.addr)
+		if err != nil {
+			continue
+		} else {
+			bs.addr.Port = bs.sock.LocalAddr().(*net.UDPAddr).Port
+			break
+		}
 	}
-	addr.Port = bs.sock.LocalAddr().(*net.UDPAddr).Port
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen on all configured ports: %v.", err)
+	}
 
 	// Save the magic number and generate the local heartbeat message
-	bs.beat = make([]byte, len(config.BootMagic)+2)
+	bs.beat = make([]byte, len(config.BootMagic)+3)
 	copy(bs.beat, config.BootMagic)
-	binary.PutUvarint(bs.beat[len(config.BootMagic):], uint64(port))
+	binary.PutUvarint(bs.beat[len(config.BootMagic):], uint64(overlay))
 
 	// Create the channels for the communicating threads
 	bs.events = make(chan *Event)
@@ -81,6 +98,7 @@ func Boot(addr *net.UDPAddr, port uint16) (chan *Event, chan struct{}, error) {
 	go bs.maintain()
 	go bs.accept()
 	go bs.probe()
+	go bs.scan()
 
 	return bs.events, bs.quit, nil
 }
@@ -116,8 +134,8 @@ func (bs *bootstrapper) accept() {
 }
 
 // Sends heartbeat messages to random hosts on the listener-local address. The
-// IP addresses are generated uniformly inside the subnet and the ports picked
-// again at uniform random from the config array. Self connection is disabled.
+// IP addresses are generated uniformly inside the subnet and all ports in the
+// config array are tried simultaneously. Self connection is disabled.
 func (bs *bootstrapper) probe() {
 	// Set up some initial parameters
 	mask := bs.addr.IP.DefaultMask()
@@ -130,30 +148,107 @@ func (bs *bootstrapper) probe() {
 		default:
 			// Generate a random IP address within the subnet (ignore net and bcast)
 			host := bs.addr.IP
-			port := bs.addr.Port
-			for bytes.Compare(host, bs.addr.IP) == 0 && port == bs.addr.Port {
+			for bytes.Compare(host, bs.addr.IP) == 0 {
 				subip := rand.Intn(1<<uint(bits-ones)-2) + 1
-				host := bs.addr.IP.Mask(mask)
+				host = bs.addr.IP.Mask(mask)
 				for i := len(host) - 1; i >= 0; i-- {
 					host[i] |= byte(subip & 255)
 					subip >>= 8
 				}
-				port = int(config.BootPorts[rand.Intn(len(config.BootPorts))])
 			}
-			dest := net.JoinHostPort(host.String(), strconv.Itoa(int(bs.addr.Port)))
+			// Iterate over every bootstrap port
+			for _, port := range config.BootPorts {
+				dest := net.JoinHostPort(host.String(), strconv.Itoa(int(port)))
 
-			// Resolve the address, connect to it and send a beat
-			raddr, err := net.ResolveUDPAddr("udp", dest)
-			if err != nil {
-				panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
+				// Resolve the address, connect to it and send a beat
+				raddr, err := net.ResolveUDPAddr("udp", dest)
+				if err != nil {
+					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
+				}
+				sock, err := net.DialUDP("udp", nil, raddr)
+				if err != nil {
+					panic(fmt.Sprintf("failed to dial remote bootstrapper (%v): %v.", raddr, err))
+				} else {
+					sock.Write(bs.beat)
+					sock.Close()
+				}
+				// Wait for the next cycle
+				if bs.startup {
+					time.Sleep(time.Duration(config.BootFastProbe) * time.Millisecond)
+				} else {
+					time.Sleep(time.Duration(config.BootSlowProbe) * time.Millisecond)
+				}
 			}
-			sock, err := net.DialUDP("udp", nil, raddr)
-			if err != nil {
-				panic(fmt.Sprintf("failed to dial remote bootstrapper (%v): %v.", raddr, err))
+		}
+	}
+}
+
+// Scans the network linearly from the current address, sending heartbeat
+// messages. Self connection is disabled.
+func (bs *bootstrapper) scan() {
+	// Set up some initial parameters
+	mask := bs.addr.IP.DefaultMask()
+	ones, bits := mask.Size()
+	subip := 0
+	for i := 0; i < bits-ones; i++ {
+		subip += int(bs.addr.IP[(bits-1-i)/8]) & (1 << uint(i%8))
+	}
+
+	offset := 0
+	downDone, upDone := false, false
+	for {
+		select {
+		case <-bs.quit:
+			return
+		default:
+			// Quit if both directions have been scanned
+			if downDone && upDone {
+				return
+			}
+			// Generate the next neighboring IP address
+			scanip := subip + offset
+			if offset <= 0 {
+				offset = -offset + 1
 			} else {
-				sock.Write(bs.beat)
-				sock.Close()
+				offset = -offset
 			}
+			// Make sure we didn't run out of the subnet
+			if scanip <= 0 {
+				downDone = true
+				continue
+			} else if scanip >= (1<<uint(bits-ones))-1 {
+				upDone = true
+				continue
+			}
+			// Generate the new address
+			host := bs.addr.IP.Mask(mask)
+			for i := len(host) - 1; i >= 0; i-- {
+				host[i] |= byte(scanip & 255)
+				scanip >>= 8
+			}
+			// Iterate over every bootstrap port
+			for _, port := range config.BootPorts {
+				// Don't connect to ourselves
+				if int(port) == bs.addr.Port && bytes.Compare(host, bs.addr.IP) == 0 {
+					continue
+				}
+				dest := net.JoinHostPort(host.String(), strconv.Itoa(int(port)))
+
+				// Resolve the address, connect to it and send a beat
+				raddr, err := net.ResolveUDPAddr("udp", dest)
+				if err != nil {
+					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
+				}
+				sock, err := net.DialUDP("udp", nil, raddr)
+				if err != nil {
+					panic(fmt.Sprintf("failed to dial remote bootstrapper (%v): %v.", raddr, err))
+				} else {
+					sock.Write(bs.beat)
+					sock.Close()
+				}
+			}
+			// Wait for the next cycle
+			time.Sleep(time.Duration(config.BootScan) * time.Millisecond)
 		}
 	}
 }

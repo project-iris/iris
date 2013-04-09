@@ -143,3 +143,12 @@ var BootMagic = []byte("iris.proto.bootstrap.magic")
 
 // Bootstrapping ports to use
 var BootPorts = []uint16{14142, 27182, 31415}
+
+// Probing interval during bootstrapping in startup mode (ms)
+var BootFastProbe = 100
+
+// Probing interval during bootstrapping in maintenance mode (ms)
+var BootSlowProbe = 1000
+
+// Scanning interval during bootstrapping (ms)
+var BootScan = 100
