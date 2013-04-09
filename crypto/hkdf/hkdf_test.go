@@ -302,39 +302,70 @@ func TestHKDFLimit(t *testing.T) {
 	}
 }
 
-func Benchmark8ByteMd5(b *testing.B) {
-	benchmarkHKDF(md5.New, 8, b)
+func Benchmark16ByteMd5Single(b *testing.B) {
+	benchmarkHKDFSingle(md5.New, 16, b)
 }
 
-func Benchmark16ByteMd5(b *testing.B) {
-	benchmarkHKDF(md5.New, 16, b)
+func Benchmark20ByteSha1Single(b *testing.B) {
+	benchmarkHKDFSingle(sha1.New, 20, b)
 }
 
-func Benchmark8ByteSha1(b *testing.B) {
-	benchmarkHKDF(sha1.New, 8, b)
+func Benchmark32ByteSha256Single(b *testing.B) {
+	benchmarkHKDFSingle(sha256.New, 32, b)
 }
 
-func Benchmark20ByteSha1(b *testing.B) {
-	benchmarkHKDF(sha1.New, 20, b)
+func Benchmark64ByteSha512Single(b *testing.B) {
+	benchmarkHKDFSingle(sha512.New, 64, b)
 }
 
-func Benchmark8ByteSha256(b *testing.B) {
-	benchmarkHKDF(sha256.New, 8, b)
+func Benchmark8ByteMd5Stream(b *testing.B) {
+	benchmarkHKDFStream(md5.New, 8, b)
 }
 
-func Benchmark32ByteSha256(b *testing.B) {
-	benchmarkHKDF(sha256.New, 32, b)
+func Benchmark16ByteMd5Stream(b *testing.B) {
+	benchmarkHKDFStream(md5.New, 16, b)
 }
 
-func Benchmark8ByteSha512(b *testing.B) {
-	benchmarkHKDF(sha512.New, 8, b)
+func Benchmark8ByteSha1Stream(b *testing.B) {
+	benchmarkHKDFStream(sha1.New, 8, b)
 }
 
-func Benchmark64ByteSha512(b *testing.B) {
-	benchmarkHKDF(sha512.New, 64, b)
+func Benchmark20ByteSha1Stream(b *testing.B) {
+	benchmarkHKDFStream(sha1.New, 20, b)
 }
 
-func benchmarkHKDF(hasher func() hash.Hash, block int, b *testing.B) {
+func Benchmark8ByteSha256Stream(b *testing.B) {
+	benchmarkHKDFStream(sha256.New, 8, b)
+}
+
+func Benchmark32ByteSha256Stream(b *testing.B) {
+	benchmarkHKDFStream(sha256.New, 32, b)
+}
+
+func Benchmark8ByteSha512Stream(b *testing.B) {
+	benchmarkHKDFStream(sha512.New, 8, b)
+}
+
+func Benchmark64ByteSha512Stream(b *testing.B) {
+	benchmarkHKDFStream(sha512.New, 64, b)
+}
+
+func benchmarkHKDFSingle(hasher func() hash.Hash, block int, b *testing.B) {
+	master := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+	salt := []byte{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17}
+	info := []byte{0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27}
+	out := make([]byte, block)
+
+	b.SetBytes(int64(block))
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		hkdf := New(hasher, master, salt, info)
+		io.ReadFull(hkdf, out)
+	}
+}
+
+func benchmarkHKDFStream(hasher func() hash.Hash, block int, b *testing.B) {
 	master := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
 	salt := []byte{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17}
 	info := []byte{0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27}
