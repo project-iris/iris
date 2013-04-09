@@ -87,7 +87,7 @@ func Boot(ip net.IP, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
 	binary.PutUvarint(bs.beat[len(config.BootMagic):], uint64(overlay))
 
 	// Create the channels for the communicating threads
-	bs.beats = make(chan *net.TCPAddr)
+	bs.beats = make(chan *net.TCPAddr, config.BootBeatsBuffer)
 	bs.quit = make(chan struct{})
 
 	// Create the two channels, start the packet acceptor and return

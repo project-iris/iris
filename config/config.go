@@ -144,6 +144,9 @@ var BootMagic = []byte("iris.proto.bootstrap.magic")
 // Bootstrapping ports to use
 var BootPorts = []int{14142, 27182, 31415}
 
+// Number of heartbeats to queue before blocking
+var BootBeatsBuffer = 32
+
 // Probing interval during bootstrapping in startup mode (ms)
 var BootFastProbe = 100
 
