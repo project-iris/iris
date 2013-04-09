@@ -142,7 +142,7 @@ var PackCipherBits = 128
 var BootMagic = []byte("iris.proto.bootstrap.magic")
 
 // Bootstrapping ports to use
-var BootPorts = []uint16{14142, 27182, 31415}
+var BootPorts = []int{14142, 27182, 31415}
 
 // Probing interval during bootstrapping in startup mode (ms)
 var BootFastProbe = 100
