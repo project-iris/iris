@@ -18,9 +18,13 @@
 // Author: peterke@gmail.com (Peter Szilagyi)
 
 // Package bootstrap is responsible for randomly probing and linearly scanning
-// the local network (single interface) for other running instances. In every
-// scanning cycle all configured UDP ports are checked (to prevent slowdowns due
-// to large config space).
+// the local network (single interface) for other running instances.
+//
+// In every scanning cycle all configured UDP ports are checked (to prevent
+// slowdowns due to large config space).
+//
+// Since the heartbeats are on UDP, each one is flagged as a beat request or
+// responce (i.e. reply to requests, but don't loop infinitely).
 package bootstrap
 
 import (
@@ -39,11 +43,11 @@ var acceptTimeout = time.Second
 
 // Bootstrapper state for a single network interface.
 type bootstrapper struct {
-	addr  *net.UDPAddr
-	daddr *net.UDPAddr
-	sock  *net.UDPConn
+	addr *net.UDPAddr
+	sock *net.UDPConn
 
-	beat []byte
+	beatReq []byte
+	beatRes []byte
 
 	beats chan *net.TCPAddr
 	quit  chan struct{}
@@ -77,14 +81,15 @@ func Boot(ip net.IP, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to listen on all configured ports: %v.", err)
 	}
-	bs.daddr = new(net.UDPAddr)
-	*bs.daddr = *(bs.addr)
-	bs.daddr.Port = 0
 
-	// Save the magic number and generate the local heartbeat message
-	bs.beat = make([]byte, len(config.BootMagic)+3)
-	copy(bs.beat, config.BootMagic)
-	binary.PutUvarint(bs.beat[len(config.BootMagic):], uint64(overlay))
+	// Save the magic number and generate the local heartbeat messages (request and response)
+	bs.beatReq = make([]byte, len(config.BootMagic)+3)
+	copy(bs.beatReq, config.BootMagic)
+	binary.PutUvarint(bs.beatReq[len(config.BootMagic):], uint64(overlay))
+
+	bs.beatRes = make([]byte, len(config.BootMagic)+3)
+	copy(bs.beatRes, config.BootMagic)
+	binary.PutUvarint(bs.beatRes[len(config.BootMagic):], uint64(overlay)+uint64(1<<17))
 
 	// Create the channels for the communicating threads
 	bs.beats = make(chan *net.TCPAddr, config.BootBeatsBuffer)
@@ -121,11 +126,19 @@ func (bs *bootstrapper) accept() {
 			bs.sock.SetReadDeadline(time.Now().Add(acceptTimeout))
 			_, from, err := bs.sock.ReadFromUDP(buf)
 			if err == nil && bytes.Compare(config.BootMagic, buf[:len(config.BootMagic)]) == 0 {
-				// Extract the IP address and notify the maintenance routine
 				if port, err := binary.ReadUvarint(bytes.NewBuffer(buf[len(config.BootMagic):])); err == nil {
+					// If it's a beat request, respond to it otherwise clear the response bit
+					if port&(1<<17) == 0 {
+						bs.sock.WriteToUDP(bs.beatRes, from)
+					} else {
+						port &= ^(uint64(1) << 17)
+					}
+					// Notify the maintenance routine
 					host := net.JoinHostPort(from.IP.String(), strconv.Itoa(int(port)))
 					if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
 						bs.beats <- addr
+					} else {
+						panic(err)
 					}
 				}
 			}
@@ -160,18 +173,12 @@ func (bs *bootstrapper) probe() {
 			for _, port := range config.BootPorts {
 				dest := net.JoinHostPort(host.String(), strconv.Itoa(port))
 
-				// Resolve the address, connect to it and send a beat
+				// Resolve the address, connect to it and send a beat request
 				raddr, err := net.ResolveUDPAddr("udp", dest)
 				if err != nil {
 					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
 				}
-				sock, err := net.DialUDP("udp", bs.daddr, raddr)
-				if err != nil {
-					panic(fmt.Sprintf("failed to dial remote bootstrapper (%v): %v.", raddr, err))
-				} else {
-					sock.Write(bs.beat)
-					sock.Close()
-				}
+				bs.sock.WriteToUDP(bs.beatReq, raddr)
 				// Wait for the next cycle
 				if bs.fast {
 					time.Sleep(time.Duration(config.BootFastProbe) * time.Millisecond)
@@ -234,18 +241,12 @@ func (bs *bootstrapper) scan() {
 				}
 				dest := net.JoinHostPort(host.String(), strconv.Itoa(port))
 
-				// Resolve the address, connect to it and send a beat
+				// Resolve the address, connect to it and send a beat request
 				raddr, err := net.ResolveUDPAddr("udp", dest)
 				if err != nil {
 					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
 				}
-				sock, err := net.DialUDP("udp", bs.daddr, raddr)
-				if err != nil {
-					panic(fmt.Sprintf("failed to dial remote bootstrapper (%v): %v.", raddr, err))
-				} else {
-					sock.Write(bs.beat)
-					sock.Close()
-				}
+				bs.sock.WriteToUDP(bs.beatReq, raddr)
 			}
 			// Wait for the next cycle
 			time.Sleep(time.Duration(config.BootScan) * time.Millisecond)

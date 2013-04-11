@@ -22,6 +22,7 @@ import (
 	"config"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestPortSelection(t *testing.T) {
@@ -64,6 +65,26 @@ func TestScan(t *testing.T) {
 	}
 	if !a2.IP.Equal(over1.IP) || a2.Port != over1.Port {
 		t.Errorf("invalid address on first booter: have %v, want %v.", a2, over1)
+	}
+
+	// Each should report twice (foreign request + foreign response to local request)
+	a1, a2 = <-addr1, <-addr2
+	if !a1.IP.Equal(over2.IP) || a1.Port != over2.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", a1, over2)
+	}
+	if !a2.IP.Equal(over1.IP) || a2.Port != over1.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", a2, over1)
+	}
+
+	// Further beats messages shouldn't arrive (unless teh probing catches us, should be rare)
+	timeout := time.Tick(250 * time.Millisecond)
+	select {
+	case <-timeout:
+		// Do nothing
+	case a := <-addr1:
+		t.Errorf("extra address on first booter: %v.", a)
+	case a := <-addr2:
+		t.Errorf("extra address on second booter: %v.", a)
 	}
 }
 
