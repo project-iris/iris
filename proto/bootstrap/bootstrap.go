@@ -194,11 +194,12 @@ func (bs *bootstrapper) probe() {
 // messages. Self connection is disabled.
 func (bs *bootstrapper) scan() {
 	// Set up some initial parameters
+	size := len(bs.addr.IP)
 	mask := bs.addr.IP.DefaultMask()
 	ones, bits := mask.Size()
 	subip := 0
 	for i := 0; i < bits-ones; i++ {
-		subip += int(bs.addr.IP[(bits-1-i)/8]) & (1 << uint(i%8))
+		subip += int(bs.addr.IP[size-1-i/8]) & (1 << uint(i%8))
 	}
 
 	offset := 0
