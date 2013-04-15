@@ -46,8 +46,9 @@ type bootstrapper struct {
 	addr *net.UDPAddr
 	sock *net.UDPConn
 
-	beatReq []byte
-	beatRes []byte
+	beatMagic []byte
+	beatReq   []byte
+	beatRes   []byte
 
 	beats chan *net.TCPAddr
 	quit  chan struct{}
@@ -58,8 +59,9 @@ type bootstrapper struct {
 // Starts up the bootstrapping module. Bootstrapping will listen on the given
 // interface and available port (out of the allowed ones) for incomming requests,
 // and will scan that specific interface for other peers. The overlay argument
-// is used to advertize the overlay TCP listener.
-func Boot(ip net.IP, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
+// is used to advertize the overlay TCP listener whilst the magic is used to
+// filter multiple apps in the same network from each other.
+func Boot(ip net.IP, magic []byte, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
 	bs := new(bootstrapper)
 	bs.fast = true
 
@@ -83,13 +85,15 @@ func Boot(ip net.IP, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
 	}
 
 	// Save the magic number and generate the local heartbeat messages (request and response)
-	bs.beatReq = make([]byte, len(config.BootMagic)+3)
-	copy(bs.beatReq, config.BootMagic)
-	binary.PutUvarint(bs.beatReq[len(config.BootMagic):], uint64(overlay))
+	bs.beatMagic = magic
 
-	bs.beatRes = make([]byte, len(config.BootMagic)+3)
-	copy(bs.beatRes, config.BootMagic)
-	binary.PutUvarint(bs.beatRes[len(config.BootMagic):], uint64(overlay)+uint64(1<<17))
+	bs.beatReq = make([]byte, len(magic)+3)
+	copy(bs.beatReq, magic)
+	binary.PutUvarint(bs.beatReq[len(magic):], uint64(overlay))
+
+	bs.beatRes = make([]byte, len(magic)+3)
+	copy(bs.beatRes, magic)
+	binary.PutUvarint(bs.beatRes[len(magic):], uint64(overlay)+uint64(1<<17))
 
 	// Create the channels for the communicating threads
 	bs.beats = make(chan *net.TCPAddr, config.BootBeatsBuffer)
@@ -125,8 +129,8 @@ func (bs *bootstrapper) accept() {
 			// Wait for a UDP packet (with a reasonable timeout)
 			bs.sock.SetReadDeadline(time.Now().Add(acceptTimeout))
 			_, from, err := bs.sock.ReadFromUDP(buf)
-			if err == nil && bytes.Compare(config.BootMagic, buf[:len(config.BootMagic)]) == 0 {
-				if port, err := binary.ReadUvarint(bytes.NewBuffer(buf[len(config.BootMagic):])); err == nil {
+			if err == nil && bytes.Compare(bs.beatMagic, buf[:len(bs.beatMagic)]) == 0 {
+				if port, err := binary.ReadUvarint(bytes.NewBuffer(buf[len(bs.beatMagic):])); err == nil {
 					// If it's a beat request, respond to it otherwise clear the response bit
 					if port&(1<<17) == 0 {
 						bs.sock.WriteToUDP(bs.beatRes, from)

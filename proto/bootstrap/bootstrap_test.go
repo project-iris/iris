@@ -28,14 +28,14 @@ import (
 func TestPortSelection(t *testing.T) {
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
-		if _, quit, err := Boot(net.IPv4(127, 0, 0, 1), 11111); err != nil {
+		if _, quit, err := Boot(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err != nil {
 			t.Errorf("failed to start a bootstrapper for each allowed port: %v.", err)
 		} else {
 			defer close(quit)
 		}
 	}
 	// Ensure failure after all ports are used
-	if _, _, err := Boot(net.IPv4(127, 0, 0, 1), 11111); err == nil {
+	if _, _, err := Boot(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err == nil {
 		t.Errorf("bootstrapper started even though no ports were available.")
 	}
 }
@@ -46,13 +46,13 @@ func TestScan(t *testing.T) {
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	addr1, quit, err := Boot(over1.IP, over1.Port)
+	addr1, quit, err := Boot(over1.IP, []byte("magic"), over1.Port)
 	if err != nil {
 		t.Errorf("failed to start first booter: %v.", err)
 	}
 	defer close(quit)
 
-	addr2, quit, err := Boot(over2.IP, over2.Port)
+	addr2, quit, err := Boot(over2.IP, []byte("magic"), over2.Port)
 	if err != nil {
 		t.Errorf("failed to start second booter: %v.", err)
 	}
