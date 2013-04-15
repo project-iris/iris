@@ -76,8 +76,38 @@ func TestScan(t *testing.T) {
 		t.Errorf("invalid address on first booter: have %v, want %v.", a2, over1)
 	}
 
-	// Further beats messages shouldn't arrive (unless teh probing catches us, should be rare)
+	// Further beats shouldn't arrive (unless the probing catches us, should be rare)
 	timeout := time.Tick(250 * time.Millisecond)
+	select {
+	case <-timeout:
+		// Do nothing
+	case a := <-addr1:
+		t.Errorf("extra address on first booter: %v.", a)
+	case a := <-addr2:
+		t.Errorf("extra address on second booter: %v.", a)
+	}
+}
+
+func TestMagic(t *testing.T) {
+	// Define some local constants
+	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
+	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
+
+	// Start up two bootstrappers
+	addr1, quit, err := Boot(over1.IP, []byte("magic1"), over1.Port)
+	if err != nil {
+		t.Errorf("failed to start first booter: %v.", err)
+	}
+	defer close(quit)
+
+	addr2, quit, err := Boot(over2.IP, []byte("magic2"), over2.Port)
+	if err != nil {
+		t.Errorf("failed to start second booter: %v.", err)
+	}
+	defer close(quit)
+
+	// No beats should arrive since magic does not match
+	timeout := time.Tick(500 * time.Millisecond)
 	select {
 	case <-timeout:
 		// Do nothing
