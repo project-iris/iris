@@ -138,9 +138,6 @@ var PackCipher = aes.NewCipher
 // Key size for the temporary cipher
 var PackCipherBits = 128
 
-// Application magic number for bootstrap filtering
-var BootMagic = []byte("iris.proto.bootstrap.magic")
-
 // Bootstrapping ports to use
 var BootPorts = []int{14142, 27182, 31415}
 
@@ -155,3 +152,27 @@ var BootSlowProbe = 1000
 
 // Scanning interval during bootstrapping (ms)
 var BootScan = 100
+
+// Hash function used to map IP addresses to the virtual address space
+var PastryHash = crypto.MD5
+
+// Virtual address space in bits
+var PastrySpace = uint(128)
+
+// Number of matching bits for the next hop
+var PastryBase = uint(4)
+
+// Number of closest nodes to track in the virtual network
+var PastryLeaves = uint(16)
+
+// Number of closes nodes to track in the real network
+var PastryNeighbors = uint(16)
+
+// Distributed application identifier
+var AppGlobalId = []byte("iris")
+
+// Node type identifier within the distributed application
+var AppLocalId = []byte("broker")
+
+// Use in case of federated applications
+var AppParentId = []byte(nil)

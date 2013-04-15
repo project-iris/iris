@@ -98,3 +98,30 @@ func TestPack(t *testing.T) {
 		t.Errorf("config (pack): failed to create requested cipher: %v.", err)
 	}
 }
+
+func TestPastry(t *testing.T) {
+	// Ensure pastry space is default size (at least issue a warning)
+	if PastrySpace != 128 {
+		t.Errorf("config (pastry): address space is invalid: have %v, want %v.", PastrySpace, 128)
+	}
+	// Ensure the hash is linked to the binary and has sufficient bits
+	if !PastryHash.Available() {
+		t.Errorf("config (pastry): requested hash not linked into binary.")
+	}
+	if PastryHash.Size()*8 < int(PastrySpace) {
+		t.Errorf("config (pastry): not enough output bits in hash: have %v, want %v.", PastryHash.Size()*8, PastrySpace)
+	}
+	// Do some sanity checks on the parameters
+	if PastryBase < 1 {
+		t.Errorf("config (pastry): invalid base bits: have %v, want min 1.", PastryBase)
+	}
+	if PastrySpace%PastryBase != 0 {
+		t.Errorf("config (pastry): address space is not divisible into bases: %v %% %v != 0", PastrySpace, PastryBase)
+	}
+	if PastryLeaves != 1<<PastryBase && PastryLeaves != 1<<(PastryBase+1) {
+		t.Errorf("config (pastry): invalid leave set size: have %v, want %v or %v.", PastryLeaves, 1<<PastryBase, 1<<(PastryBase+1))
+	}
+	if PastryNeighbors != 1<<PastryBase && PastryNeighbors != 1<<(PastryBase+1) {
+		t.Errorf("config (pastry): invalid neghborhood size: have %v, want %v or %v.", PastryNeighbors, 1<<PastryBase, 1<<(PastryBase+1))
+	}
+}
