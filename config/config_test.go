@@ -108,7 +108,7 @@ func TestPastry(t *testing.T) {
 	if !PastryHash.Available() {
 		t.Errorf("config (pastry): requested hash not linked into binary.")
 	}
-	if PastryHash.Size()*8 < int(PastrySpace) {
+	if PastryHash.Size()*8 < PastrySpace {
 		t.Errorf("config (pastry): not enough output bits in hash: have %v, want %v.", PastryHash.Size()*8, PastrySpace)
 	}
 	// Do some sanity checks on the parameters
@@ -118,10 +118,10 @@ func TestPastry(t *testing.T) {
 	if PastrySpace%PastryBase != 0 {
 		t.Errorf("config (pastry): address space is not divisible into bases: %v %% %v != 0", PastrySpace, PastryBase)
 	}
-	if PastryLeaves != 1<<PastryBase && PastryLeaves != 1<<(PastryBase+1) {
-		t.Errorf("config (pastry): invalid leave set size: have %v, want %v or %v.", PastryLeaves, 1<<PastryBase, 1<<(PastryBase+1))
+	if PastryLeaves != 1<<uint(PastryBase) && PastryLeaves != 1<<uint(PastryBase+1) {
+		t.Errorf("config (pastry): invalid leave set size: have %v, want %v or %v.", PastryLeaves, 1<<uint(PastryBase), 1<<uint(PastryBase+1))
 	}
-	if PastryNeighbors != 1<<PastryBase && PastryNeighbors != 1<<(PastryBase+1) {
-		t.Errorf("config (pastry): invalid neghborhood size: have %v, want %v or %v.", PastryNeighbors, 1<<PastryBase, 1<<(PastryBase+1))
+	if PastryNeighbors != 1<<uint(PastryBase) && PastryNeighbors != 1<<uint(PastryBase+1) {
+		t.Errorf("config (pastry): invalid neghborhood size: have %v, want %v or %v.", PastryNeighbors, 1<<uint(PastryBase), 1<<uint(PastryBase+1))
 	}
 }

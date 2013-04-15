@@ -157,16 +157,19 @@ var BootScan = 100
 var PastryHash = crypto.MD5
 
 // Virtual address space in bits
-var PastrySpace = uint(128)
+var PastrySpace = 128
 
 // Number of matching bits for the next hop
-var PastryBase = uint(4)
+var PastryBase = 4
 
 // Number of closest nodes to track in the virtual network
-var PastryLeaves = uint(16)
+var PastryLeaves = 16
 
 // Number of closes nodes to track in the real network
-var PastryNeighbors = uint(16)
+var PastryNeighbors = 16
+
+// Time to wait after session setup for the init packet
+var PastryInitTimeout = 500
 
 // Distributed application identifier
 var AppGlobalId = []byte("iris")

@@ -33,19 +33,19 @@ import (
 )
 
 // Structure containing the message headers:
+//  - metadata or app specific headers
 //  - sender and recipient
 //  - symmetric key and ctr iv used to encrypt the payload
 //  - mac of the encrypted payload (internal)
 type Header struct {
-	Origin string
-	Target string
-
-	Key []byte
-	Iv  []byte
-	Mac []byte
+	Meta []byte
+	Key  []byte
+	Iv   []byte
+	Mac  []byte
 }
 
-// Simple container for the header and data to be able to pass them around together.
+// Simple container for the header, data and metadata to be able to pass them
+// around together.
 type Message struct {
 	Head Header
 	Data []byte
@@ -144,9 +144,11 @@ func (s *Session) sender(net chan *Message, quit chan struct{}) {
 		select {
 		case <-quit:
 			return
-		case msg := <-net:
-			err := s.send(msg)
-			if err != nil {
+		case msg, ok := <-net:
+			if !ok {
+				return
+			}
+			if err := s.send(msg); err != nil {
 				return
 			}
 		}
@@ -161,8 +163,7 @@ func (s *Session) send(msg *Message) (err error) {
 	msg.Head.Mac = s.outMacer.Sum(nil)
 
 	// Flatten and encrypt the headers
-	err = s.outCoder.Encode(msg.Head)
-	if err != nil {
+	if err = s.outCoder.Encode(msg.Head); err != nil {
 		return
 	}
 	s.outCipher.XORKeyStream(s.outBuffer.Bytes(), s.outBuffer.Bytes())
@@ -203,19 +204,16 @@ func (s *Session) recv() (msg *Message, err error) {
 
 	// Retrieve a new package
 	var input []byte
-	err = s.socket.Recv(&input)
-	if err != nil {
+	if err = s.socket.Recv(&input); err != nil {
 		return
 	}
-	err = s.socket.Recv(&msg.Data)
-	if err != nil {
+	if err = s.socket.Recv(&msg.Data); err != nil {
 		return
 	}
 	// Extract the package contents
 	s.inCipher.XORKeyStream(input, input)
 	s.inBuffer.Write(input)
-	err = s.inCoder.Decode(&msg.Head)
-	if err != nil {
+	if err = s.inCoder.Decode(&msg.Head); err != nil {
 		return
 	}
 	// Verify the payload contents

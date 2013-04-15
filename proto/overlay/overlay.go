@@ -19,10 +19,11 @@
 package overlay
 
 import (
+	"bytes"
 	"crypto/rsa"
-	"fmt"
+	"encoding/gob"
+	"math/big"
 	"net"
-	"proto/bootstrap"
 	"proto/session"
 )
 
@@ -34,9 +35,27 @@ type overlay struct {
 
 	state *table
 
-	peerSink chan *net.TCPAddr
-	sessSink chan *session.Session
+	bootSink chan *tagBoot
+	sesSink  chan *tagSes
+	peerSink chan *peer
+	msgSink  chan *session.Message
 	quit     chan struct{}
+}
+
+// Peer state information.
+type peer struct {
+	addr string
+	id   *big.Int
+
+	in   chan *session.Message
+	out  chan *session.Message
+	quit chan struct{}
+
+	inBuf  bytes.Buffer
+	outBuf bytes.Buffer
+
+	dec *gob.Decoder
+	enc *gob.Encoder
 }
 
 // Boots the iris network on each IPv4 interface present.
@@ -50,8 +69,10 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 
 	o.state = newTable()
 
-	o.peerSink = make(chan *net.TCPAddr)
-	o.sessSink = make(chan *session.Session)
+	o.bootSink = make(chan *tagBoot)
+	o.sesSink = make(chan *tagSes)
+	o.peerSink = make(chan *peer)
+	o.msgSink = make(chan *session.Message)
 	o.quit = make(chan struct{})
 
 	return o
@@ -73,8 +94,8 @@ func (o *overlay) Boot() error {
 			}
 		}
 	}
-	// Start the pastry management
-	go o.manager()
+	// Start the message receiver and pastry manager
+	go o.shaker()
 	return nil
 }
 
@@ -83,36 +104,21 @@ func (o *overlay) Shutdown() {
 	close(o.quit)
 }
 
-// Starts up the overlay networking on a specified interface and fans in all the
-// inbound conenctions into the overlay-global channels.
-func (o *overlay) acceptor(ip net.IP) {
-	// Listen for incomming session on the given interface and random port.
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
-	if err != nil {
-		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ip, err))
-	}
-	sessSink, quit, err := session.Listen(addr, o.lkey, o.rkeys)
-	if err != nil {
-		panic(fmt.Sprintf("failed to start session listener: %v.", err))
-	}
-	defer close(quit)
-
-	// Start the bootstrapper on the specified interface
-	peerSink, quit, err := bootstrap.Boot(ip, addr.Port)
-	if err != nil {
-		panic(fmt.Sprintf("failed to start bootstrapper: %v.", err))
-	}
-	defer close(quit)
-
-	// Loop indefinitely, faning in the sessions and discovered peers
+// Starts a receiver routine to listen on one particular session and fan in
+// messages into the shared message channel.
+func (o *overlay) receiver(p *peer) {
 	for {
 		select {
-		case <-quit:
+		case <-o.quit:
 			return
-		case peer := <-peerSink:
-			o.peerSink <- peer
-		case sess := <-sessSink:
-			o.sessSink <- sess
+		case <-p.quit:
+			return
+		case msg, ok := <-p.in:
+			if ok {
+				o.msgSink <- msg
+			} else {
+				return
+			}
 		}
 	}
 }

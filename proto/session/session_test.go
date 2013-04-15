@@ -58,7 +58,7 @@ func TestForwarding(t *testing.T) {
 		io.ReadFull(rand.Reader, key)
 		io.ReadFull(rand.Reader, iv)
 		io.ReadFull(rand.Reader, data)
-		msgs[i] = Message{Header{"client", "server", key, iv, nil}, data}
+		msgs[i] = Message{Header{[]byte("meta"), key, iv, nil}, data}
 	}
 	// Send from client to server
 	go func() {
@@ -80,7 +80,7 @@ func TestForwarding(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			msgs[i].Head.Origin != recvs[i].Head.Origin || msgs[i].Head.Target != recvs[i].Head.Target {
+			bytes.Compare(msgs[i].Head.Meta, []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
@@ -104,7 +104,7 @@ func TestForwarding(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			msgs[i].Head.Origin != recvs[i].Head.Origin || msgs[i].Head.Target != recvs[i].Head.Target {
+			bytes.Compare(msgs[i].Head.Meta, []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
@@ -132,7 +132,7 @@ func BenchmarkForwarding(b *testing.B) {
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
 
-	head := Header{"client", "server", []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
+	head := Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
 
 	// Generate a large batch of random data to forward
 	block := 8192
