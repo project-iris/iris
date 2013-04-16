@@ -95,6 +95,11 @@ func newStream(sock net.Conn) *Stream {
 	return &Stream{sock, gob.NewEncoder(sock), gob.NewDecoder(sock)}
 }
 
+// Retrieves the raw connection object if special manipulations are needed.
+func (s *Stream) Raw() *net.TCPConn {
+	return s.sock.(*net.TCPConn)
+}
+
 // Serializes a data an sends it over the wire. In case of an error, the network
 // stream is torn down.
 func (s *Stream) Send(data interface{}) error {

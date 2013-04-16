@@ -27,19 +27,14 @@ import (
 	"net"
 	"proto/bootstrap"
 	"proto/session"
+	"sort"
 	"time"
 )
 
-// A source-tagged bootstrap peer address.
-type tagBoot struct {
-	tag  *net.TCPAddr
-	addr *net.TCPAddr
-}
-
-// A source-tagged pastry session.
-type tagSes struct {
-	tag  *net.TCPAddr
-	conn *session.Session
+// The initialization packet when the connection is set up.
+type initPacket struct {
+	Id    *big.Int
+	Addrs []string
 }
 
 // Starts up the overlay networking on a specified interface and fans in all the
@@ -57,8 +52,14 @@ func (o *overlay) acceptor(ip net.IP) {
 	}
 	defer close(quit)
 
+	// Save the new listener address into the local address list
+	o.mutex.Lock()
+	o.addrs = append(o.addrs, addr.String())
+	sort.Sort(sort.StringSlice(o.addrs))
+	o.mutex.Unlock()
+
 	// Start the bootstrapper on the specified interface
-	bootSink, quit, err := bootstrap.Boot(ip, []byte(o.self), addr.Port)
+	bootSink, quit, err := bootstrap.Boot(ip, []byte(o.overId), addr.Port)
 	if err != nil {
 		panic(fmt.Sprintf("failed to start bootstrapper: %v.", err))
 	}
@@ -70,9 +71,9 @@ func (o *overlay) acceptor(ip net.IP) {
 		case <-o.quit:
 			return
 		case boot := <-bootSink:
-			o.bootSink <- &tagBoot{addr, boot}
+			o.bootSink <- boot
 		case ses := <-sesSink:
-			o.sesSink <- &tagSes{addr, ses}
+			o.sesSink <- ses
 		}
 	}
 }
@@ -86,42 +87,43 @@ func (o *overlay) shaker() {
 			return
 		case boot := <-o.bootSink:
 			// Connect'em all (for now) !!!
-			fmt.Println("Bootstrap found peer:", boot)
 			go func() {
-				if ses, err := session.Dial(boot.addr.IP.String(), boot.addr.Port, o.self, o.lkey, o.rkeys[o.self]); err != nil {
+				if ses, err := session.Dial(boot.IP.String(), boot.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
 					log.Printf("failed to dial remote pastry peer: %v.", err)
 				} else {
-					o.sesSink <- &tagSes{boot.tag, ses}
+					o.sesSink <- ses
 				}
 			}()
 		case ses := <-o.sesSink:
 			// Wait for peer init packet for real address
-			fmt.Println("Pastry session connected:", ses)
 			go o.shake(ses)
-		case peer := <-o.peerSink:
-			fmt.Println("Woot, initialized connection:", peer.addr)
-			// Integrate peer into routing table and start routing
-			o.state.mutex.Lock()
-			// Do black magic
-			o.state.mutex.Unlock()
-			go o.receiver(peer)
 		}
 	}
 }
 
 // Pastry handshake to sort out the real hosts and ports.
-func (o *overlay) shake(ses *tagSes) {
+func (o *overlay) shake(ses *session.Session) {
 	// Create a new peer structure to hold all the needed session data
 	p := new(peer)
+
+	p.laddr = ses.Raw().LocalAddr().String()
+	p.raddr = ses.Raw().RemoteAddr().String()
 	p.dec = gob.NewDecoder(&p.inBuf)
 	p.enc = gob.NewEncoder(&p.outBuf)
+
 	p.quit = make(chan struct{})
 	p.in = make(chan *session.Message)
-	p.out = ses.conn.Communicate(p.in, p.quit)
+	p.out = ses.Communicate(p.in, p.quit)
 
 	// Send an init packet to the remote peer
 	pkt := new(initPacket)
-	pkt.Addr = ses.tag.String()
+	pkt.Id = new(big.Int).Set(o.nodeId)
+
+	o.mutex.Lock()
+	pkt.Addrs = make([]string, len(o.addrs))
+	copy(pkt.Addrs, o.addrs)
+	o.mutex.Unlock()
+
 	if err := p.enc.Encode(pkt); err != nil {
 		log.Printf("failed to encode init packet: %v.", err)
 		return
@@ -147,14 +149,10 @@ func (o *overlay) shake(ses *tagSes) {
 			log.Printf("failed to decode remote init packet: %v.", err)
 			return
 		}
-		hash := config.PastryHash.New()
-		hash.Write([]byte(pkt.Addr))
+		p.self = pkt.Id
+		p.addrs = pkt.Addrs
 
-		p.addr = pkt.Addr
-		p.id = big.NewInt(0)
-		p.id.SetBytes(hash.Sum(nil))
-
-		// Evenrything ok, accept connection
-		o.peerSink <- p
+		// Everything ok, accept connection
+		o.integrate(p)
 	}
 }

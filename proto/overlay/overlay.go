@@ -20,37 +20,60 @@ package overlay
 
 import (
 	"bytes"
+	"config"
+	"crypto/rand"
 	"crypto/rsa"
 	"encoding/gob"
+	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"proto/session"
+	"sync"
 )
 
 // Internal structure for the overlay state information.
 type overlay struct {
-	self  string
+	// Local and remote keys to authorize
 	lkey  *rsa.PrivateKey
 	rkeys map[string]*rsa.PublicKey
 
-	state *table
+	// Global overlay id, local peer id and local listener addresses
+	overId string
+	nodeId *big.Int
+	addrs  []string
 
-	bootSink chan *tagBoot
-	sesSink  chan *tagSes
-	peerSink chan *peer
+	// The active conenction pool, ip to id translations and routing table
+	pool   map[string]*peer
+	trans  map[string]*big.Int
+	routes *table
+
+	// Fan-in sinks for various events + overlay quit channel
+	bootSink chan *net.TCPAddr
+	sesSink  chan *session.Session
 	msgSink  chan *session.Message
 	quit     chan struct{}
+
+	// Syncer for state mods after booting
+	mutex sync.Mutex
 }
 
 // Peer state information.
 type peer struct {
-	addr string
-	id   *big.Int
+	// Virtual id and reachable addresses
+	self  *big.Int
+	addrs []string
 
+	// Connection details
+	laddr string
+	raddr string
+
+	// In/out-bound transport channels and quit channel
 	in   chan *session.Message
 	out  chan *session.Message
 	quit chan struct{}
 
+	// Buffers and gob coders for the overlay specific meta-headers
 	inBuf  bytes.Buffer
 	outBuf bytes.Buffer
 
@@ -62,16 +85,24 @@ type peer struct {
 func New(self string, key *rsa.PrivateKey) *overlay {
 	o := new(overlay)
 
-	o.self = self
 	o.lkey = key
 	o.rkeys = make(map[string]*rsa.PublicKey)
 	o.rkeys[self] = &key.PublicKey
 
-	o.state = newTable()
+	id := make([]byte, config.PastrySpace/8)
+	if n, err := io.ReadFull(rand.Reader, id); n < len(id) || err != nil {
+		panic(fmt.Sprintf("failed to generate node id: %v", err))
+	}
+	o.nodeId = new(big.Int).SetBytes(id)
+	o.overId = self
+	o.addrs = []string{}
 
-	o.bootSink = make(chan *tagBoot)
-	o.sesSink = make(chan *tagSes)
-	o.peerSink = make(chan *peer)
+	o.pool = make(map[string]*peer)
+	o.trans = make(map[string]*big.Int)
+	o.routes = newTable()
+
+	o.bootSink = make(chan *net.TCPAddr)
+	o.sesSink = make(chan *session.Session)
 	o.msgSink = make(chan *session.Message)
 	o.quit = make(chan struct{})
 

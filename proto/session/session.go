@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net"
 	"proto/stream"
 )
 
@@ -135,6 +136,11 @@ func (s *Session) Communicate(sink chan *Message, quit chan struct{}) chan *Mess
 	go s.sender(ch, quit)
 	go s.receiver(sink)
 	return ch
+}
+
+// Retrieves the raw connection object if special manipulations are needed.
+func (s *Session) Raw() *net.TCPConn {
+	return s.socket.Raw()
 }
 
 // Sends messages from the upper layers into the session stream.

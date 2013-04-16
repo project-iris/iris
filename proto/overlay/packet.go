@@ -22,11 +22,6 @@ import (
 	"math/big"
 )
 
-// The initialization packet when the connection is set up.
-type initPacket struct {
-	Addr string
-}
-
 // The extra headers the pastry requires to be functional.
 type metaPacket struct {
 	Dest   *big.Int
