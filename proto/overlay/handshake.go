@@ -153,6 +153,51 @@ func (o *overlay) shake(ses *session.Session) {
 		p.addrs = pkt.Addrs
 
 		// Everything ok, accept connection
-		o.integrate(p)
+		o.filter(p)
+	}
+}
+
+// Filters a new peer connection to ensure there are no duplicates.
+func (o *overlay) filter(p *peer) {
+	// Make sure we're in sync
+	o.mutex.Lock()
+	defer o.mutex.Unlock()
+
+	// If we already have an active connection, keep only one:
+	//  - If old and new have the same direction, keep the lower client
+	//  - Otherwise server should be smaller
+	var old *peer
+	if old, ok := o.pool[p.self.String()]; ok {
+		keep := true
+		switch {
+		case old.laddr == p.laddr:
+			keep = old.raddr < p.raddr
+		case old.raddr == p.raddr:
+			keep = old.laddr < p.laddr
+		default:
+			// If we're the server
+			if i := sort.SearchStrings(o.addrs, p.laddr); i < len(o.addrs) && o.addrs[i] == p.laddr {
+				keep = o.addrs[0] < p.addrs[0]
+			} else {
+				keep = o.addrs[0] > p.addrs[0]
+			}
+		}
+		// If it's a keeper, swap out old and close it
+		if keep {
+			close(p.quit)
+			return
+		} else {
+		}
+	}
+	// Otherwise accept the new one
+	o.pool[p.self.String()] = p
+	for _, addr := range p.addrs {
+		o.trans[addr] = p.self
+	}
+	go o.receiver(p)
+
+	// If we swapped, terminate the old
+	if old != nil {
+		close(old.quit)
 	}
 }

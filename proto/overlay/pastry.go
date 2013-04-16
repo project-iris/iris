@@ -24,16 +24,10 @@ import (
 	"log"
 	"math/big"
 	"proto/session"
-	"sort"
-	"sync"
 )
 
 // Routing state table for the pastry network.
 type table struct {
-	mutex sync.Mutex
-
-	self *big.Int
-
 	leaves []*big.Int
 	routes [][]*big.Int
 	nears  []*big.Int
@@ -49,45 +43,6 @@ func newTable() (t *table) {
 	}
 	t.nears = make([]*big.Int, config.PastryNeighbors)
 	return
-}
-
-// Integrates a peer into the overlay structure.
-func (o *overlay) integrate(p *peer) {
-	// Make sure we're in sync
-	o.mutex.Lock()
-	defer o.mutex.Unlock()
-
-	// If we already have an active connection, keep only one:
-	//  - If old and new have the same direction, keep the lower client
-	//  - Otherwise server should be smaller
-	if old, ok := o.pool[p.self.String()]; ok {
-		keep := true
-		switch {
-		case old.laddr == p.laddr:
-			keep = old.raddr < p.raddr
-		case old.raddr == p.raddr:
-			keep = old.laddr < p.laddr
-		default:
-			// If we're the server
-			if i := sort.SearchStrings(o.addrs, p.laddr); i < len(o.addrs) && o.addrs[i] == p.laddr {
-				keep = o.addrs[0] < p.addrs[0]
-			} else {
-				keep = o.addrs[0] > p.addrs[0]
-			}
-		}
-		// If it's a keeper, swap out old and close it
-		if keep {
-			close(p.quit)
-		} else {
-			o.pool[p.self.String()] = p
-			close(old.quit)
-			go o.receiver(p)
-		}
-		return
-	}
-	// Otherwise accept the new one
-	o.pool[p.self.String()] = p
-	go o.receiver(p)
 }
 
 // Manages the pastry state table and connection pool by accepting new incomming
@@ -120,8 +75,8 @@ func (o *overlay) route(msg *session.Message) error {
 	s := o.routes
 
 	// Sync the routing table
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	o.mutex.Lock()
+	defer o.mutex.Unlock()
 
 	// Extract the recipient
 	dest := big.NewInt(0)
@@ -140,14 +95,14 @@ func (o *overlay) route(msg *session.Message) error {
 			}
 		}
 		// If self, deliver, otherwise forward
-		if s.self.Cmp(best) == 0 {
+		if o.nodeId.Cmp(best) == 0 {
 			return o.deliver(msg)
 		} else {
 			return o.forward(best, msg)
 		}
 	}
 	// Check the routing table for indirect delivery
-	common := prefix(s.self, dest)
+	common := prefix(o.nodeId, dest)
 	column := uint(0)
 	for b := 0; b < config.PastryBase; b++ {
 		column |= dest.Bit(common*config.PastryBase+b) << uint(b)
@@ -156,7 +111,7 @@ func (o *overlay) route(msg *session.Message) error {
 		return o.forward(best, msg)
 	}
 	// Route to anybody closer
-	dist := distance(s.self, dest)
+	dist := distance(o.nodeId, dest)
 	for _, peer := range s.leaves {
 		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
 			return o.forward(peer, msg)

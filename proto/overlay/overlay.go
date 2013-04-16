@@ -134,22 +134,3 @@ func (o *overlay) Boot() error {
 func (o *overlay) Shutdown() {
 	close(o.quit)
 }
-
-// Starts a receiver routine to listen on one particular session and fan in
-// messages into the shared message channel.
-func (o *overlay) receiver(p *peer) {
-	for {
-		select {
-		case <-o.quit:
-			return
-		case <-p.quit:
-			return
-		case msg, ok := <-p.in:
-			if ok {
-				o.msgSink <- msg
-			} else {
-				return
-			}
-		}
-	}
-}
