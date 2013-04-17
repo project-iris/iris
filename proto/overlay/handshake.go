@@ -53,10 +53,10 @@ func (o *overlay) acceptor(ip net.IP) {
 	defer close(quit)
 
 	// Save the new listener address into the local address list
-	o.mutex.Lock()
+	o.lock.Lock()
 	o.addrs = append(o.addrs, addr.String())
 	sort.Sort(sort.StringSlice(o.addrs))
-	o.mutex.Unlock()
+	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
 	bootSink, quit, err := bootstrap.Boot(ip, []byte(o.overId), addr.Port)
@@ -112,17 +112,18 @@ func (o *overlay) shake(ses *session.Session) {
 	p.enc = gob.NewEncoder(&p.outBuf)
 
 	p.quit = make(chan struct{})
-	p.in = make(chan *session.Message)
-	p.out = ses.Communicate(p.in, p.quit)
+	p.out = make(chan *message)
+	p.netIn = make(chan *session.Message)
+	p.netOut = ses.Communicate(p.netIn, p.quit)
 
 	// Send an init packet to the remote peer
 	pkt := new(initPacket)
 	pkt.Id = new(big.Int).Set(o.nodeId)
 
-	o.mutex.Lock()
+	o.lock.RLock()
 	pkt.Addrs = make([]string, len(o.addrs))
 	copy(pkt.Addrs, o.addrs)
-	o.mutex.Unlock()
+	o.lock.RUnlock()
 
 	if err := p.enc.Encode(pkt); err != nil {
 		log.Printf("failed to encode init packet: %v.", err)
@@ -131,7 +132,8 @@ func (o *overlay) shake(ses *session.Session) {
 	msg := new(session.Message)
 	msg.Head.Meta = make([]byte, p.outBuf.Len())
 	copy(msg.Head.Meta, p.outBuf.Bytes())
-	p.out <- msg
+	p.outBuf.Reset()
+	p.netOut <- msg
 
 	// Wait for an incoming init packet
 	timeout := time.Tick(time.Duration(config.PastryInitTimeout) * time.Millisecond)
@@ -139,7 +141,7 @@ func (o *overlay) shake(ses *session.Session) {
 	case <-timeout:
 		log.Printf("session initialization timed out: %vms.", config.PastryInitTimeout)
 		return
-	case msg, ok := <-p.in:
+	case msg, ok := <-p.netIn:
 		if !ok {
 			log.Printf("remote closed connection before init packet.")
 			return
@@ -160,8 +162,8 @@ func (o *overlay) shake(ses *session.Session) {
 // Filters a new peer connection to ensure there are no duplicates.
 func (o *overlay) filter(p *peer) {
 	// Make sure we're in sync
-	o.mutex.Lock()
-	defer o.mutex.Unlock()
+	o.lock.Lock()
+	defer o.lock.Unlock()
 
 	// If we already have an active connection, keep only one:
 	//  - If old and new have the same direction, keep the lower client
@@ -194,7 +196,11 @@ func (o *overlay) filter(p *peer) {
 	for _, addr := range p.addrs {
 		o.trans[addr] = p.self
 	}
+	go o.sender(p)
 	go o.receiver(p)
+
+	// Create and send a join system message
+	o.sendJoin(p)
 
 	// If we swapped, terminate the old
 	if old != nil {

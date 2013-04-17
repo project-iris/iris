@@ -43,10 +43,14 @@ type overlay struct {
 	nodeId *big.Int
 	addrs  []string
 
-	// The active conenction pool, ip to id translations and routing table
-	pool   map[string]*peer
-	trans  map[string]*big.Int
-	routes *table
+	// The active conenction pool, ip to id translations and routing table with modification timestamp
+	pool  map[string]*peer
+	trans map[string]*big.Int
+
+	leaves []*big.Int
+	routes [][]*big.Int
+	nears  []*big.Int
+	time   uint64
 
 	// Fan-in sinks for various events + overlay quit channel
 	bootSink chan *net.TCPAddr
@@ -55,7 +59,7 @@ type overlay struct {
 	quit     chan struct{}
 
 	// Syncer for state mods after booting
-	mutex sync.Mutex
+	lock sync.RWMutex
 }
 
 // Peer state information.
@@ -69,9 +73,10 @@ type peer struct {
 	raddr string
 
 	// In/out-bound transport channels and quit channel
-	in   chan *session.Message
-	out  chan *session.Message
-	quit chan struct{}
+	out    chan *message
+	netIn  chan *session.Message
+	netOut chan *session.Message
+	quit   chan struct{}
 
 	// Buffers and gob coders for the overlay specific meta-headers
 	inBuf  bytes.Buffer
@@ -79,6 +84,9 @@ type peer struct {
 
 	dec *gob.Decoder
 	enc *gob.Encoder
+
+	// Pastry state infos
+	time uint64
 }
 
 // Boots the iris network on each IPv4 interface present.
@@ -99,7 +107,15 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 
 	o.pool = make(map[string]*peer)
 	o.trans = make(map[string]*big.Int)
-	o.routes = newTable()
+
+	o.leaves = make([]*big.Int, 1, config.PastryLeaves)
+	o.leaves[0] = o.nodeId
+	o.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
+	for i := 0; i < len(o.routes); i++ {
+		o.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
+	}
+	o.nears = make([]*big.Int, 0, config.PastryNeighbors)
+	o.time = 1
 
 	o.bootSink = make(chan *net.TCPAddr)
 	o.sesSink = make(chan *session.Session)

@@ -21,29 +21,8 @@ package overlay
 import (
 	"config"
 	"fmt"
-	"log"
 	"math/big"
-	"proto/session"
 )
-
-// Routing state table for the pastry network.
-type table struct {
-	leaves []*big.Int
-	routes [][]*big.Int
-	nears  []*big.Int
-}
-
-// Creates a new empty pastry state table.
-func newTable() (t *table) {
-	t = new(table)
-	t.leaves = make([]*big.Int, 0, config.PastryLeaves)
-	t.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
-	for i := 0; i < len(t.routes); i++ {
-		t.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
-	}
-	t.nears = make([]*big.Int, config.PastryNeighbors)
-	return
-}
 
 // Manages the pastry state table and connection pool by accepting new incomming
 // sessions and boostrap events, deciding which ones to keep and which to drop.
@@ -51,43 +30,21 @@ func (o *overlay) manager() {
 
 }
 
-// Processes messages arriving from the network either forwarding or delivering
-// them up to the application layer.
-func (o *overlay) router() {
-	for {
-		select {
-		case <-o.quit:
-			return
-		case msg, ok := <-o.msgSink:
-			if ok {
-				if err := o.route(msg); err != nil {
-					log.Println("failed to route message:", err)
-				}
-			} else {
-				return
-			}
-		}
-	}
-}
-
 // Pastry routing algorithm.
-func (o *overlay) route(msg *session.Message) error {
-	s := o.routes
-
+func (o *overlay) route(src *peer, msg *message) {
 	// Sync the routing table
-	o.mutex.Lock()
-	defer o.mutex.Unlock()
+	o.lock.RLock()
+	defer o.lock.RUnlock()
 
 	// Extract the recipient
-	dest := big.NewInt(0)
-	//dest.SetString(msg.Head.Target, 10)
+	dest := new(big.Int).Set(msg.head.Dest)
 
 	// Check the leaf set for direct delivery
-	if s.leaves[0].Cmp(dest) <= 0 && dest.Cmp(s.leaves[len(s.leaves)-1]) <= 0 {
-		best := s.leaves[0]
+	if o.leaves[0].Cmp(dest) <= 0 && dest.Cmp(o.leaves[len(o.leaves)-1]) <= 0 {
+		best := o.leaves[0]
 		dist := distance(best, dest)
-		for i := 1; i < len(s.leaves); i++ {
-			curLeaf := s.leaves[i]
+		for i := 1; i < len(o.leaves); i++ {
+			curLeaf := o.leaves[i]
 			curDist := distance(curLeaf, dest)
 			if curDist.Cmp(dist) < 0 {
 				best = curLeaf
@@ -96,10 +53,11 @@ func (o *overlay) route(msg *session.Message) error {
 		}
 		// If self, deliver, otherwise forward
 		if o.nodeId.Cmp(best) == 0 {
-			return o.deliver(msg)
+			o.deliver(src, msg)
 		} else {
-			return o.forward(best, msg)
+			o.forward(src, msg, best)
 		}
+		return
 	}
 	// Check the routing table for indirect delivery
 	common := prefix(o.nodeId, dest)
@@ -107,42 +65,73 @@ func (o *overlay) route(msg *session.Message) error {
 	for b := 0; b < config.PastryBase; b++ {
 		column |= dest.Bit(common*config.PastryBase+b) << uint(b)
 	}
-	if best := s.routes[common][column]; best != nil {
-		return o.forward(best, msg)
+	if best := o.routes[common][column]; best != nil {
+		o.forward(src, msg, best)
+		return
 	}
 	// Route to anybody closer
 	dist := distance(o.nodeId, dest)
-	for _, peer := range s.leaves {
+	for _, peer := range o.leaves {
 		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
-			return o.forward(peer, msg)
+			o.forward(src, msg, peer)
+			return
 		}
 	}
-	for _, row := range s.routes {
+	for _, row := range o.routes {
 		for _, peer := range row {
-			if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
-				return o.forward(peer, msg)
+			if peer != nil && prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
+				o.forward(src, msg, peer)
+				return
 			}
 		}
 	}
-	for _, peer := range s.nears {
+	for _, peer := range o.nears {
 		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
-			return o.forward(peer, msg)
+			o.forward(src, msg, peer)
+			return
 		}
 	}
-	// Well, shit
-	return fmt.Errorf("Failed to route message to destination: %v.", dest)
+	// Well, shit. Deliver locally and hope for the best.
+	o.deliver(src, msg)
 }
 
-// Delivers a message to the application layer.
-func (o *overlay) deliver(msg *session.Message) error {
+// Delivers a message to the application layer or process if sys message.
+func (o *overlay) deliver(src *peer, msg *message) {
+	if msg.head.State != nil {
+		// If the remote state was never updated, it's a join
+		if msg.head.State.Updated == 0 {
+			o.sendState(src)
+			return
+		}
+		// Otherwise it's a state update (unless two are joining each other, but let them :P)
+		if msg.head.State.Updated > src.time {
+			fmt.Println("Incorporating.")
+			src.time = msg.head.State.Updated
+			if msg.head.State.Merged < o.time {
+				fmt.Println("State updated since, sending new.")
+				o.sendState(src)
+			}
+			return
+		}
+		fmt.Println("Nothing new, discarding...")
+		return
+	}
+	// Application message, deliver upstream
 	fmt.Println("Deliver:", msg)
-	return nil
 }
 
-// Forwards a message to the node with the given id
-func (o *overlay) forward(id *big.Int, msg *session.Message) error {
+// Forwards a message to the node with the given id and also checks its contents
+// if system message.
+func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 	fmt.Println("Forward:", id, msg)
-	return nil
+	// Process system join and state messages
+	/*if msg.head.State != nil {
+		if msg.head.State.Time == 0 {
+			o.sendState(src)
+		} else {
+
+		}
+	}*/
 }
 
 // Calculates the distance between two ids on the circular ID space
