@@ -21,30 +21,29 @@ package overlay
 import (
 	"config"
 	"fmt"
+	"github.com/karalabe/cookiejar/exts/mathext"
+	"github.com/karalabe/cookiejar/exts/sortext"
+	"log"
 	"math/big"
+	"net"
 )
-
-// Manages the pastry state table and connection pool by accepting new incomming
-// sessions and boostrap events, deciding which ones to keep and which to drop.
-func (o *overlay) manager() {
-
-}
 
 // Pastry routing algorithm.
 func (o *overlay) route(src *peer, msg *message) {
 	// Sync the routing table
 	o.lock.RLock()
 	defer o.lock.RUnlock()
+	r := o.routes
 
 	// Extract the recipient
 	dest := new(big.Int).Set(msg.head.Dest)
 
 	// Check the leaf set for direct delivery
-	if o.leaves[0].Cmp(dest) <= 0 && dest.Cmp(o.leaves[len(o.leaves)-1]) <= 0 {
-		best := o.leaves[0]
+	if r.leaves[0].Cmp(dest) <= 0 && dest.Cmp(r.leaves[len(r.leaves)-1]) <= 0 {
+		best := r.leaves[0]
 		dist := distance(best, dest)
-		for i := 1; i < len(o.leaves); i++ {
-			curLeaf := o.leaves[i]
+		for i := 1; i < len(r.leaves); i++ {
+			curLeaf := r.leaves[i]
 			curDist := distance(curLeaf, dest)
 			if curDist.Cmp(dist) < 0 {
 				best = curLeaf
@@ -65,19 +64,19 @@ func (o *overlay) route(src *peer, msg *message) {
 	for b := 0; b < config.PastryBase; b++ {
 		column |= dest.Bit(common*config.PastryBase+b) << uint(b)
 	}
-	if best := o.routes[common][column]; best != nil {
+	if best := r.routes[common][column]; best != nil {
 		o.forward(src, msg, best)
 		return
 	}
 	// Route to anybody closer
 	dist := distance(o.nodeId, dest)
-	for _, peer := range o.leaves {
+	for _, peer := range r.leaves {
 		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
 	}
-	for _, row := range o.routes {
+	for _, row := range r.routes {
 		for _, peer := range row {
 			if peer != nil && prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
 				o.forward(src, msg, peer)
@@ -85,7 +84,7 @@ func (o *overlay) route(src *peer, msg *message) {
 			}
 		}
 	}
-	for _, peer := range o.nears {
+	for _, peer := range r.nears {
 		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
@@ -98,58 +97,112 @@ func (o *overlay) route(src *peer, msg *message) {
 // Delivers a message to the application layer or process if sys message.
 func (o *overlay) deliver(src *peer, msg *message) {
 	if msg.head.State != nil {
-		// If the remote state was never updated, it's a join
-		if msg.head.State.Updated == 0 {
-			o.sendState(src)
-			return
-		}
-		// Otherwise it's a state update (unless two are joining each other, but let them :P)
-		if msg.head.State.Updated > src.time {
-			fmt.Println("Incorporating.")
-			src.time = msg.head.State.Updated
-			if msg.head.State.Merged < o.time {
-				fmt.Println("State updated since, sending new.")
-				o.sendState(src)
-			}
-			return
-		}
-		fmt.Println("Nothing new, discarding...")
-		return
+		o.process(src, msg.head.Dest, msg.head.State)
+	} else {
+		fmt.Println("Deliver:", msg)
 	}
-	// Application message, deliver upstream
-	fmt.Println("Deliver:", msg)
 }
 
 // Forwards a message to the node with the given id and also checks its contents
 // if system message.
 func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 	fmt.Println("Forward:", id, msg)
-	// Process system join and state messages
-	/*if msg.head.State != nil {
-		if msg.head.State.Time == 0 {
-			o.sendState(src)
+	if msg.head.State != nil {
+		o.process(src, msg.head.Dest, msg.head.State)
+	}
+	o.pool[id.String()].out <- msg
+}
+
+// Processes a pastry system messages: for joins it simply responds with the
+// local state, whilst for state updates if verifies the timestamps and acts
+// accordingly.
+func (o *overlay) process(src *peer, dst *big.Int, s *state) {
+	if s.Updated == 0 {
+		// Join request, connect (if needed) and send local state
+		fmt.Println("join request.")
+		if p, ok := o.pool[dst.String()]; !ok {
+			fmt.Println("Joined node join request.")
+			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {
+				log.Printf("failed to resolve address %v: %v.", s.Addrs[dst.String()][0], err)
+			} else {
+				go o.dial(addr)
+			}
 		} else {
-
+			// Handshake should have already sent state, unless local isn't joined either
+			if o.stat != done {
+				fmt.Println("Unjoined node join request.")
+				o.sendState(p)
+			} else {
+				fmt.Println("Joined direct, skipping.")
+			}
 		}
-	}*/
-}
-
-// Calculates the distance between two ids on the circular ID space
-func distance(a, b *big.Int) *big.Int {
-	// TODO: circular distance!!!!!
-	dist := big.NewInt(0)
-	dist.Sub(a, b)
-	dist.Abs(dist)
-	return dist
-}
-
-// Calculate the length of the common prefix of two ids
-func prefix(a, b *big.Int) int {
-	bit := config.PastrySpace - 1
-	for ; bit >= 0; bit-- {
-		if a.Bit(bit) != b.Bit(bit) {
-			break
+	} else {
+		// State update, merge into local if new
+		if s.Updated > src.time {
+			src.time = s.Updated
+			fmt.Println("Merging new state...")
+			go o.merge(s)
+		} else {
+			fmt.Println("Discarding old state...")
 		}
 	}
-	return (config.PastrySpace - 1 - bit) / config.PastryBase
+}
+
+// Merges the recieved state into the local one, and if any modifications are
+// made sends the new state out to the conencted peers.
+func (o *overlay) merge(s *state) {
+	o.lock.Lock()
+	defer o.lock.Unlock()
+
+	fmt.Println("Updating state")
+	change := false
+
+	// Merge the two leaf sets, sort and clear duplicates
+	leaves := append(o.routes.leaves, s.Leaves...)
+	sortext.BigInts(leaves)
+	n := sortext.Unique(sortext.BigIntSlice(leaves))
+	leaves = leaves[:n]
+
+	// Assemble the new leafset
+	origin := sortext.SearchBigInts(leaves, o.nodeId)
+	leaves = leaves[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(len(leaves), origin+config.PastryLeaves/2)]
+
+	// Diff and execute updates if needed
+	rems, adds := diff(o.routes.leaves, leaves)
+	if len(rems) != 0 || len(adds) != 0 {
+		change = true
+		o.routes.leaves = leaves
+	}
+
+	if change {
+		fmt.Println("State updated since, broadcasting new:", o.routes.leaves)
+		o.time++
+		for _, peer := range o.pool {
+			o.sendState(peer)
+		}
+	} else {
+		fmt.Println("No state change detected")
+	}
+}
+
+// Collects the removals and additions needed to turn src into dst.
+func diff(src, dst []*big.Int) (rems, adds []*big.Int) {
+	rems, adds = []*big.Int{}, []*big.Int{}
+	is, id := 0, 0
+	for is < len(src) && id < len(dst) {
+		switch src[is].Cmp(dst[id]) {
+		case -1:
+			rems = append(rems, src[is])
+			is++
+		case 1:
+			adds = append(adds, dst[id])
+			id++
+		default:
+			is++
+			id++
+		}
+	}
+	rems = append(rems, src[is:]...)
+	adds = append(adds, dst[id:]...)
+	return
 }

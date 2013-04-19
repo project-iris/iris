@@ -87,17 +87,20 @@ func (o *overlay) shaker() {
 			return
 		case boot := <-o.bootSink:
 			// Connect'em all (for now) !!!
-			go func() {
-				if ses, err := session.Dial(boot.IP.String(), boot.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
-					log.Printf("failed to dial remote pastry peer: %v.", err)
-				} else {
-					o.sesSink <- ses
-				}
-			}()
+			go o.dial(boot)
 		case ses := <-o.sesSink:
 			// Wait for peer init packet for real address
 			go o.shake(ses)
 		}
+	}
+}
+
+// Connects to a remote pastry peer
+func (o *overlay) dial(addr *net.TCPAddr) {
+	if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
+		log.Printf("failed to dial remote pastry peer: %v.", err)
+	} else {
+		o.sesSink <- ses
 	}
 }
 
@@ -199,9 +202,11 @@ func (o *overlay) filter(p *peer) {
 	go o.sender(p)
 	go o.receiver(p)
 
-	// Create and send a join system message
-	o.sendJoin(p)
-
+	// If just joined, send a request
+	if o.stat == none {
+		o.sendJoin(p)
+		o.stat = join
+	}
 	// If we swapped, terminate the old
 	if old != nil {
 		close(old.quit)

@@ -32,6 +32,15 @@ import (
 	"sync"
 )
 
+// Different status types in which the node can be.
+type status uint8
+
+const (
+	none status = iota
+	join
+	done
+)
+
 // Internal structure for the overlay state information.
 type overlay struct {
 	// Local and remote keys to authorize
@@ -43,14 +52,13 @@ type overlay struct {
 	nodeId *big.Int
 	addrs  []string
 
-	// The active conenction pool, ip to id translations and routing table with modification timestamp
+	// The active connection pool, ip to id translations and routing table with modification timestamp
 	pool  map[string]*peer
 	trans map[string]*big.Int
 
-	leaves []*big.Int
-	routes [][]*big.Int
-	nears  []*big.Int
+	routes *table
 	time   uint64
+	stat   status
 
 	// Fan-in sinks for various events + overlay quit channel
 	bootSink chan *net.TCPAddr
@@ -60,6 +68,13 @@ type overlay struct {
 
 	// Syncer for state mods after booting
 	lock sync.RWMutex
+}
+
+// Routing table
+type table struct {
+	leaves []*big.Int
+	routes [][]*big.Int
+	nears  []*big.Int
 }
 
 // Peer state information.
@@ -108,13 +123,14 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 	o.pool = make(map[string]*peer)
 	o.trans = make(map[string]*big.Int)
 
-	o.leaves = make([]*big.Int, 1, config.PastryLeaves)
-	o.leaves[0] = o.nodeId
-	o.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
-	for i := 0; i < len(o.routes); i++ {
-		o.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
+	o.routes = new(table)
+	o.routes.leaves = make([]*big.Int, 1, config.PastryLeaves)
+	o.routes.leaves[0] = o.nodeId
+	o.routes.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
+	for i := 0; i < len(o.routes.routes); i++ {
+		o.routes.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
 	}
-	o.nears = make([]*big.Int, 0, config.PastryNeighbors)
+	o.routes.nears = make([]*big.Int, 0, config.PastryNeighbors)
 	o.time = 1
 
 	o.bootSink = make(chan *net.TCPAddr)

@@ -72,17 +72,23 @@ func (o *overlay) receiver(p *peer) {
 				log.Printf("failed to decode pastry headers: %v.", err)
 				return
 			}
-			log.Printf("routing to: %v.", msg.head.Dest)
 			o.route(p, msg)
 		}
 	}
 }
 
-// Sends a pastry join request to the remote peer.
+// Sends a pastry join message to the remote peer.
 func (o *overlay) sendJoin(p *peer) {
-	head := &header{o.nodeId, new(state), nil}
-	msg := new(session.Message)
-	p.out <- &message{head, msg}
+	s := new(state)
+
+	// Ensure nodes can contact joining peer
+	s.Addrs = make(map[string][]string)
+	addrs := make([]string, len(o.addrs))
+	copy(addrs, p.addrs)
+	s.Addrs[o.nodeId.String()] = addrs
+
+	// Send out the join request
+	p.out <- &message{&header{o.nodeId, s, nil}, new(session.Message)}
 }
 
 // Sends a pastry state message to the remote peer.
@@ -92,15 +98,15 @@ func (o *overlay) sendState(p *peer) {
 	s.Merged = p.time
 
 	// Serialize the routing table
-	s.Leaves = make([]*big.Int, len(o.leaves))
+	s.Leaves = make([]*big.Int, len(o.routes.leaves))
 	for i := 0; i < len(s.Leaves); i++ {
-		s.Leaves[i] = new(big.Int).Set(o.leaves[i])
+		s.Leaves[i] = new(big.Int).Set(o.routes.leaves[i])
 	}
-	s.Routes = make([][]*big.Int, len(o.routes))
+	s.Routes = make([][]*big.Int, len(o.routes.routes))
 	for i := 0; i < len(s.Routes); i++ {
-		s.Routes[i] = make([]*big.Int, len(o.routes[i]))
+		s.Routes[i] = make([]*big.Int, len(o.routes.routes[i]))
 		for j := 0; j < len(s.Routes[i]); j++ {
-			if id := o.routes[i][j]; id != nil {
+			if id := o.routes.routes[i][j]; id != nil {
 				s.Routes[i][j] = new(big.Int).Set(id)
 			} else {
 				// TODO: Hack until bug gets fixed https://code.google.com/p/go/issues/detail?id=5305
@@ -108,9 +114,9 @@ func (o *overlay) sendState(p *peer) {
 			}
 		}
 	}
-	s.Nears = make([]*big.Int, len(o.nears))
+	s.Nears = make([]*big.Int, len(o.routes.nears))
 	for i := 0; i < len(s.Nears); i++ {
-		s.Nears[i] = new(big.Int).Set(o.nears[i])
+		s.Nears[i] = new(big.Int).Set(o.routes.nears[i])
 	}
 	// Serialize the address list
 	s.Addrs = make(map[string][]string)
