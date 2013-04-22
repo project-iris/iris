@@ -66,8 +66,9 @@ type overlay struct {
 	upSink   chan *state
 	quit     chan struct{}
 
-	// Syncer for state mods after booting
+	// Syncer for state mods after booting and wait group for dials in progress.
 	lock sync.RWMutex
+	pend sync.WaitGroup
 }
 
 // Routing table

@@ -87,21 +87,27 @@ func (o *overlay) shaker() {
 			return
 		case boot := <-o.bootSink:
 			// Connect'em all (for now) !!!
-			go o.dial(boot)
+			o.dial(boot)
 		case ses := <-o.sesSink:
-			// Wait for peer init packet for real address
 			go o.shake(ses)
 		}
 	}
 }
 
-// Connects to a remote pastry peer
+// Asynchronously connects to a remote pastry peer and executes handshake. In
+// the mean time, the overlay connection pending waitgroup is updated to reflect
+// the actual state.
 func (o *overlay) dial(addr *net.TCPAddr) {
-	if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
-		log.Printf("failed to dial remote pastry peer: %v.", err)
-	} else {
-		o.sesSink <- ses
-	}
+	o.pend.Add(1)
+	go func() {
+		defer o.pend.Done()
+
+		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
+			log.Printf("failed to dial remote pastry peer: %v.", err)
+		} else {
+			o.shake(ses)
+		}
+	}()
 }
 
 // Pastry handshake to sort out the real hosts and ports.

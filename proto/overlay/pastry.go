@@ -117,7 +117,7 @@ func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
 		// Join request, connect (if needed) and send local state
-		fmt.Println("join request.")
+		fmt.Println(o.nodeId, "join:", dst)
 		if p, ok := o.pool[dst.String()]; !ok {
 			fmt.Println("Joined node join request.")
 			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {

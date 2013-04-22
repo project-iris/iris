@@ -104,13 +104,6 @@ func TestPastry(t *testing.T) {
 	if PastrySpace != 128 {
 		t.Errorf("config (pastry): address space is invalid: have %v, want %v.", PastrySpace, 128)
 	}
-	// Ensure the hash is linked to the binary and has sufficient bits
-	if !PastryHash.Available() {
-		t.Errorf("config (pastry): requested hash not linked into binary.")
-	}
-	if PastryHash.Size()*8 < PastrySpace {
-		t.Errorf("config (pastry): not enough output bits in hash: have %v, want %v.", PastryHash.Size()*8, PastrySpace)
-	}
 	// Do some sanity checks on the parameters
 	if PastryBase < 1 {
 		t.Errorf("config (pastry): invalid base bits: have %v, want min 1.", PastryBase)

@@ -153,9 +153,6 @@ var BootSlowProbe = 1000
 // Scanning interval during bootstrapping (ms)
 var BootScan = 100
 
-// Hash function used to map IP addresses to the virtual address space
-var PastryHash = crypto.MD5
-
 // Virtual address space in bits
 var PastrySpace = 128
 
@@ -168,7 +165,7 @@ var PastryLeaves = 16
 // Number of closes nodes to track in the real network
 var PastryNeighbors = 16
 
-// Time to wait after session setup for the init packet
+// Time to wait after session setup for the init packet (ms)
 var PastryInitTimeout = 500
 
 // Distributed application identifier
