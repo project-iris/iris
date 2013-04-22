@@ -60,10 +60,10 @@ type overlay struct {
 	time   uint64
 	stat   status
 
-	// Fan-in sinks for various events + overlay quit channel
+	// Fan-in sinks for bootstrap, network and state update events + quit channel
 	bootSink chan *net.TCPAddr
 	sesSink  chan *session.Session
-	msgSink  chan *session.Message
+	upSink   chan *state
 	quit     chan struct{}
 
 	// Syncer for state mods after booting
@@ -135,7 +135,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 
 	o.bootSink = make(chan *net.TCPAddr)
 	o.sesSink = make(chan *session.Session)
-	o.msgSink = make(chan *session.Message)
+	o.upSink = make(chan *state)
 	o.quit = make(chan struct{})
 
 	return o
@@ -158,6 +158,7 @@ func (o *overlay) Boot() error {
 		}
 	}
 	// Start the message receiver and pastry manager
+	go o.merger()
 	go o.shaker()
 	return nil
 }

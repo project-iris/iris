@@ -21,8 +21,6 @@ package overlay
 import (
 	"config"
 	"fmt"
-	"github.com/karalabe/cookiejar/exts/mathext"
-	"github.com/karalabe/cookiejar/exts/sortext"
 	"log"
 	"math/big"
 	"net"
@@ -141,68 +139,9 @@ func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 		if s.Updated > src.time {
 			src.time = s.Updated
 			fmt.Println("Merging new state...")
-			go o.merge(s)
+			o.upSink <- s
 		} else {
 			fmt.Println("Discarding old state...")
 		}
 	}
-}
-
-// Merges the recieved state into the local one, and if any modifications are
-// made sends the new state out to the conencted peers.
-func (o *overlay) merge(s *state) {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
-	fmt.Println("Updating state")
-	change := false
-
-	// Merge the two leaf sets, sort and clear duplicates
-	leaves := append(o.routes.leaves, s.Leaves...)
-	sortext.BigInts(leaves)
-	n := sortext.Unique(sortext.BigIntSlice(leaves))
-	leaves = leaves[:n]
-
-	// Assemble the new leafset
-	origin := sortext.SearchBigInts(leaves, o.nodeId)
-	leaves = leaves[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(len(leaves), origin+config.PastryLeaves/2)]
-
-	// Diff and execute updates if needed
-	rems, adds := diff(o.routes.leaves, leaves)
-	if len(rems) != 0 || len(adds) != 0 {
-		change = true
-		o.routes.leaves = leaves
-	}
-
-	if change {
-		fmt.Println("State updated since, broadcasting new:", o.routes.leaves)
-		o.time++
-		for _, peer := range o.pool {
-			o.sendState(peer)
-		}
-	} else {
-		fmt.Println("No state change detected")
-	}
-}
-
-// Collects the removals and additions needed to turn src into dst.
-func diff(src, dst []*big.Int) (rems, adds []*big.Int) {
-	rems, adds = []*big.Int{}, []*big.Int{}
-	is, id := 0, 0
-	for is < len(src) && id < len(dst) {
-		switch src[is].Cmp(dst[id]) {
-		case -1:
-			rems = append(rems, src[is])
-			is++
-		case 1:
-			adds = append(adds, dst[id])
-			id++
-		default:
-			is++
-			id++
-		}
-	}
-	rems = append(rems, src[is:]...)
-	adds = append(adds, dst[id:]...)
-	return
 }

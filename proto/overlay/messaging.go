@@ -24,12 +24,8 @@ import (
 	"proto/session"
 )
 
-// The routing state of a pastry node.
+// Routing state exchange message (leaves, neighbors and common row).
 type state struct {
-	Leaves []*big.Int
-	Routes [][]*big.Int
-	Nears  []*big.Int
-
 	Addrs map[string][]string
 
 	Updated uint64
@@ -97,35 +93,28 @@ func (o *overlay) sendState(p *peer) {
 	s.Updated = o.time
 	s.Merged = p.time
 
-	// Serialize the routing table
-	s.Leaves = make([]*big.Int, len(o.routes.leaves))
-	for i := 0; i < len(s.Leaves); i++ {
-		s.Leaves[i] = new(big.Int).Set(o.routes.leaves[i])
-	}
-	s.Routes = make([][]*big.Int, len(o.routes.routes))
-	for i := 0; i < len(s.Routes); i++ {
-		s.Routes[i] = make([]*big.Int, len(o.routes.routes[i]))
-		for j := 0; j < len(s.Routes[i]); j++ {
-			if id := o.routes.routes[i][j]; id != nil {
-				s.Routes[i][j] = new(big.Int).Set(id)
-			} else {
-				// TODO: Hack until bug gets fixed https://code.google.com/p/go/issues/detail?id=5305
-				s.Routes[i][j] = new(big.Int)
-			}
+	// Searialize the leaf set, common row and neighbor list into the address map
+	s.Addrs = make(map[string][]string)
+	for _, id := range o.routes.leaves {
+		sid := id.String()
+		if id.Cmp(o.nodeId) != 0 {
+			s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
+		} else {
+			s.Addrs[sid] = append([]string{}, o.addrs...)
 		}
 	}
-	s.Nears = make([]*big.Int, len(o.routes.nears))
-	for i := 0; i < len(s.Nears); i++ {
-		s.Nears[i] = new(big.Int).Set(o.routes.nears[i])
+	idx := prefix(o.nodeId, p.self)
+	for i := 0; i < len(o.routes.routes[idx]); i++ {
+		if id := o.routes.routes[idx][i]; id != nil {
+			sid := id.String()
+			s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
+		}
 	}
-	// Serialize the address list
-	s.Addrs = make(map[string][]string)
-	for id, p := range o.pool {
-		addrs := make([]string, len(p.addrs))
-		copy(addrs, p.addrs)
-		s.Addrs[id] = addrs
+	for _, id := range o.routes.nears {
+		sid := id.String()
+		s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
 	}
-	// Send everythin over the wire
+	// Send everything over the wire
 	head := &header{o.nodeId, s, nil}
 	msg := new(session.Message)
 	p.out <- &message{head, msg}

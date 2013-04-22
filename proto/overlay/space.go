@@ -27,17 +27,23 @@ var modulo = new(big.Int).SetBit(new(big.Int), config.PastrySpace, 1)
 var posmid = new(big.Int).Rsh(modulo, 1)
 var negmid = new(big.Int).Mul(posmid, big.NewInt(-1))
 
-// Calculates the distance between two ids on the circular ID space
-func distance(a, b *big.Int) *big.Int {
-	dist := new(big.Int)
-	dist.Sub(b, a)
+// Calculates the signed distance between two ids on the circular ID space
+func delta(a, b *big.Int) *big.Int {
+	d := new(big.Int)
+	d.Sub(b, a)
 	switch {
-	case posmid.Cmp(dist) < 0:
-		dist.Sub(dist, modulo)
-	case negmid.Cmp(dist) > 0:
-		dist.Add(dist, modulo)
+	case posmid.Cmp(d) < 0:
+		d.Sub(d, modulo)
+	case negmid.Cmp(d) > 0:
+		d.Add(d, modulo)
 	}
-	return dist
+	return d
+}
+
+// Calculates the absolute distance between two ids on the circular ID space
+func distance(a, b *big.Int) *big.Int {
+	d := delta(a, b)
+	return d.Abs(d)
 }
 
 // Calculate the length of the common prefix of two ids
