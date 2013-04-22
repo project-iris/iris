@@ -26,13 +26,13 @@ import (
 
 // Routing state exchange message (leaves, neighbors and common row).
 type state struct {
-	Addrs map[string][]string
-
+	Addrs   map[string][]string
 	Updated uint64
 	Merged  uint64
 }
 
-// The extra headers the pastry requires to be functional.
+// Extra headers for the overlay: destination id for routing, state for routing
+// table exchanges and meta for upper layer application use.
 type header struct {
 	Dest  *big.Int
 	State *state
@@ -78,18 +78,22 @@ func (o *overlay) sendJoin(p *peer) {
 	s := new(state)
 
 	// Ensure nodes can contact joining peer
+	o.lock.RLock()
 	s.Addrs = make(map[string][]string)
 	addrs := make([]string, len(o.addrs))
 	copy(addrs, p.addrs)
 	s.Addrs[o.nodeId.String()] = addrs
 
 	// Send out the join request
+	o.lock.RUnlock()
 	p.out <- &message{&header{o.nodeId, s, nil}, new(session.Message)}
 }
 
 // Sends a pastry state message to the remote peer.
 func (o *overlay) sendState(p *peer) {
 	s := new(state)
+
+	o.lock.RLock()
 	s.Updated = o.time
 	s.Merged = p.time
 
@@ -103,7 +107,7 @@ func (o *overlay) sendState(p *peer) {
 			s.Addrs[sid] = append([]string{}, o.addrs...)
 		}
 	}
-	idx := prefix(o.nodeId, p.self)
+	idx, _ := prefix(o.nodeId, p.self)
 	for i := 0; i < len(o.routes.routes[idx]); i++ {
 		if id := o.routes.routes[idx][i]; id != nil {
 			sid := id.String()
@@ -117,6 +121,8 @@ func (o *overlay) sendState(p *peer) {
 	// Send everything over the wire
 	head := &header{o.nodeId, s, nil}
 	msg := new(session.Message)
+
+	o.lock.RUnlock()
 	p.out <- &message{head, msg}
 }
 

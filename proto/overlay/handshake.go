@@ -38,8 +38,7 @@ type initPacket struct {
 }
 
 // Starts up the overlay networking on a specified interface and fans in all the
-// inbound connections into the overlay-global channels, tagging them with the
-// source interface.
+// inbound connections into the overlay-global channels.
 func (o *overlay) acceptor(ip net.IP) {
 	// Listen for incomming session on the given interface and random port.
 	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
@@ -78,16 +77,23 @@ func (o *overlay) acceptor(ip net.IP) {
 	}
 }
 
-// Filters out inbound connections, and executes the handshake for those that
-// are deemed useful.
+// Processes the incoming connections: for bootstrap messages it makes sure that
+// the node is not already connencted and if not, dials the remote node, setting
+// up a secure session and executing the overlay handshake. For incoming session
+// requests the handshake alone is done.
 func (o *overlay) shaker() {
 	for {
 		select {
 		case <-o.quit:
 			return
 		case boot := <-o.bootSink:
-			// Connect'em all (for now) !!!
-			o.dial(boot)
+			// Discard already connected nodes
+			o.lock.RLock()
+			_, ok := o.trans[boot.String()]
+			o.lock.RUnlock()
+			if !ok {
+				o.dial(boot)
+			}
 		case ses := <-o.sesSink:
 			go o.shake(ses)
 		}
@@ -95,13 +101,11 @@ func (o *overlay) shaker() {
 }
 
 // Asynchronously connects to a remote pastry peer and executes handshake. In
-// the mean time, the overlay connection pending waitgroup is updated to reflect
-// the actual state.
+// the mean time, the overlay waitgroup is marked to signal pending connections.
 func (o *overlay) dial(addr *net.TCPAddr) {
 	o.pend.Add(1)
 	go func() {
 		defer o.pend.Done()
-
 		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
 			log.Printf("failed to dial remote pastry peer: %v.", err)
 		} else {
@@ -110,9 +114,11 @@ func (o *overlay) dial(addr *net.TCPAddr) {
 	}()
 }
 
-// Pastry handshake to sort out the real hosts and ports.
+// Executes a two way overlay handshake where both peers exchange their server
+// addresses and virtual ids to enable both to filter out multiple connections.
+// To prevent resource exhaustion, a timeout is attached to the handshake, the
+// violation of which results in a dropped connection.
 func (o *overlay) shake(ses *session.Session) {
-	// Create a new peer structure to hold all the needed session data
 	p := new(peer)
 
 	p.laddr = ses.Raw().LocalAddr().String()
@@ -168,15 +174,16 @@ func (o *overlay) shake(ses *session.Session) {
 	}
 }
 
-// Filters a new peer connection to ensure there are no duplicates.
+// Filters a new peer connection to ensure there are no duplicates. In case one
+// already exists, either the old or the new is dropped:
+//  - If old and new have the same direction (race), keep the lower client
+//  - Otherwise server (host:port) should be smaller (covers multi-instance too)
 func (o *overlay) filter(p *peer) {
-	// Make sure we're in sync
+	// Make sure we're in write sync
 	o.lock.Lock()
 	defer o.lock.Unlock()
 
-	// If we already have an active connection, keep only one:
-	//  - If old and new have the same direction, keep the lower client
-	//  - Otherwise server should be smaller
+	// Keep only one active connection
 	var old *peer
 	if old, ok := o.pool[p.self.String()]; ok {
 		keep := true
@@ -193,14 +200,12 @@ func (o *overlay) filter(p *peer) {
 				keep = o.addrs[0] > p.addrs[0]
 			}
 		}
-		// If it's a keeper, swap out old and close it
 		if keep {
 			close(p.quit)
 			return
-		} else {
 		}
 	}
-	// Otherwise accept the new one
+	// Connections is accepted, start the data handlers
 	o.pool[p.self.String()] = p
 	for _, addr := range p.addrs {
 		o.trans[addr] = p.self
@@ -208,10 +213,10 @@ func (o *overlay) filter(p *peer) {
 	go o.sender(p)
 	go o.receiver(p)
 
-	// If just joined, send a request
+	// If local node just joined, send a request (go for lock release)
 	if o.stat == none {
-		o.sendJoin(p)
 		o.stat = join
+		go o.sendJoin(p)
 	}
 	// If we swapped, terminate the old
 	if old != nil {

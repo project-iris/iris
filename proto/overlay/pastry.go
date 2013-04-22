@@ -19,7 +19,6 @@
 package overlay
 
 import (
-	"config"
 	"fmt"
 	"log"
 	"math/big"
@@ -57,33 +56,31 @@ func (o *overlay) route(src *peer, msg *message) {
 		return
 	}
 	// Check the routing table for indirect delivery
-	common := prefix(o.nodeId, dest)
-	column := uint(0)
-	for b := 0; b < config.PastryBase; b++ {
-		column |= dest.Bit(common*config.PastryBase+b) << uint(b)
-	}
-	if best := r.routes[common][column]; best != nil {
+	pre, col := prefix(o.nodeId, dest)
+	if best := r.routes[pre][col]; best != nil {
 		o.forward(src, msg, best)
 		return
 	}
 	// Route to anybody closer
 	dist := distance(o.nodeId, dest)
 	for _, peer := range r.leaves {
-		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
+		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
 	}
 	for _, row := range r.routes {
 		for _, peer := range row {
-			if peer != nil && prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
-				o.forward(src, msg, peer)
-				return
+			if peer != nil {
+				if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+					o.forward(src, msg, peer)
+					return
+				}
 			}
 		}
 	}
 	for _, peer := range r.nears {
-		if prefix(peer, dest) >= common && distance(peer, dest).Cmp(dist) < 0 {
+		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}

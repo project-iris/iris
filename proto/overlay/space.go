@@ -46,13 +46,18 @@ func distance(a, b *big.Int) *big.Int {
 	return d.Abs(d)
 }
 
-// Calculate the length of the common prefix of two ids
-func prefix(a, b *big.Int) int {
-	bit := config.PastrySpace - 1
-	for ; bit >= 0; bit-- {
+// Calculate the length of the common prefix of two ids and the differing digit.
+func prefix(a, b *big.Int) (int, int) {
+	p := 0
+	for bit := config.PastrySpace - 1; bit >= 0; bit-- {
 		if a.Bit(bit) != b.Bit(bit) {
+			p = (config.PastrySpace - 1 - bit) / config.PastryBase
 			break
 		}
 	}
-	return (config.PastrySpace - 1 - bit) / config.PastryBase
+	d := uint(0)
+	for bit := 0; bit < config.PastryBase; bit++ {
+		d |= b.Bit(p*config.PastryBase+bit) << uint(bit)
+	}
+	return p, int(d)
 }
