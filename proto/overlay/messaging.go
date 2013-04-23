@@ -48,8 +48,6 @@ type message struct {
 // Listens on one particular session, extracts the pastry headers out of each
 // inbound message and invokes the router to finish the job.
 func (o *overlay) receiver(p *peer) {
-	defer close(p.out)
-
 	// Read messages until a quit is requested
 	for {
 		select {

@@ -20,6 +20,7 @@ package overlay
 
 import (
 	"config"
+	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"log"
@@ -57,47 +58,58 @@ func (o *overlay) merger() {
 		case s := <-o.upSink:
 			o.merge(routes, addrs, s)
 		}
-		// Merge all pending updates to minimize state exchanges
-		for idle := false; !idle; {
-			select {
-			case <-o.quit:
-				return
-			case s := <-o.upSink:
-				o.merge(routes, addrs, s)
-			default:
-				idle = true
-			}
-		}
-		// Check the new table for discovered peers and dial each (all interfaces for now)
-		if peers := o.discover(routes); len(peers) != 0 {
-			for _, id := range peers {
-				for _, a := range addrs[id.String()] {
-					if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-						log.Println("failed to resolve address %v: %v.", a, err)
-					} else {
-						o.dial(addr)
-					}
+		// Cascade merges and new connections until nobody else wants in
+		for cascade := true; cascade; {
+			cascade = false
+
+			// Merge all pending updates to minimize state exchanges
+			for idle := false; !idle; {
+				select {
+				case <-o.quit:
+					return
+				case s := <-o.upSink:
+					o.merge(routes, addrs, s)
+					cascade = true
+				default:
+					idle = true
 				}
 			}
-			// Wait till all outbound connections either complete or timeout
-			o.pend.Wait()
-		}
-		// Do another round of discovery to find broken links and revert those entries
-		if downs := o.discover(routes); len(downs) != 0 {
-			o.revoke(routes, downs)
+			// Check the new table for discovered peers and dial each (all interfaces for now)
+			if peers := o.discover(routes); len(peers) != 0 {
+				fmt.Println(o.nodeId, "new peers to connect to:", peers)
+				for _, id := range peers {
+					for _, a := range addrs[id.String()] {
+						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
+							log.Println("failed to resolve address %v: %v.", a, err)
+						} else {
+							o.dial(addr)
+						}
+					}
+				}
+				// Wait till all outbound connections either complete or timeout
+				o.pend.Wait()
+
+				// Do another round of discovery to find broken links and revert those entries
+				if downs := o.discover(routes); len(downs) != 0 {
+					o.revoke(routes, downs)
+				}
+			}
 		}
 		// Swap and broadcast if anything new
 		if o.changed(routes) {
 			o.lock.Lock()
+			fmt.Printf("New routing table for %v:\n", o.nodeId)
+			fmt.Printf("Leafset: %v\n", routes.leaves)
+			fmt.Printf("Routes: %v\n", routes.routes)
+			fmt.Printf("Neighbors: %v\n", routes.nears)
+			fmt.Println("")
 			o.routes, routes = routes, nil
 			o.time++
-			o.lock.Unlock()
-
-			o.lock.RLock()
+			o.stat = done
 			for _, peer := range o.pool {
 				go o.sendState(peer)
 			}
-			o.lock.RUnlock()
+			o.lock.Unlock()
 		}
 	}
 }
@@ -134,7 +146,7 @@ func (o *overlay) merge(t *table, a map[string][]string, s *state) {
 		case old == nil:
 			t.routes[row][col] = id
 		case old.Cmp(id) != 0:
-			log.Printf("routing entry exists, discarding (should do proximity magic instead): %v", id)
+			// log.Printf("routing entry exists, discarding (should do proximity magic instead): %v", id)
 		}
 	}
 	// Merge the neighborhood set (TODO)
@@ -167,7 +179,8 @@ func (o *overlay) discover(t *table) []*big.Int {
 			ids = append(ids, id)
 		}
 	}
-	return ids
+	sortext.BigInts(ids)
+	return ids[:sortext.Unique(sortext.BigIntSlice(ids))]
 }
 
 // Revokes the list of unreachable peers from routing table t.

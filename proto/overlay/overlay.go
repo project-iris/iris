@@ -166,5 +166,6 @@ func (o *overlay) Boot() error {
 
 // Sends a termination signal to all the go routines part of the overlay.
 func (o *overlay) Shutdown() {
+	fmt.Println(o.nodeId, "terminating...")
 	close(o.quit)
 }

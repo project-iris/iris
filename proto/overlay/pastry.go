@@ -101,7 +101,6 @@ func (o *overlay) deliver(src *peer, msg *message) {
 // Forwards a message to the node with the given id and also checks its contents
 // if system message.
 func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
-	fmt.Println("Forward:", id, msg)
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	}
@@ -114,31 +113,27 @@ func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
 		// Join request, connect (if needed) and send local state
-		fmt.Println(o.nodeId, "join:", dst)
 		if p, ok := o.pool[dst.String()]; !ok {
-			fmt.Println("Joined node join request.")
 			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {
 				log.Printf("failed to resolve address %v: %v.", s.Addrs[dst.String()][0], err)
 			} else {
-				go o.dial(addr)
+				o.dial(addr)
 			}
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either
 			if o.stat != done {
-				fmt.Println("Unjoined node join request.")
 				o.sendState(p)
-			} else {
-				fmt.Println("Joined direct, skipping.")
 			}
 		}
 	} else {
 		// State update, merge into local if new
 		if s.Updated > src.time {
 			src.time = s.Updated
-			fmt.Println("Merging new state...")
+
+			// Make sure we don't cause a deadlock if blocked
+			o.lock.RUnlock()
 			o.upSink <- s
-		} else {
-			fmt.Println("Discarding old state...")
+			o.lock.RLock()
 		}
 	}
 }

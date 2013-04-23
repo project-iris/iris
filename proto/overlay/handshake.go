@@ -106,6 +106,14 @@ func (o *overlay) dial(addr *net.TCPAddr) {
 	o.pend.Add(1)
 	go func() {
 		defer o.pend.Done()
+		// Sanity check to make sure self connections are not possible
+		for _, a := range o.addrs {
+			if addr.String() == a {
+				log.Printf("self connection is not allowed: %v.", o.nodeId)
+				return
+			}
+		}
+		// Dial away
 		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
 			log.Printf("failed to dial remote pastry peer: %v.", err)
 		} else {
@@ -179,9 +187,7 @@ func (o *overlay) shake(ses *session.Session) {
 //  - If old and new have the same direction (race), keep the lower client
 //  - Otherwise server (host:port) should be smaller (covers multi-instance too)
 func (o *overlay) filter(p *peer) {
-	// Make sure we're in write sync
 	o.lock.Lock()
-	defer o.lock.Unlock()
 
 	// Keep only one active connection
 	var old *peer
@@ -202,6 +208,7 @@ func (o *overlay) filter(p *peer) {
 		}
 		if keep {
 			close(p.quit)
+			o.lock.Unlock() // There's one more release point!
 			return
 		}
 	}
@@ -213,13 +220,20 @@ func (o *overlay) filter(p *peer) {
 	go o.sender(p)
 	go o.receiver(p)
 
-	// If local node just joined, send a request (go for lock release)
+	// Save old state for later (fewer lock release points)
+	status := o.stat
 	if o.stat == none {
 		o.stat = join
-		go o.sendJoin(p)
 	}
 	// If we swapped, terminate the old
 	if old != nil {
 		close(old.quit)
+	}
+	// Release lock before proceeding with state exchanges
+	o.lock.Unlock() // There's one more release point!
+	if status == none {
+		o.sendJoin(p)
+	} else if o.stat == done {
+		o.sendState(p)
 	}
 }
