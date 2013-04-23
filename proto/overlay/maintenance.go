@@ -26,6 +26,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"sort"
 )
 
 // Listens for incoming state merge requests, assembles new routing tables based
@@ -132,11 +133,7 @@ func (o *overlay) merge(t *table, a map[string][]string, s *state) {
 		}
 	}
 	// Generate the new leaf set
-	t.leaves = append(t.leaves, ids...)
-	sortext.BigInts(t.leaves)
-	unique := sortext.Unique(sortext.BigIntSlice(t.leaves))
-	origin := sortext.SearchBigInts(t.leaves[:unique], o.nodeId)
-	t.leaves = t.leaves[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(unique, origin+config.PastryLeaves/2)]
+	t.leaves = o.mergeLeaves(t.leaves, ids)
 
 	// Merge the received addresses into the routing table
 	for _, id := range ids {
@@ -150,6 +147,22 @@ func (o *overlay) merge(t *table, a map[string][]string, s *state) {
 		}
 	}
 	// Merge the neighborhood set (TODO)
+}
+
+// Merges two leafsets and returns the result
+func (o *overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
+	// Append, circular sort and fetch uniques
+	res := append(a, b...)
+	sort.Sort(idSlice{o.nodeId, res})
+	res = res[:sortext.Unique(idSlice{o.nodeId, res})]
+
+	// Look for the origin point
+	origin := 0
+	for o.nodeId.Cmp(res[origin]) != 0 {
+		origin++
+	}
+	// Fetch the nearest nodes in both directions
+	return res[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(len(res), origin+config.PastryLeaves/2)]
 }
 
 // Searches a potential routing table for nodes not yet connected.
@@ -199,11 +212,7 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 		}
 	}
 	if !intact {
-		t.leaves = append(t.leaves, o.routes.leaves...)
-		sortext.BigInts(t.leaves)
-		unique := sortext.Unique(sortext.BigIntSlice(t.leaves))
-		origin := sortext.SearchBigInts(t.leaves[:unique], o.nodeId)
-		t.leaves = t.leaves[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(unique, origin+config.PastryLeaves/2)]
+		t.leaves = o.mergeLeaves(t.leaves, o.routes.leaves)
 	}
 	// Clean up the routing table
 	for r, row := range o.routes.routes {

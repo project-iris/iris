@@ -27,6 +27,26 @@ var modulo = new(big.Int).SetBit(new(big.Int), config.PastrySpace, 1)
 var posmid = new(big.Int).Rsh(modulo, 1)
 var negmid = new(big.Int).Mul(posmid, big.NewInt(-1))
 
+// Special id slice implementing sort.Interface.
+type idSlice struct {
+	origin *big.Int
+	data   []*big.Int
+}
+
+func (p idSlice) Len() int {
+	return len(p.data)
+}
+
+func (p idSlice) Less(i, j int) bool {
+	di := delta(p.origin, p.data[i])
+	dj := delta(p.origin, p.data[j])
+	return di.Cmp(dj) < 0
+}
+
+func (p idSlice) Swap(i, j int) {
+	p.data[i], p.data[j] = p.data[j], p.data[i]
+}
+
 // Calculates the signed distance between two ids on the circular ID space
 func delta(a, b *big.Int) *big.Int {
 	d := new(big.Int)
