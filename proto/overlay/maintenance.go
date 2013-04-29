@@ -98,8 +98,8 @@ func (o *overlay) merger() {
 				}
 			}
 		}
-		// Swap and broadcast if anything new
-		if o.changed(routes) {
+		// Swap and broadcast if anything changed
+		if ch, rep := o.changed(routes); ch {
 			o.lock.Lock()
 			fmt.Printf("New routing table for %v:\n", o.nodeId)
 			fmt.Printf("Leafset: %v\n", routes.leaves)
@@ -110,7 +110,7 @@ func (o *overlay) merger() {
 			o.time++
 			o.stat = done
 			for _, peer := range o.pool {
-				go o.sendState(peer)
+				go o.sendState(peer, rep)
 			}
 			o.lock.Unlock()
 		}
@@ -229,7 +229,14 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 		}
 	}
 	if !intact {
-		t.leaves = o.mergeLeaves(t.leaves, []*big.Int{})
+		// Repair the leafset as best as possible from the pool of active connections
+		o.lock.RLock()
+		all := make([]*big.Int, 0, len(o.pool))
+		for _, p := range o.pool {
+			all = append(all, p.self)
+		}
+		o.lock.RUnlock()
+		t.leaves = o.mergeLeaves(t.leaves, all)
 	}
 	// Clean up the routing table
 	for r, row := range t.routes {
@@ -237,7 +244,16 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 			if id != nil {
 				idx := sortext.SearchBigInts(downs, id)
 				if idx < len(downs) && downs[idx].Cmp(id) == 0 {
+					// Try and fix routing entry from connection pool
 					t.routes[r][i] = nil
+					o.lock.RLock()
+					for _, p := range o.pool {
+						if pre, dig := prefix(o.nodeId, p.self); pre == r && dig == i {
+							t.routes[r][i] = p.self
+							break
+						}
+					}
+					o.lock.RUnlock()
 				}
 			}
 		}
@@ -245,15 +261,16 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 	// Clean up the neighborhood set (TODO)
 }
 
-// Checks whether the routing table changed.
-func (o *overlay) changed(t *table) bool {
+// Checks whether the routing table changed and if yes, whether it needs repairs.
+func (o *overlay) changed(t *table) (ch bool, rep bool) {
 	// Check the leaf set
 	if len(t.leaves) != len(o.routes.leaves) {
-		return true
-	}
-	for i := 0; i < len(t.leaves); i++ {
-		if t.leaves[i].Cmp(o.routes.leaves[i]) != 0 {
-			return true
+		ch = true
+	} else {
+		for i := 0; i < len(t.leaves); i++ {
+			if t.leaves[i].Cmp(o.routes.leaves[i]) != 0 {
+				ch = true
+			}
 		}
 	}
 	// Check the routing table
@@ -262,24 +279,25 @@ func (o *overlay) changed(t *table) bool {
 			oldId, newId := o.routes.routes[r][c], t.routes[r][c]
 			switch {
 			case newId == nil && oldId != nil:
-				return true
+				ch, rep = true, true
 			case newId != nil && oldId == nil:
-				return true
+				ch = true
 			case newId == nil && oldId == nil:
-				break
+				// Do nothing
 			case newId.Cmp(oldId) != 0:
-				return true
+				ch = true
 			}
 		}
 	}
 	// Check the neighbor set
 	if len(t.nears) != len(o.routes.nears) {
-		return true
-	}
-	for i := 0; i < len(t.nears); i++ {
-		if t.nears[i].Cmp(o.routes.nears[i]) != 0 {
-			return true
+		ch = true
+	} else {
+		for i := 0; i < len(t.nears); i++ {
+			if t.nears[i].Cmp(o.routes.nears[i]) != 0 {
+				ch = true
+			}
 		}
 	}
-	return false
+	return
 }

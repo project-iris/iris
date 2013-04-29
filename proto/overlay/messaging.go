@@ -28,7 +28,7 @@ import (
 type state struct {
 	Addrs   map[string][]string
 	Updated uint64
-	Merged  uint64
+	Repair  bool
 }
 
 // Extra headers for the overlay: destination id for routing, state for routing
@@ -88,13 +88,14 @@ func (o *overlay) sendJoin(p *peer) {
 	p.out <- &message{&header{o.nodeId, s, nil}, new(session.Message)}
 }
 
-// Sends a pastry state message to the remote peer.
-func (o *overlay) sendState(p *peer) {
+// Sends a pastry state message to the remote peer and optionally may request a
+// state update in response (route repair).
+func (o *overlay) sendState(p *peer, repair bool) {
 	s := new(state)
 
 	o.lock.RLock()
 	s.Updated = o.time
-	s.Merged = p.time
+	s.Repair = repair
 
 	// Searialize the leaf set, common row and neighbor list into the address map
 	s.Addrs = make(map[string][]string)

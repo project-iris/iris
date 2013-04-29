@@ -234,6 +234,6 @@ func (o *overlay) filter(p *peer) {
 	if status == none {
 		o.sendJoin(p)
 	} else if o.stat == done {
-		o.sendState(p)
+		o.sendState(p, false)
 	}
 }
