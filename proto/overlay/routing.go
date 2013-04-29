@@ -36,7 +36,7 @@ func (o *overlay) route(src *peer, msg *message) {
 	dest := new(big.Int).Set(msg.head.Dest)
 
 	// Check the leaf set for direct delivery
-	if r.leaves[0].Cmp(dest) <= 0 && dest.Cmp(r.leaves[len(r.leaves)-1]) <= 0 {
+	if delta(r.leaves[0], dest).Sign() > 0 && delta(dest, r.leaves[len(r.leaves)-1]).Sign() > 0 {
 		best := r.leaves[0]
 		dist := distance(best, dest)
 		for i := 1; i < len(r.leaves); i++ {

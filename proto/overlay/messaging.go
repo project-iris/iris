@@ -57,6 +57,7 @@ func (o *overlay) receiver(p *peer) {
 			return
 		case pkt, ok := <-p.netIn:
 			if !ok {
+				o.dropSink <- p
 				return
 			}
 			// Extract the pastry headers
@@ -128,7 +129,6 @@ func (o *overlay) sendState(p *peer) {
 // format and send them on their way.
 func (o *overlay) sender(p *peer) {
 	defer close(p.netOut)
-
 	for {
 		select {
 		case <-o.quit:

@@ -33,16 +33,19 @@ type idSlice struct {
 	data   []*big.Int
 }
 
+// Required for sort.Sort.
 func (p idSlice) Len() int {
 	return len(p.data)
 }
 
+// Required for sort.Sort.
 func (p idSlice) Less(i, j int) bool {
 	di := delta(p.origin, p.data[i])
 	dj := delta(p.origin, p.data[j])
 	return di.Cmp(dj) < 0
 }
 
+// Required for sort.Sort.
 func (p idSlice) Swap(i, j int) {
 	p.data[i], p.data[j] = p.data[j], p.data[i]
 }

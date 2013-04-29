@@ -52,18 +52,18 @@ func (o *overlay) merger() {
 		}
 		addrs := make(map[string][]string)
 
-		// Block till an update arrives
+		// Block till an update or drop arrives
 		select {
 		case <-o.quit:
 			return
 		case s := <-o.upSink:
 			o.merge(routes, addrs, s)
+		case d := <-o.dropSink:
+			o.drop(d)
 		}
-		// Cascade merges and new connections until nobody else wants in
+		// Cascade merges, drops and new connections until nobody else wants in or out
 		for cascade := true; cascade; {
 			cascade = false
-
-			// Merge all pending updates to minimize state exchanges
 			for idle := false; !idle; {
 				select {
 				case <-o.quit:
@@ -71,13 +71,15 @@ func (o *overlay) merger() {
 				case s := <-o.upSink:
 					o.merge(routes, addrs, s)
 					cascade = true
+				case d := <-o.dropSink:
+					o.drop(d)
+					cascade = true
 				default:
 					idle = true
 				}
 			}
 			// Check the new table for discovered peers and dial each (all interfaces for now)
 			if peers := o.discover(routes); len(peers) != 0 {
-				fmt.Println(o.nodeId, "new peers to connect to:", peers)
 				for _, id := range peers {
 					for _, a := range addrs[id.String()] {
 						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
@@ -90,7 +92,7 @@ func (o *overlay) merger() {
 				// Wait till all outbound connections either complete or timeout
 				o.pend.Wait()
 
-				// Do another round of discovery to find broken links and revert those entries
+				// Do another round of discovery to find broken links and revert/remove those entries
 				if downs := o.discover(routes); len(downs) != 0 {
 					o.revoke(routes, downs)
 				}
@@ -111,6 +113,21 @@ func (o *overlay) merger() {
 				go o.sendState(peer)
 			}
 			o.lock.Unlock()
+		}
+	}
+}
+
+// Drops an active peer connection due to either a failure or uselessness.
+func (o *overlay) drop(d *peer) {
+	o.lock.Lock()
+	defer o.lock.Unlock()
+
+	close(d.quit)
+	for id, p := range o.pool {
+		if d == p {
+			delete(o.pool, id)
+			delete(o.trans, id)
+			break
 		}
 	}
 }
@@ -212,14 +229,16 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 		}
 	}
 	if !intact {
-		t.leaves = o.mergeLeaves(t.leaves, o.routes.leaves)
+		t.leaves = o.mergeLeaves(t.leaves, []*big.Int{})
 	}
 	// Clean up the routing table
-	for r, row := range o.routes.routes {
+	for r, row := range t.routes {
 		for i, id := range row {
-			idx := sortext.SearchBigInts(downs, id)
-			if idx < len(downs) && downs[idx].Cmp(id) == 0 {
-				t.routes[r][i] = row[i]
+			if id != nil {
+				idx := sortext.SearchBigInts(downs, id)
+				if idx < len(downs) && downs[idx].Cmp(id) == 0 {
+					t.routes[r][i] = nil
+				}
 			}
 		}
 	}

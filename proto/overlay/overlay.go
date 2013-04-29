@@ -64,6 +64,7 @@ type overlay struct {
 	bootSink chan *net.TCPAddr
 	sesSink  chan *session.Session
 	upSink   chan *state
+	dropSink chan *peer
 	quit     chan struct{}
 
 	// Syncer for state mods after booting and wait group for dials in progress.
@@ -137,6 +138,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 	o.bootSink = make(chan *net.TCPAddr)
 	o.sesSink = make(chan *session.Session)
 	o.upSink = make(chan *state)
+	o.dropSink = make(chan *peer)
 	o.quit = make(chan struct{})
 
 	return o
