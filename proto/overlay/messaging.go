@@ -19,9 +19,11 @@
 package overlay
 
 import (
+	"fmt"
 	"log"
 	"math/big"
 	"proto/session"
+	"time"
 )
 
 // Routing state exchange message (leaves, neighbors and common row).
@@ -163,7 +165,15 @@ func (o *overlay) sender(p *peer) {
 				msg.data.Head.Meta = append(msg.data.Head.Meta[:0], p.outBuf.Bytes()...)
 				p.outBuf.Reset()
 			}
-			p.netOut <- msg.data
+			// Send the packet or drop connection on timeout
+			timeout := time.Tick(5 * time.Millisecond)
+			select {
+			case p.netOut <- msg.data:
+				// Ok, do nothing
+			case <-timeout:
+				fmt.Println(o.nodeId, "send timeout:", p.self)
+				return
+			}
 		}
 	}
 }
