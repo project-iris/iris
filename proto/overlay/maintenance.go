@@ -27,6 +27,7 @@ import (
 	"math/big"
 	"net"
 	"sort"
+	"time"
 )
 
 // Listens for incoming state merge requests, assembles new routing tables based
@@ -300,4 +301,46 @@ func (o *overlay) changed(t *table) (ch bool, rep bool) {
 		}
 	}
 	return
+}
+
+// Periodically sends a heatbeat to all existing connections, tagging them
+// whether they are actively in the routing table or not.
+func (o *overlay) beater() {
+	tick := time.Tick(1000 * time.Millisecond)
+	for {
+		select {
+		case <-o.quit:
+			return
+		case <-tick:
+			o.lock.RLock()
+			for _, p := range o.pool {
+				o.sendBeat(p, !o.active(p.self))
+			}
+			o.lock.RUnlock()
+		}
+	}
+}
+
+// Returns whether a connection is active or passive
+func (o *overlay) active(p *big.Int) bool {
+	for _, id := range o.routes.leaves {
+		if p.Cmp(id) == 0 {
+			return true
+		}
+	}
+	for _, row := range o.routes.routes {
+		for _, id := range row {
+			if id != nil {
+				if p.Cmp(id) == 0 {
+					return true
+				}
+			}
+		}
+	}
+	for _, id := range o.routes.nears {
+		if p.Cmp(id) == 0 {
+			return true
+		}
+	}
+	return false
 }

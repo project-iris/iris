@@ -104,6 +104,9 @@ type peer struct {
 
 	// Pastry state infos
 	time uint64
+
+	// Activity state
+	passive bool
 }
 
 // Boots the iris network on each IPv4 interface present.
@@ -163,6 +166,7 @@ func (o *overlay) Boot() error {
 	// Start the message receiver and pastry manager
 	go o.merger()
 	go o.shaker()
+	go o.beater()
 	return nil
 }
 

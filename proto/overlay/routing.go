@@ -104,7 +104,9 @@ func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	}
-	o.pool[id.String()].out <- msg
+	if p, ok := o.pool[id.String()]; ok {
+		p.out <- msg
+	}
 }
 
 // Processes a pastry system messages: for joins it simply responds with the
@@ -138,6 +140,15 @@ func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 			o.lock.RUnlock()
 			o.upSink <- s
 			o.lock.RLock()
+		}
+		// Connection filtering, drop if idle on this side too
+		if src.passive && s.Passive && !o.active(src.self) {
+			fmt.Println(o.nodeId, "dropping", src.self)
+			o.lock.RUnlock()
+			o.dropSink <- src
+			o.lock.RLock()
+		} else {
+			src.passive = s.Passive
 		}
 	}
 }

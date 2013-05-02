@@ -29,6 +29,7 @@ type state struct {
 	Addrs   map[string][]string
 	Updated uint64
 	Repair  bool
+	Passive bool
 }
 
 // Extra headers for the overlay: destination id for routing, state for routing
@@ -97,12 +98,14 @@ func (o *overlay) sendState(p *peer, repair bool) {
 	s.Updated = o.time
 	s.Repair = repair
 
-	// Searialize the leaf set, common row and neighbor list into the address map
+	// Serialize the leaf set, common row and neighbor list into the address map
 	s.Addrs = make(map[string][]string)
 	for _, id := range o.routes.leaves {
 		sid := id.String()
 		if id.Cmp(o.nodeId) != 0 {
-			s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
+			if node, ok := o.pool[sid]; ok {
+				s.Addrs[sid] = append([]string{}, node.addrs...)
+			}
 		} else {
 			s.Addrs[sid] = append([]string{}, o.addrs...)
 		}
@@ -111,19 +114,30 @@ func (o *overlay) sendState(p *peer, repair bool) {
 	for i := 0; i < len(o.routes.routes[idx]); i++ {
 		if id := o.routes.routes[idx][i]; id != nil {
 			sid := id.String()
-			s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
+			if node, ok := o.pool[sid]; ok {
+				s.Addrs[sid] = append([]string{}, node.addrs...)
+			}
 		}
 	}
 	for _, id := range o.routes.nears {
 		sid := id.String()
-		s.Addrs[sid] = append([]string{}, o.pool[sid].addrs...)
+		if node, ok := o.pool[sid]; ok {
+			s.Addrs[sid] = append([]string{}, node.addrs...)
+		}
 	}
 	// Send everything over the wire
-	head := &header{o.nodeId, s, nil}
-	msg := new(session.Message)
-
 	o.lock.RUnlock()
-	p.out <- &message{head, msg}
+	p.out <- &message{&header{o.nodeId, s, nil}, new(session.Message)}
+}
+
+// Sends a heartbeat message, tagging connection activity.
+func (o *overlay) sendBeat(p *peer, passive bool) {
+	s := new(state)
+	s.Updated = o.time
+	s.Passive = passive
+
+	// Send out the heartbeat
+	p.out <- &message{&header{o.nodeId, s, nil}, new(session.Message)}
 }
 
 // Waits for outbound pastry messages, encodes them into the lower level session
