@@ -16,6 +16,11 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// This file contains the identifier space definitions and operations for the
+// overlay network: delta and distance calculation between two ids, and the
+// common prefix + next digit extraction for the pastry routing tables.
+
 package overlay
 
 import (
@@ -52,8 +57,7 @@ func (p idSlice) Swap(i, j int) {
 
 // Calculates the signed distance between two ids on the circular ID space
 func delta(a, b *big.Int) *big.Int {
-	d := new(big.Int)
-	d.Sub(b, a)
+	d := new(big.Int).Sub(b, a)
 	switch {
 	case posmid.Cmp(d) < 0:
 		d.Sub(d, modulo)
@@ -65,8 +69,7 @@ func delta(a, b *big.Int) *big.Int {
 
 // Calculates the absolute distance between two ids on the circular ID space
 func distance(a, b *big.Int) *big.Int {
-	d := delta(a, b)
-	return d.Abs(d)
+	return new(big.Int).Abs(delta(a, b))
 }
 
 // Calculate the length of the common prefix of two ids and the differing digit.
@@ -80,7 +83,7 @@ func prefix(a, b *big.Int) (int, int) {
 	}
 	d := uint(0)
 	for bit := 0; bit < config.PastryBase; bit++ {
-		d |= b.Bit(p*config.PastryBase+bit) << uint(bit)
+		d |= b.Bit(config.PastrySpace-(p+1)*config.PastryBase+bit) << uint(bit)
 	}
 	return p, int(d)
 }
