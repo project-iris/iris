@@ -26,6 +26,8 @@ import (
 )
 
 func TestPortSelection(t *testing.T) {
+	defer time.Sleep(time.Second)
+
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
 		if _, quit, err := Boot(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err != nil {
@@ -41,6 +43,8 @@ func TestPortSelection(t *testing.T) {
 }
 
 func TestScan(t *testing.T) {
+	defer time.Sleep(time.Second)
+
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
@@ -89,6 +93,8 @@ func TestScan(t *testing.T) {
 }
 
 func TestMagic(t *testing.T) {
+	defer time.Sleep(time.Second)
+
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")

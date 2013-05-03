@@ -88,12 +88,12 @@ func Boot(ip net.IP, magic []byte, overlay int) (chan *net.TCPAddr, chan struct{
 	bs.beatMagic = magic
 
 	bs.beatReq = make([]byte, len(magic)+3)
-	copy(bs.beatReq, magic)
-	binary.PutUvarint(bs.beatReq[len(magic):], uint64(overlay))
+	n := binary.PutUvarint(bs.beatReq, uint64(overlay))
+	copy(bs.beatReq[n:], magic)
 
 	bs.beatRes = make([]byte, len(magic)+3)
-	copy(bs.beatRes, magic)
-	binary.PutUvarint(bs.beatRes[len(magic):], uint64(overlay)+uint64(1<<17))
+	n = binary.PutUvarint(bs.beatRes, uint64(overlay)+uint64(1<<17))
+	copy(bs.beatRes[n:], magic)
 
 	// Create the channels for the communicating threads
 	bs.beats = make(chan *net.TCPAddr, config.BootBeatsBuffer)
@@ -128,21 +128,23 @@ func (bs *bootstrapper) accept() {
 		default:
 			// Wait for a UDP packet (with a reasonable timeout)
 			bs.sock.SetReadDeadline(time.Now().Add(acceptTimeout))
-			_, from, err := bs.sock.ReadFromUDP(buf)
-			if err == nil && bytes.Compare(bs.beatMagic, buf[:len(bs.beatMagic)]) == 0 {
-				if port, err := binary.ReadUvarint(bytes.NewBuffer(buf[len(bs.beatMagic):])); err == nil {
-					// If it's a beat request, respond to it otherwise clear the response bit
-					if port&(1<<17) == 0 {
-						bs.sock.WriteToUDP(bs.beatRes, from)
-					} else {
-						port &= ^(uint64(1) << 17)
-					}
-					// Notify the maintenance routine
-					host := net.JoinHostPort(from.IP.String(), strconv.Itoa(int(port)))
-					if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
-						bs.beats <- addr
-					} else {
-						panic(err)
+			if size, from, err := bs.sock.ReadFromUDP(buf); err == nil {
+				reader := bytes.NewBuffer(buf[:size])
+				if port, err := binary.ReadUvarint(reader); err == nil {
+					if bytes.Compare(bs.beatMagic, reader.Bytes()) == 0 {
+						// If it's a beat request, respond to it otherwise clear the response bit
+						if port&(1<<17) == 0 {
+							bs.sock.WriteToUDP(bs.beatRes, from)
+						} else {
+							port &= ^(uint64(1) << 17)
+						}
+						// Notify the maintenance routine
+						host := net.JoinHostPort(from.IP.String(), strconv.Itoa(int(port)))
+						if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
+							bs.beats <- addr
+						} else {
+							panic(err)
+						}
 					}
 				}
 			}
