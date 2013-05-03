@@ -16,6 +16,10 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// Package overlay contains the peer-to-peer virtual transport network. It is
+// currently based on a simplified version of Pastry, where proximity is not
+// taken into consideration (i.e. no neighbor set).
 package overlay
 
 import (
@@ -72,39 +76,11 @@ type overlay struct {
 	pend sync.WaitGroup
 }
 
-// Routing table
-type table struct {
-	leaves []*big.Int
-	routes [][]*big.Int
-	nears  []*big.Int
-}
-
-// Creates a copy of the routing table
-func (t *table) Copy() *table {
-	res := new(table)
-
-	// Copy the leafset
-	res.leaves = make([]*big.Int, len(t.leaves))
-	copy(res.leaves, t.leaves)
-
-	// Copy the routing table
-	res.routes = make([][]*big.Int, len(t.routes))
-	for i := 0; i < len(res.routes); i++ {
-		res.routes[i] = make([]*big.Int, len(t.routes[i]))
-		copy(res.routes[i], t.routes[i])
-	}
-	// Copy the neighborhood
-	res.nears = make([]*big.Int, len(t.nears))
-	copy(res.nears, t.nears)
-
-	return res
-}
-
 // Peer state information.
 type peer struct {
 	// Virtual id and reachable addresses
-	self  *big.Int
-	addrs []string
+	nodeId *big.Int
+	addrs  []string
 
 	// Connection details
 	laddr string
@@ -123,13 +99,15 @@ type peer struct {
 	dec *gob.Decoder
 	enc *gob.Encoder
 
-	// Pastry state infos
+	// Overlay state infos
 	time    uint64
 	passive bool
 	killed  bool
 }
 
-// Boots the iris network on each IPv4 interface present.
+// Creates a new overlay structure with all internal state initialized, ready to
+// be booted. Self is used as the id used for discovering similar peers, and key
+// for the security.
 func New(self string, key *rsa.PrivateKey) *overlay {
 	o := new(overlay)
 
@@ -137,7 +115,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 	o.rkeys = make(map[string]*rsa.PublicKey)
 	o.rkeys[self] = &key.PublicKey
 
-	id := make([]byte, config.PastrySpace/8)
+	id := make([]byte, config.OverlaySpace/8)
 	if n, err := io.ReadFull(rand.Reader, id); n < len(id) || err != nil {
 		panic(fmt.Sprintf("failed to generate node id: %v", err))
 	}
@@ -148,14 +126,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 	o.pool = make(map[string]*peer)
 	o.trans = make(map[string]*big.Int)
 
-	o.routes = new(table)
-	o.routes.leaves = make([]*big.Int, 1, config.PastryLeaves)
-	o.routes.leaves[0] = o.nodeId
-	o.routes.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
-	for i := 0; i < len(o.routes.routes); i++ {
-		o.routes.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
-	}
-	o.routes.nears = make([]*big.Int, 0, config.PastryNeighbors)
+	o.routes = newTable(o.nodeId)
 	o.time = 1
 
 	o.bootSink = make(chan *net.TCPAddr)
@@ -168,8 +139,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 }
 
 // Boots the overlay network: it starts up boostrappers and connection acceptors
-// on all local IPv4 interfaces, after which the pastry overlay management is
-// booted.
+// on all local IPv4 interfaces, after which the overlay management is booted.
 func (o *overlay) Boot() error {
 	// Start the individual acceptors
 	addrs, err := net.InterfaceAddrs()
@@ -183,8 +153,8 @@ func (o *overlay) Boot() error {
 			}
 		}
 	}
-	// Start the message receiver and pastry manager
-	go o.merger()
+	// Start the overlay manager, handshaker and heatbeater
+	go o.manager()
 	go o.shaker()
 	go o.beater()
 	return nil
@@ -192,6 +162,5 @@ func (o *overlay) Boot() error {
 
 // Sends a termination signal to all the go routines part of the overlay.
 func (o *overlay) Shutdown() {
-	fmt.Println(o.nodeId, "terminating...")
 	close(o.quit)
 }

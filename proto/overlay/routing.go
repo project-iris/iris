@@ -149,7 +149,7 @@ func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 			o.lock.RLock()
 		}
 		// Connection filtering: drop after two requests and if local is idle too
-		if src.passive && s.Passive && !o.active(src.self) {
+		if src.passive && s.Passive && !o.active(src.nodeId) {
 			o.lock.RUnlock()
 			o.dropSink <- src
 			o.lock.RLock()

@@ -36,19 +36,19 @@ type spaceTest struct {
 
 var one = big.NewInt(1)
 
-// The tests assume the default 128 bit pastry space and 4 bit digits!
+// The tests assume the default 4 bit digits!
 var spaceTests = []spaceTest{
 	// Simple startup cases
-	{big.NewInt(0), big.NewInt(15), big.NewInt(15), big.NewInt(15), config.PastrySpace/config.PastryBase - 1, 15},
-	{big.NewInt(15), big.NewInt(0), big.NewInt(-15), big.NewInt(15), config.PastrySpace/config.PastryBase - 1, 0},
-	{big.NewInt(0), big.NewInt(127), big.NewInt(127), big.NewInt(127), config.PastrySpace/config.PastryBase - 2, 7},
-	{big.NewInt(127), big.NewInt(0), big.NewInt(-127), big.NewInt(127), config.PastrySpace/config.PastryBase - 2, 0},
-	{big.NewInt(128), big.NewInt(256), big.NewInt(128), big.NewInt(128), config.PastrySpace/config.PastryBase - 3, 1},
-	{big.NewInt(256), big.NewInt(128), big.NewInt(-128), big.NewInt(128), config.PastrySpace/config.PastryBase - 3, 0},
+	{big.NewInt(0), big.NewInt(15), big.NewInt(15), big.NewInt(15), config.OverlaySpace/config.OverlayBase - 1, 15},
+	{big.NewInt(15), big.NewInt(0), big.NewInt(-15), big.NewInt(15), config.OverlaySpace/config.OverlayBase - 1, 0},
+	{big.NewInt(0), big.NewInt(127), big.NewInt(127), big.NewInt(127), config.OverlaySpace/config.OverlayBase - 2, 7},
+	{big.NewInt(127), big.NewInt(0), big.NewInt(-127), big.NewInt(127), config.OverlaySpace/config.OverlayBase - 2, 0},
+	{big.NewInt(128), big.NewInt(256), big.NewInt(128), big.NewInt(128), config.OverlaySpace/config.OverlayBase - 3, 1},
+	{big.NewInt(256), big.NewInt(128), big.NewInt(-128), big.NewInt(128), config.OverlaySpace/config.OverlayBase - 3, 0},
 
 	// Boring cases
-	{big.NewInt(65536), big.NewInt(262144), big.NewInt(196608), big.NewInt(196608), config.PastrySpace/config.PastryBase - 5, 4},
-	{big.NewInt(262144), big.NewInt(65536), big.NewInt(-196608), big.NewInt(196608), config.PastrySpace/config.PastryBase - 5, 1},
+	{big.NewInt(65536), big.NewInt(262144), big.NewInt(196608), big.NewInt(196608), config.OverlaySpace/config.OverlayBase - 5, 4},
+	{big.NewInt(262144), big.NewInt(65536), big.NewInt(-196608), big.NewInt(196608), config.OverlaySpace/config.OverlayBase - 5, 1},
 
 	// Circular wrapping
 	{new(big.Int).Sub(modulo, one), big.NewInt(0), big.NewInt(1), big.NewInt(1), 0, 0},

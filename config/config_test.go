@@ -99,22 +99,22 @@ func TestPack(t *testing.T) {
 	}
 }
 
-func TestPastry(t *testing.T) {
+func TestOverlay(t *testing.T) {
 	// Ensure pastry space is default size (at least issue a warning)
-	if PastrySpace != 128 {
-		t.Errorf("config (pastry): address space is invalid: have %v, want %v.", PastrySpace, 128)
+	if OverlaySpace != 128 {
+		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", OverlaySpace, 128)
 	}
 	// Do some sanity checks on the parameters
-	if PastryBase < 1 {
-		t.Errorf("config (pastry): invalid base bits: have %v, want min 1.", PastryBase)
+	if OverlayBase < 1 {
+		t.Errorf("config (overlay): invalid base bits: have %v, want min 1.", OverlayBase)
 	}
-	if PastrySpace%PastryBase != 0 {
-		t.Errorf("config (pastry): address space is not divisible into bases: %v %% %v != 0", PastrySpace, PastryBase)
+	if OverlaySpace%OverlayBase != 0 {
+		t.Errorf("config (overlay): address space is not divisible into bases: %v %% %v != 0", OverlaySpace, OverlayBase)
 	}
-	if PastryLeaves != 1<<uint(PastryBase) && PastryLeaves != 1<<uint(PastryBase+1) {
-		t.Errorf("config (pastry): invalid leave set size: have %v, want %v or %v.", PastryLeaves, 1<<uint(PastryBase), 1<<uint(PastryBase+1))
+	if OverlayLeaves != 1<<uint(OverlayBase) && OverlayLeaves != 1<<uint(OverlayBase+1) {
+		t.Errorf("config (overlay): invalid leave set size: have %v, want %v or %v.", OverlayLeaves, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
 	}
-	if PastryNeighbors != 1<<uint(PastryBase) && PastryNeighbors != 1<<uint(PastryBase+1) {
-		t.Errorf("config (pastry): invalid neghborhood size: have %v, want %v or %v.", PastryNeighbors, 1<<uint(PastryBase), 1<<uint(PastryBase+1))
+	if OverlayNeighbors != 1<<uint(OverlayBase) && OverlayNeighbors != 1<<uint(OverlayBase+1) {
+		t.Errorf("config (overlay): invalid neghborhood size: have %v, want %v or %v.", OverlayNeighbors, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
 	}
 }

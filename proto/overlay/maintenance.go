@@ -16,6 +16,17 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// Contains the overlay and routing table management functionality: one manager
+// go-routine which processes state updates from all connected peers, merging
+// them into the local state and connecting nodes discovered. It is also the one
+// responsible for dropping failed and passive connections, whilse ensuring a
+// valid routing table.
+//
+// The overlay heartbeat mechanism is also implemented here: a beater thread
+// which periodically pings all connected nodes (also adding whether they are
+// considered active).
+
 package overlay
 
 import (
@@ -32,8 +43,9 @@ import (
 
 // Listens for incoming state merge requests, assembles new routing tables based
 // on them, ensures all connections are live in the new table and swaps out the
-// old one. Repeat.
-func (o *overlay) merger() {
+// old one. Repeat. Also removes connections that either failed or were deemed
+// useless.
+func (o *overlay) manager() {
 	var routes *table
 	for {
 		// Copy the existing routing table if required
@@ -101,10 +113,14 @@ func (o *overlay) merger() {
 			o.routes, routes = routes, nil
 			o.time++
 			o.stat = done
+			o.lock.Unlock()
+
+			// Revert to read lock and broadcast state
+			o.lock.RLock()
 			for _, peer := range o.pool {
 				go o.sendState(peer, rep)
 			}
-			o.lock.Unlock()
+			o.lock.RUnlock()
 		}
 	}
 }
@@ -159,13 +175,13 @@ func (o *overlay) merge(t *table, a map[string][]string, s *state) {
 		case old == nil:
 			t.routes[row][col] = id
 		case old.Cmp(id) != 0:
-			// log.Printf("routing entry exists, discarding (should do proximity magic instead): %v", id)
+			// TODO: Proximity magic
 		}
 	}
 	// Merge the neighborhood set (TODO)
 }
 
-// Merges two leafsets and returns the result
+// Merges two leafsets and returns the result.
 func (o *overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
 	// Append, circular sort and fetch uniques
 	res := append(a, b...)
@@ -178,7 +194,9 @@ func (o *overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
 		origin++
 	}
 	// Fetch the nearest nodes in both directions
-	return res[mathext.MaxInt(0, origin-config.PastryLeaves/2):mathext.MinInt(len(res), origin+config.PastryLeaves/2)]
+	min := mathext.MaxInt(0, origin-config.OverlayLeaves/2)
+	max := mathext.MinInt(len(res), origin+config.OverlayLeaves/2)
+	return res[min:max]
 }
 
 // Searches a potential routing table for nodes not yet connected.
@@ -232,7 +250,7 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 		o.lock.RLock()
 		all := make([]*big.Int, 0, len(o.pool))
 		for _, p := range o.pool {
-			all = append(all, p.self)
+			all = append(all, p.nodeId)
 		}
 		o.lock.RUnlock()
 		t.leaves = o.mergeLeaves(t.leaves, all)
@@ -247,8 +265,8 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 					t.routes[r][i] = nil
 					o.lock.RLock()
 					for _, p := range o.pool {
-						if pre, dig := prefix(o.nodeId, p.self); pre == r && dig == i {
-							t.routes[r][i] = p.self
+						if pre, dig := prefix(o.nodeId, p.nodeId); pre == r && dig == i {
+							t.routes[r][i] = p.nodeId
 							break
 						}
 					}
@@ -269,6 +287,7 @@ func (o *overlay) changed(t *table) (ch bool, rep bool) {
 		for i := 0; i < len(t.leaves); i++ {
 			if t.leaves[i].Cmp(o.routes.leaves[i]) != 0 {
 				ch = true
+				break
 			}
 		}
 	}
@@ -295,6 +314,7 @@ func (o *overlay) changed(t *table) (ch bool, rep bool) {
 		for i := 0; i < len(t.nears); i++ {
 			if t.nears[i].Cmp(o.routes.nears[i]) != 0 {
 				ch = true
+				break
 			}
 		}
 	}
@@ -302,9 +322,9 @@ func (o *overlay) changed(t *table) (ch bool, rep bool) {
 }
 
 // Periodically sends a heatbeat to all existing connections, tagging them
-// whether they are actively in the routing table or not.
+// whether they are active (i.e. in the routing) table or not.
 func (o *overlay) beater() {
-	tick := time.Tick(1000 * time.Millisecond)
+	tick := time.Tick(time.Duration(config.OverlayBeatPeriod) * time.Millisecond)
 	for {
 		select {
 		case <-o.quit:
@@ -312,14 +332,14 @@ func (o *overlay) beater() {
 		case <-tick:
 			o.lock.RLock()
 			for _, p := range o.pool {
-				o.sendBeat(p, !o.active(p.self))
+				go o.sendBeat(p, !o.active(p.nodeId))
 			}
 			o.lock.RUnlock()
 		}
 	}
 }
 
-// Returns whether a connection is active or passive
+// Returns whether a connection is active or passive.
 func (o *overlay) active(p *big.Int) bool {
 	for _, id := range o.routes.leaves {
 		if p.Cmp(id) == 0 {

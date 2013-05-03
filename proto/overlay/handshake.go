@@ -184,7 +184,7 @@ func (o *overlay) shake(ses *session.Session) {
 			success = false
 			break
 		}
-		p.self = pkt.Id
+		p.nodeId = pkt.Id
 		p.addrs = pkt.Addrs
 
 		// Everything ok, accept connection
@@ -205,7 +205,7 @@ func (o *overlay) filter(p *peer) {
 
 	// Keep only one active connection
 	var old *peer
-	if old, ok := o.pool[p.self.String()]; ok {
+	if old, ok := o.pool[p.nodeId.String()]; ok {
 		keep := true
 		switch {
 		case old.laddr == p.laddr:
@@ -227,9 +227,9 @@ func (o *overlay) filter(p *peer) {
 		}
 	}
 	// Connections is accepted, start the data handlers
-	o.pool[p.self.String()] = p
+	o.pool[p.nodeId.String()] = p
 	for _, addr := range p.addrs {
-		o.trans[addr] = p.self
+		o.trans[addr] = p.nodeId
 	}
 	go o.sender(p)
 	go o.receiver(p)

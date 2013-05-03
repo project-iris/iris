@@ -154,16 +154,19 @@ var BootSlowProbe = 1000
 var BootScan = 100
 
 // Virtual address space in bits
-var PastrySpace = 128
+var OverlaySpace = 128
 
 // Number of matching bits for the next hop
-var PastryBase = 4
+var OverlayBase = 4
 
 // Number of closest nodes to track in the virtual network
-var PastryLeaves = 16
+var OverlayLeaves = 16
 
 // Number of closes nodes to track in the real network
-var PastryNeighbors = 16
+var OverlayNeighbors = 16
+
+// Heartbeat period to ensure connections are alive and tear down unusde ones (ms)
+var OverlayBeatPeriod = 1000
 
 // Time to wait after session setup for the init packet (ms)
 var OverlayInitTimeout = 2500

@@ -175,7 +175,7 @@ func (o *overlay) sendState(p *peer, repair bool) {
 			}
 		}
 	}
-	idx, _ := prefix(o.nodeId, p.self)
+	idx, _ := prefix(o.nodeId, p.nodeId)
 	for _, id := range o.routes.routes[idx] {
 		if id != nil {
 			sid := id.String()
