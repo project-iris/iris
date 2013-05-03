@@ -16,6 +16,13 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// This file contains the routing logic in the overlay network, which currently
+// is a simplified version of Pastry: the leafset and routing table is the same,
+// but no proximity metric is taken into consideration.
+//
+// Beside the above, it also contains the system event processing logic.
+
 package overlay
 
 import (
@@ -30,21 +37,20 @@ func (o *overlay) route(src *peer, msg *message) {
 	// Sync the routing table
 	o.lock.RLock()
 	defer o.lock.RUnlock()
-	r := o.routes
 
-	// Extract the recipient
-	dest := new(big.Int).Set(msg.head.Dest)
+	// Extract some vars for easier access
+	tab := o.routes
+	dst := msg.head.Dest
 
 	// Check the leaf set for direct delivery
-	if delta(r.leaves[0], dest).Sign() > 0 && delta(dest, r.leaves[len(r.leaves)-1]).Sign() > 0 {
-		best := r.leaves[0]
-		dist := distance(best, dest)
-		for i := 1; i < len(r.leaves); i++ {
-			curLeaf := r.leaves[i]
-			curDist := distance(curLeaf, dest)
-			if curDist.Cmp(dist) < 0 {
-				best = curLeaf
-				dist = curDist
+	// TODO: corner cases with if only handful of nodes
+	// TODO: binary search with idSlice could be used (worthwhile?)
+	if delta(tab.leaves[0], dst).Sign() >= 0 && delta(dst, tab.leaves[len(tab.leaves)-1]).Sign() >= 0 {
+		best := tab.leaves[0]
+		dist := distance(best, dst)
+		for _, leaf := range tab.leaves[1:] {
+			if d := distance(leaf, dst); d.Cmp(dist) < 0 {
+				best, dist = leaf, d
 			}
 		}
 		// If self, deliver, otherwise forward
@@ -56,31 +62,31 @@ func (o *overlay) route(src *peer, msg *message) {
 		return
 	}
 	// Check the routing table for indirect delivery
-	pre, col := prefix(o.nodeId, dest)
-	if best := r.routes[pre][col]; best != nil {
+	pre, col := prefix(o.nodeId, dst)
+	if best := tab.routes[pre][col]; best != nil {
 		o.forward(src, msg, best)
 		return
 	}
-	// Route to anybody closer
-	dist := distance(o.nodeId, dest)
-	for _, peer := range r.leaves {
-		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+	// Route to anybody closer than the local node
+	dist := distance(o.nodeId, dst)
+	for _, peer := range tab.leaves {
+		if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
 	}
-	for _, row := range r.routes {
+	for _, row := range tab.routes {
 		for _, peer := range row {
 			if peer != nil {
-				if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+				if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
 					o.forward(src, msg, peer)
 					return
 				}
 			}
 		}
 	}
-	for _, peer := range r.nears {
-		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+	for _, peer := range tab.nears {
+		if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
@@ -89,7 +95,7 @@ func (o *overlay) route(src *peer, msg *message) {
 	o.deliver(src, msg)
 }
 
-// Delivers a message to the application layer or process if sys message.
+// Delivers a message to the application layer or processes it if a system message.
 func (o *overlay) deliver(src *peer, msg *message) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
@@ -99,19 +105,20 @@ func (o *overlay) deliver(src *peer, msg *message) {
 }
 
 // Forwards a message to the node with the given id and also checks its contents
-// if system message.
+// if it's a system message.
 func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	}
 	if p, ok := o.pool[id.String()]; ok {
-		p.out <- msg
+		o.send(msg, p)
 	}
 }
 
-// Processes a pastry system messages: for joins it simply responds with the
-// local state, whilst for state updates if verifies the timestamps and acts
-// accordingly.
+// Processes overlay system messages: for joins it simply responds with the
+// local state, whilst for state updates if verifies the timestamps and merges
+// if newer, also always replying if a repair request was included. Finally the
+// heartbeat messages are checked and two-way idle connections dropped.
 func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
 		// Join request, connect (if needed) and send local state
@@ -141,13 +148,13 @@ func (o *overlay) process(src *peer, dst *big.Int, s *state) {
 			o.upSink <- s
 			o.lock.RLock()
 		}
-		// Connection filtering, drop if idle on this side too
+		// Connection filtering: drop after two requests and if local is idle too
 		if src.passive && s.Passive && !o.active(src.self) {
-			fmt.Println(o.nodeId, "dropping", src.self)
 			o.lock.RUnlock()
 			o.dropSink <- src
 			o.lock.RLock()
 		} else {
+			// Save passive state for next beat
 			src.passive = s.Passive
 		}
 	}
