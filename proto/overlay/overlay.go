@@ -79,6 +79,27 @@ type table struct {
 	nears  []*big.Int
 }
 
+// Creates a copy of the routing table
+func (t *table) Copy() *table {
+	res := new(table)
+
+	// Copy the leafset
+	res.leaves = make([]*big.Int, len(t.leaves))
+	copy(res.leaves, t.leaves)
+
+	// Copy the routing table
+	res.routes = make([][]*big.Int, len(t.routes))
+	for i := 0; i < len(res.routes); i++ {
+		res.routes[i] = make([]*big.Int, len(t.routes[i]))
+		copy(res.routes[i], t.routes[i])
+	}
+	// Copy the neighborhood
+	res.nears = make([]*big.Int, len(t.nears))
+	copy(res.nears, t.nears)
+
+	return res
+}
+
 // Peer state information.
 type peer struct {
 	// Virtual id and reachable addresses
@@ -103,10 +124,9 @@ type peer struct {
 	enc *gob.Encoder
 
 	// Pastry state infos
-	time uint64
-
-	// Activity state
+	time    uint64
 	passive bool
+	killed  bool
 }
 
 // Boots the iris network on each IPv4 interface present.

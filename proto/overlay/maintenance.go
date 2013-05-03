@@ -39,16 +39,7 @@ func (o *overlay) merger() {
 		// Copy the existing routing table if required
 		if routes == nil {
 			o.lock.RLock()
-			routes = new(table)
-			routes.leaves = make([]*big.Int, len(o.routes.leaves))
-			copy(routes.leaves, o.routes.leaves)
-			routes.routes = make([][]*big.Int, len(o.routes.routes))
-			for i := 0; i < len(routes.routes); i++ {
-				routes.routes[i] = make([]*big.Int, len(o.routes.routes[i]))
-				copy(routes.routes[i], o.routes.routes[i])
-			}
-			routes.nears = make([]*big.Int, len(o.routes.nears))
-			copy(routes.nears, o.routes.nears)
+			routes = o.routes.Copy()
 			o.lock.RUnlock()
 		}
 		addrs := make(map[string][]string)
@@ -84,7 +75,7 @@ func (o *overlay) merger() {
 				for _, id := range peers {
 					for _, a := range addrs[id.String()] {
 						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-							log.Println("failed to resolve address %v: %v.", a, err)
+							log.Printf("failed to resolve address %v: %v.", a, err)
 						} else {
 							o.dial(addr)
 						}
@@ -123,11 +114,18 @@ func (o *overlay) drop(d *peer) {
 	o.lock.Lock()
 	defer o.lock.Unlock()
 
-	close(d.quit)
+	// Make sure we kill it only once
+	if !d.killed {
+		d.killed = true
+		close(d.quit)
+	}
+	// Clear up leftovers
 	for id, p := range o.pool {
 		if d == p {
 			delete(o.pool, id)
-			delete(o.trans, id)
+			for _, addr := range d.addrs {
+				delete(o.trans, addr)
+			}
 			break
 		}
 	}
