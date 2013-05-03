@@ -166,7 +166,10 @@ var PastryLeaves = 16
 var PastryNeighbors = 16
 
 // Time to wait after session setup for the init packet (ms)
-var PastryInitTimeout = 500
+var OverlayInitTimeout = 2500
+
+// Time limit for sending a message before the connection is dropped (ms)
+var OverlaySendTimeout = 10000
 
 // Distributed application identifier
 var AppGlobalId = []byte("iris")

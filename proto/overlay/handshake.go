@@ -16,6 +16,13 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// This file contains the overlay session listener and negotiation. For every
+// network interface a separate bootstrapper and session acceptor is started,
+// faning in discovered peers and incoming (cryptographically already set up
+// sessions). An single go routine is responsible for gathering all the data
+// from the interfaces and executing the overlay handshake.
+
 package overlay
 
 import (
@@ -51,10 +58,10 @@ func (o *overlay) acceptor(ip net.IP) {
 	}
 	defer close(quit)
 
-	// Save the new listener address into the local address list
+	// Save the new listener address into the local (sorted) address list
 	o.lock.Lock()
 	o.addrs = append(o.addrs, addr.String())
-	sort.Sort(sort.StringSlice(o.addrs))
+	sort.Strings(o.addrs)
 	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
@@ -78,7 +85,7 @@ func (o *overlay) acceptor(ip net.IP) {
 }
 
 // Processes the incoming connections: for bootstrap messages it makes sure that
-// the node is not already connencted and if not, dials the remote node, setting
+// the node isn't already connected and if not, dials the remote node, setting
 // up a secure session and executing the overlay handshake. For incoming session
 // requests the handshake alone is done.
 func (o *overlay) shaker() {
@@ -100,22 +107,22 @@ func (o *overlay) shaker() {
 	}
 }
 
-// Asynchronously connects to a remote pastry peer and executes handshake. In
+// Asynchronously connects to a remote overlay peer and executes handshake. In
 // the mean time, the overlay waitgroup is marked to signal pending connections.
 func (o *overlay) dial(addr *net.TCPAddr) {
 	o.pend.Add(1)
 	go func() {
 		defer o.pend.Done()
-		// Sanity check to make sure self connections are not possible
+		// Sanity check to make sure self connections are not possible (i.e. malicious bootstrapper)
 		for _, a := range o.addrs {
 			if addr.String() == a {
-				log.Printf("self connection is not allowed: %v.", o.nodeId)
+				log.Printf("self connection not allowed: %v.", o.nodeId)
 				return
 			}
 		}
 		// Dial away
 		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
-			log.Printf("failed to dial remote pastry peer: %v.", err)
+			log.Printf("failed to dial remote peer: %v.", err)
 		} else {
 			o.shake(ses)
 		}
@@ -123,9 +130,9 @@ func (o *overlay) dial(addr *net.TCPAddr) {
 }
 
 // Executes a two way overlay handshake where both peers exchange their server
-// addresses and virtual ids to enable both to filter out multiple connections.
-// To prevent resource exhaustion, a timeout is attached to the handshake, the
-// violation of which results in a dropped connection.
+// addresses and virtual ids to enable them both to filter out multiple
+// connections. To prevent resource exhaustion, a timeout is attached to the
+// handshake, the violation of which results in a dropped connection.
 func (o *overlay) shake(ses *session.Session) {
 	p := new(peer)
 
@@ -149,8 +156,7 @@ func (o *overlay) shake(ses *session.Session) {
 	o.lock.RUnlock()
 
 	if err := p.enc.Encode(pkt); err != nil {
-		log.Printf("failed to encode init packet: %v.", err)
-		return
+		panic(fmt.Sprintf("failed to encode init packet: %v.", err))
 	}
 	msg := new(session.Message)
 	msg.Head.Meta = make([]byte, p.outBuf.Len())
@@ -159,26 +165,34 @@ func (o *overlay) shake(ses *session.Session) {
 	p.netOut <- msg
 
 	// Wait for an incoming init packet
-	timeout := time.Tick(time.Duration(config.PastryInitTimeout) * time.Millisecond)
+	timeout := time.Tick(time.Duration(config.OverlayInitTimeout) * time.Millisecond)
+	success := true
 	select {
 	case <-timeout:
-		log.Printf("session initialization timed out: %vms.", config.PastryInitTimeout)
-		return
+		log.Printf("session initialization timed out.")
+		success = false
+		break
 	case msg, ok := <-p.netIn:
 		if !ok {
 			log.Printf("remote closed connection before init packet.")
-			return
+			success = false
+			break
 		}
 		p.inBuf.Write(msg.Head.Meta)
 		if err := p.dec.Decode(pkt); err != nil {
 			log.Printf("failed to decode remote init packet: %v.", err)
-			return
+			success = false
+			break
 		}
 		p.self = pkt.Id
 		p.addrs = pkt.Addrs
 
 		// Everything ok, accept connection
 		o.filter(p)
+	}
+	// Make sure we release anything associated with a failed connection
+	if !success {
+		close(p.quit)
 	}
 }
 
@@ -220,14 +234,14 @@ func (o *overlay) filter(p *peer) {
 	go o.sender(p)
 	go o.receiver(p)
 
-	// Save old state for later (fewer lock release points)
+	// If we swapped, terminate the old directly
+	if old != nil {
+		close(old.quit)
+	}
+	// Decide whether to send a join request or a state exchange
 	status := o.stat
 	if o.stat == none {
 		o.stat = join
-	}
-	// If we swapped, terminate the old
-	if old != nil {
-		close(old.quit)
 	}
 	// Release lock before proceeding with state exchanges
 	o.lock.Unlock() // There's one more release point!
