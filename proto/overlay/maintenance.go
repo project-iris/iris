@@ -107,8 +107,8 @@ func (o *overlay) manager() {
 			o.lock.Lock()
 			fmt.Printf("New routing table for %v:\n", o.nodeId)
 			fmt.Printf("Leafset: %v\n", routes.leaves)
-			fmt.Printf("Routes: %v\n", routes.routes)
-			fmt.Printf("Neighbors: %v\n", routes.nears)
+			/*fmt.Printf("Routes: %v\n", routes.routes)
+			fmt.Printf("Neighbors: %v\n", routes.nears)*/
 			fmt.Println("")
 			o.routes, routes = routes, nil
 			o.time++
