@@ -162,8 +162,8 @@ func benchmarkForwarding(b *testing.B, block int) {
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *Message, 2)
-	srvApp := make(chan *Message, 2)
+	cliApp := make(chan *Message, 64)
+	srvApp := make(chan *Message, 64)
 
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
