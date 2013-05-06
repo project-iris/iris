@@ -142,8 +142,8 @@ func (o *Overlay) shake(ses *session.Session) {
 	p.enc = gob.NewEncoder(&p.outBuf)
 
 	p.quit = make(chan struct{})
-	p.out = make(chan *message)
-	p.netIn = make(chan *session.Message)
+	p.out = make(chan *message, config.OverlayNetPreBuffer)
+	p.netIn = make(chan *session.Message, config.OverlayNetBuffer)
 	p.netOut = ses.Communicate(p.netIn, p.quit)
 
 	// Send an init packet to the remote peer

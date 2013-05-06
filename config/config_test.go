@@ -117,4 +117,8 @@ func TestOverlay(t *testing.T) {
 	if OverlayNeighbors != 1<<uint(OverlayBase) && OverlayNeighbors != 1<<uint(OverlayBase+1) {
 		t.Errorf("config (overlay): invalid neghborhood size: have %v, want %v or %v.", OverlayNeighbors, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
 	}
+	// Make some trivial checks for the tuning parameters
+	if OverlayNetBuffer < 16 || OverlayNetBuffer > 128 {
+		t.Errorf("config (overlay): strange network buffer size: have %v, want from [16..128].", OverlayNetBuffer)
+	}
 }

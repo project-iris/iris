@@ -190,7 +190,7 @@ func benchmarkPassing(b *testing.B, block int) {
 	defer recv.Shutdown()
 
 	// Wait a while for booting to finish
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Reset timer and start message passing
 	b.ResetTimer()
@@ -278,7 +278,7 @@ func benchmarkThroughput(b *testing.B, block int) {
 		}
 	}
 	// Wait a while for booting to finish
-	time.Sleep(2 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// Reset timer and start message passing
 	b.ResetTimer()
