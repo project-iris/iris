@@ -1,18 +1,19 @@
   Iris - Distributed Messaging Framework - Todo list
 ======================================================
 
-This is a collection of features that have not yet been implemented, but they should eventually been added.
+Stuff that need implementing, fixing or testing.
 
-- Overlay
-    - Limit the state exchange threads
-    - Limit number of parallel STS handshakes (CPU exhaustion)
-    - Proximity features for Pastry
-    - Buffered channels to handle bursts
-
-  Fix
--------
-
-List of known bugs to make sure they don't go missing.
-
-- Overlay
-    - Self connection is sometimes attempted. Should only occured with a malicious node.
+- Features
+    - Overlay
+        - Limit the state exchange threads
+        - Limit number of parallel STS handshakes (CPU exhaustion)
+        - Proximity features for Pastry
+        - Buffered channels to handle bursts
+- Bugs
+    - Overlay
+        - Self connection is sometimes attempted. Should only occured with a malicious node.
+- Misc
+    - Overlay
+        - Benchmark and tune the handshakes
+        - Benchmark and tune the state maintenance and updates
+        - Benchmark and tune the routing performance

@@ -31,7 +31,6 @@ package overlay
 
 import (
 	"config"
-	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"log"
@@ -105,11 +104,6 @@ func (o *overlay) manager() {
 		// Swap and broadcast if anything changed
 		if ch, rep := o.changed(routes); ch {
 			o.lock.Lock()
-			fmt.Printf("New routing table for %v:\n", o.nodeId)
-			fmt.Printf("Leafset: %v\n", routes.leaves)
-			/*fmt.Printf("Routes: %v\n", routes.routes)
-			fmt.Printf("Neighbors: %v\n", routes.nears)*/
-			fmt.Println("")
 			o.routes, routes = routes, nil
 			o.time++
 			o.stat = done
