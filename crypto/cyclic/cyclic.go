@@ -71,5 +71,4 @@ func New(random io.Reader, bits int) (*Group, error) {
 			}
 		}
 	}
-	return nil, nil
 }
