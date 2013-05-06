@@ -111,7 +111,43 @@ func TestForwarding(t *testing.T) {
 	close(quit)
 }
 
-func BenchmarkForwarding(b *testing.B) {
+func BenchmarkForwarding1Byte(b *testing.B) {
+	benchmarkForwarding(b, 1)
+}
+
+func BenchmarkForwarding16Byte(b *testing.B) {
+	benchmarkForwarding(b, 16)
+}
+
+func BenchmarkForwarding256Byte(b *testing.B) {
+	benchmarkForwarding(b, 256)
+}
+
+func BenchmarkForwarding1KByte(b *testing.B) {
+	benchmarkForwarding(b, 1024)
+}
+
+func BenchmarkForwarding4KByte(b *testing.B) {
+	benchmarkForwarding(b, 4096)
+}
+
+func BenchmarkForwarding16KByte(b *testing.B) {
+	benchmarkForwarding(b, 16384)
+}
+
+func BenchmarkForwarding64KByte(b *testing.B) {
+	benchmarkForwarding(b, 65536)
+}
+
+func BenchmarkForwarding256KByte(b *testing.B) {
+	benchmarkForwarding(b, 262144)
+}
+
+func BenchmarkForwarding1MByte(b *testing.B) {
+	benchmarkForwarding(b, 1048576)
+}
+
+func benchmarkForwarding(b *testing.B, block int) {
 	// Setup the benchmark: public keys, stores and sessions
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
 
@@ -135,7 +171,6 @@ func BenchmarkForwarding(b *testing.B) {
 	head := Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
 
 	// Generate a large batch of random data to forward
-	block := 8192
 	b.SetBytes(int64(block))
 	msgs := make([]Message, b.N)
 	for i := 0; i < b.N; i++ {
