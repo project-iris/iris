@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-func checkRoutes(t *testing.T, nodes []*overlay) {
+func checkRoutes(t *testing.T, nodes []*Overlay) {
 	// Extract the ids from the running nodes
 	ids := make([]*big.Int, len(nodes))
 	for i, o := range nodes {
@@ -102,16 +102,16 @@ func TestMaintenance(t *testing.T) {
 	// Make sure there are enough ports to use
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
-	for i := 0; i < 16; i++ {
+	for i := 0; i < originals+additions; i++ {
 		config.BootPorts = append(config.BootPorts, 65520+i)
 	}
 	// Parse encryption key
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 
 	// Start handful of nodes and ensure valid routing state
-	nodes := []*overlay{}
+	nodes := []*Overlay{}
 	for i := 0; i < originals; i++ {
-		nodes = append(nodes, New(appId, key))
+		nodes = append(nodes, New(appId, key, nil))
 		if err := nodes[i].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}
@@ -125,7 +125,7 @@ func TestMaintenance(t *testing.T) {
 
 	// Start some additional nodes and ensure still valid routing state
 	for i := 0; i < additions; i++ {
-		nodes = append(nodes, New(appId, key))
+		nodes = append(nodes, New(appId, key, nil))
 		if err := nodes[len(nodes)-1].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}

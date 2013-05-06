@@ -26,14 +26,13 @@
 package overlay
 
 import (
-	"fmt"
 	"log"
 	"math/big"
 	"net"
 )
 
 // Pastry routing algorithm.
-func (o *overlay) route(src *peer, msg *message) {
+func (o *Overlay) route(src *peer, msg *message) {
 	// Sync the routing table
 	o.lock.RLock()
 	defer o.lock.RUnlock()
@@ -96,17 +95,20 @@ func (o *overlay) route(src *peer, msg *message) {
 }
 
 // Delivers a message to the application layer or processes it if a system message.
-func (o *overlay) deliver(src *peer, msg *message) {
+func (o *Overlay) deliver(src *peer, msg *message) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	} else {
-		fmt.Println("Deliver:", msg)
+		// Remove all overlay infos from the message and send upwards
+		m := msg.data
+		m.Head.Meta = msg.head.Meta
+		o.app.Deliver(m)
 	}
 }
 
 // Forwards a message to the node with the given id and also checks its contents
 // if it's a system message.
-func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
+func (o *Overlay) forward(src *peer, msg *message, id *big.Int) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	}
@@ -119,7 +121,7 @@ func (o *overlay) forward(src *peer, msg *message, id *big.Int) {
 // local state, whilst for state updates if verifies the timestamps and merges
 // if newer, also always replying if a repair request was included. Finally the
 // heartbeat messages are checked and two-way idle connections dropped.
-func (o *overlay) process(src *peer, dst *big.Int, s *state) {
+func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
 		// Join request, connect (if needed) and send local state
 		if p, ok := o.pool[dst.String()]; !ok {

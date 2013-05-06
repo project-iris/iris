@@ -44,7 +44,7 @@ import (
 // on them, ensures all connections are live in the new table and swaps out the
 // old one. Repeat. Also removes connections that either failed or were deemed
 // useless.
-func (o *overlay) manager() {
+func (o *Overlay) manager() {
 	var routes *table
 	for {
 		// Copy the existing routing table if required
@@ -120,7 +120,7 @@ func (o *overlay) manager() {
 }
 
 // Drops an active peer connection due to either a failure or uselessness.
-func (o *overlay) drop(d *peer) {
+func (o *Overlay) drop(d *peer) {
 	o.lock.Lock()
 	defer o.lock.Unlock()
 
@@ -144,7 +144,7 @@ func (o *overlay) drop(d *peer) {
 // Merges the recieved state into the provided routing table according to the
 // pastry specs (neighborhood unimplemented for the moment). Also each peer's
 // network address is saved for later use.
-func (o *overlay) merge(t *table, a map[string][]string, s *state) {
+func (o *Overlay) merge(t *table, a map[string][]string, s *state) {
 	// Extract the ids from the state exchange
 	ids := make([]*big.Int, 0, len(s.Addrs))
 	for sid, addrs := range s.Addrs {
@@ -176,7 +176,7 @@ func (o *overlay) merge(t *table, a map[string][]string, s *state) {
 }
 
 // Merges two leafsets and returns the result.
-func (o *overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
+func (o *Overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
 	// Append, circular sort and fetch uniques
 	res := append(a, b...)
 	sort.Sort(idSlice{o.nodeId, res})
@@ -194,7 +194,7 @@ func (o *overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
 }
 
 // Searches a potential routing table for nodes not yet connected.
-func (o *overlay) discover(t *table) []*big.Int {
+func (o *Overlay) discover(t *table) []*big.Int {
 	o.lock.RLock()
 	defer o.lock.RUnlock()
 
@@ -225,7 +225,7 @@ func (o *overlay) discover(t *table) []*big.Int {
 }
 
 // Revokes the list of unreachable peers from routing table t.
-func (o *overlay) revoke(t *table, downs []*big.Int) {
+func (o *Overlay) revoke(t *table, downs []*big.Int) {
 	sortext.BigInts(downs)
 
 	// Clean up the leaf set
@@ -273,7 +273,7 @@ func (o *overlay) revoke(t *table, downs []*big.Int) {
 }
 
 // Checks whether the routing table changed and if yes, whether it needs repairs.
-func (o *overlay) changed(t *table) (ch bool, rep bool) {
+func (o *Overlay) changed(t *table) (ch bool, rep bool) {
 	// Check the leaf set
 	if len(t.leaves) != len(o.routes.leaves) {
 		ch = true
@@ -317,7 +317,7 @@ func (o *overlay) changed(t *table) (ch bool, rep bool) {
 
 // Periodically sends a heatbeat to all existing connections, tagging them
 // whether they are active (i.e. in the routing) table or not.
-func (o *overlay) beater() {
+func (o *Overlay) beater() {
 	tick := time.Tick(time.Duration(config.OverlayBeatPeriod) * time.Millisecond)
 	for {
 		select {
@@ -334,7 +334,7 @@ func (o *overlay) beater() {
 }
 
 // Returns whether a connection is active or passive.
-func (o *overlay) active(p *big.Int) bool {
+func (o *Overlay) active(p *big.Int) bool {
 	for _, id := range o.routes.leaves {
 		if p.Cmp(id) == 0 {
 			return true

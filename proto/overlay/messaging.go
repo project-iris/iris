@@ -60,7 +60,7 @@ type message struct {
 // inbound message and invokes the router to finish the job. The thread stops at
 // either overlay termination, connection termination, network error or packet
 // format error.
-func (o *overlay) receiver(p *peer) {
+func (o *Overlay) receiver(p *peer) {
 	defer func() { o.dropSink <- p }()
 	for {
 		select {
@@ -88,7 +88,7 @@ func (o *overlay) receiver(p *peer) {
 // session format and sends them on their way. The thread stops at either
 // overlay termination, connection termination, application outboung channel
 // close or network timeout.
-func (o *overlay) sender(p *peer) {
+func (o *Overlay) sender(p *peer) {
 	defer close(p.netOut)
 	for {
 		select {
@@ -124,7 +124,7 @@ func (o *overlay) sender(p *peer) {
 // Sends an already assembled message m to peer p. To prevent the system from
 // locking up due to a slow peer, p is dropped if a timeout is reached. Quit
 // events are also checked to ensure a close immediately notifies all senders.
-func (o *overlay) send(m *message, p *peer) {
+func (o *Overlay) send(m *message, p *peer) {
 	timeout := time.Tick(time.Duration(config.OverlaySendTimeout) * time.Millisecond)
 	select {
 	case <-o.quit:
@@ -141,7 +141,7 @@ func (o *overlay) send(m *message, p *peer) {
 
 // Sends an overlay join message to the remote peer, which is a simple state
 // package having 0 as the update time and containing only the local addresses.
-func (o *overlay) sendJoin(p *peer) {
+func (o *Overlay) sendJoin(p *peer) {
 	s := new(state)
 	s.Addrs = make(map[string][]string)
 
@@ -155,7 +155,7 @@ func (o *overlay) sendJoin(p *peer) {
 
 // Sends an overlay state message to the remote peer and optionally may request a
 // state update in response (route repair).
-func (o *overlay) sendState(p *peer, repair bool) {
+func (o *Overlay) sendState(p *peer, repair bool) {
 	s := new(state)
 	s.Addrs = make(map[string][]string)
 	s.Repair = repair
@@ -196,7 +196,7 @@ func (o *overlay) sendState(p *peer, repair bool) {
 
 // Sends a heartbeat message, tagging whether the connection is an active route
 // entry or not.
-func (o *overlay) sendBeat(p *peer, passive bool) {
+func (o *Overlay) sendBeat(p *peer, passive bool) {
 	s := new(state)
 	s.Passive = passive
 

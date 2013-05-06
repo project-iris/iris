@@ -46,7 +46,7 @@ type initPacket struct {
 
 // Starts up the overlay networking on a specified interface and fans in all the
 // inbound connections into the overlay-global channels.
-func (o *overlay) acceptor(ip net.IP) {
+func (o *Overlay) acceptor(ip net.IP) {
 	// Listen for incomming session on the given interface and random port.
 	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
@@ -88,7 +88,7 @@ func (o *overlay) acceptor(ip net.IP) {
 // the node isn't already connected and if not, dials the remote node, setting
 // up a secure session and executing the overlay handshake. For incoming session
 // requests the handshake alone is done.
-func (o *overlay) shaker() {
+func (o *Overlay) shaker() {
 	for {
 		select {
 		case <-o.quit:
@@ -109,7 +109,7 @@ func (o *overlay) shaker() {
 
 // Asynchronously connects to a remote overlay peer and executes handshake. In
 // the mean time, the overlay waitgroup is marked to signal pending connections.
-func (o *overlay) dial(addr *net.TCPAddr) {
+func (o *Overlay) dial(addr *net.TCPAddr) {
 	o.pend.Add(1)
 	go func() {
 		defer o.pend.Done()
@@ -133,7 +133,7 @@ func (o *overlay) dial(addr *net.TCPAddr) {
 // addresses and virtual ids to enable them both to filter out multiple
 // connections. To prevent resource exhaustion, a timeout is attached to the
 // handshake, the violation of which results in a dropped connection.
-func (o *overlay) shake(ses *session.Session) {
+func (o *Overlay) shake(ses *session.Session) {
 	p := new(peer)
 
 	p.laddr = ses.Raw().LocalAddr().String()
@@ -200,7 +200,7 @@ func (o *overlay) shake(ses *session.Session) {
 // already exists, either the old or the new is dropped:
 //  - If old and new have the same direction (race), keep the lower client
 //  - Otherwise server (host:port) should be smaller (covers multi-instance too)
-func (o *overlay) filter(p *peer) {
+func (o *Overlay) filter(p *peer) {
 	o.lock.Lock()
 
 	// Keep only one active connection

@@ -45,8 +45,15 @@ const (
 	done
 )
 
+// Callback for events leaving the overlay network.
+type Callback interface {
+	Deliver(msg *session.Message)
+}
+
 // Internal structure for the overlay state information.
-type overlay struct {
+type Overlay struct {
+	app Callback
+
 	// Local and remote keys to authorize
 	lkey  *rsa.PrivateKey
 	rkeys map[string]*rsa.PublicKey
@@ -108,8 +115,9 @@ type peer struct {
 // Creates a new overlay structure with all internal state initialized, ready to
 // be booted. Self is used as the id used for discovering similar peers, and key
 // for the security.
-func New(self string, key *rsa.PrivateKey) *overlay {
-	o := new(overlay)
+func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
+	o := new(Overlay)
+	o.app = app
 
 	o.lkey = key
 	o.rkeys = make(map[string]*rsa.PublicKey)
@@ -140,7 +148,7 @@ func New(self string, key *rsa.PrivateKey) *overlay {
 
 // Boots the overlay network: it starts up boostrappers and connection acceptors
 // on all local IPv4 interfaces, after which the overlay management is booted.
-func (o *overlay) Boot() error {
+func (o *Overlay) Boot() error {
 	// Start the individual acceptors
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -161,6 +169,16 @@ func (o *overlay) Boot() error {
 }
 
 // Sends a termination signal to all the go routines part of the overlay.
-func (o *overlay) Shutdown() {
+func (o *Overlay) Shutdown() {
 	close(o.quit)
+}
+
+// Sends a message to the closest node to the given destination.
+func (o *Overlay) Send(dst *big.Int, msg *session.Message) {
+	// Extract the metadata from the message
+	meta := msg.Head.Meta
+	msg.Head.Meta = nil
+
+	// Assemble and send an internal message with overlay state included
+	o.route(nil, &message{&header{dst, nil, meta}, msg})
 }
