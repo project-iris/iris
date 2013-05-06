@@ -73,6 +73,9 @@ var privKeyDerBad = []byte{
 var appIdBad = "overlay.test.bad"
 
 func TestHandshake(t *testing.T) {
+	// Make sure cleanups terminate before returning
+	defer time.Sleep(3 * time.Second)
+
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 	bad, _ := x509.ParsePKCS1PrivateKey(privKeyDerBad)
 

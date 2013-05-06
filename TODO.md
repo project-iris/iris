@@ -16,5 +16,3 @@ List of known bugs to make sure they don't go missing.
 
 - Overlay
     - Self connection is sometimes attempted. Should only occured with a malicious node.
-    - Shutdown may not terminate overlays (at least fast enough, needs tests).
-

@@ -15,7 +15,7 @@
 // and conditions contained in a signed written agreement between you and the
 // author(s).
 //
-// Author: pete =rke@gmail.com (Peter Szilagyi)
+// Author: peterke@gmail.com (Peter Szilagyi)
 
 package overlay
 
@@ -57,10 +57,46 @@ func checkRoutes(t *testing.T, nodes []*overlay) {
 			}
 		}
 	}
+	// Check the routing table for each node
+	for _, o := range nodes {
+		for r, row := range o.routes.routes {
+			for c, p := range row {
+				if p == nil {
+					// Check that indeed no id is valid for this entry
+					for _, id := range ids {
+						if id.Cmp(o.nodeId) != 0 {
+							if pre, dig := prefix(o.nodeId, id); pre == r && dig == c {
+								t.Errorf("overlay %v: entry {%v, %v} missing: %v.", o.nodeId, r, c, id)
+							}
+						}
+					}
+				} else {
+					// Check that the id is valid and indeed not some leftover
+					if pre, dig := prefix(o.nodeId, p); pre != r || dig != c {
+						t.Errorf("overlay %v: entry {%v, %v} invalid: %v.", o.nodeId, r, c, p)
+					}
+					alive := false
+					for _, id := range ids {
+						if id.Cmp(p) == 0 {
+							alive = true
+							break
+						}
+					}
+					if !alive {
+						t.Errorf("overlay %v: entry {%v, %v} already dead: %v.", o.nodeId, r, c, p)
+					}
+				}
+			}
+		}
+	}
+	// TODO: neighborhood check eventually
 }
 
 func TestMaintenance(t *testing.T) {
-	originals := 4
+	// Make sure cleanups terminate before returning
+	defer time.Sleep(3 * time.Second)
+
+	originals := 3
 	additions := 2
 
 	// Make sure there are enough ports to use
@@ -107,7 +143,7 @@ func TestMaintenance(t *testing.T) {
 	nodes = nodes[:originals]
 
 	// Wait a while for state updates to propagate
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Check the routing tables
 	checkRoutes(t, nodes)
