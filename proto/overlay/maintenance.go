@@ -37,6 +37,7 @@ import (
 	"math/big"
 	"net"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -45,6 +46,7 @@ import (
 // old one. Repeat. Also removes connections that either failed or were deemed
 // useless.
 func (o *Overlay) manager() {
+	var pending sync.WaitGroup
 	var routes *table
 	for {
 		// Copy the existing routing table if required
@@ -88,12 +90,16 @@ func (o *Overlay) manager() {
 						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
 							log.Printf("failed to resolve address %v: %v.", a, err)
 						} else {
-							o.dial(addr)
+							pending.Add(1)
+							go func() {
+								defer pending.Done()
+								o.dial(addr)
+							}()
 						}
 					}
 				}
 				// Wait till all outbound connections either complete or timeout
-				o.pend.Wait()
+				pending.Wait()
 
 				// Do another round of discovery to find broken links and revert/remove those entries
 				if downs := o.discover(routes); len(downs) != 0 {

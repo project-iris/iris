@@ -78,9 +78,8 @@ type Overlay struct {
 	dropSink chan *peer
 	quit     chan struct{}
 
-	// Syncer for state mods after booting and wait group for dials in progress.
+	// Syncer for state mods after booting
 	lock sync.RWMutex
-	pend sync.WaitGroup
 }
 
 // Peer state information.

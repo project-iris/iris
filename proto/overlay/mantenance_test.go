@@ -118,7 +118,7 @@ func TestMaintenance(t *testing.T) {
 		defer nodes[i].Shutdown()
 	}
 	// Wait a while for the handshakes to complete
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Check the routing tables
 	checkRoutes(t, nodes)
@@ -131,7 +131,7 @@ func TestMaintenance(t *testing.T) {
 		}
 	}
 	// Wait a while for the handshakes to complete
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Check the routing tables
 	checkRoutes(t, nodes)

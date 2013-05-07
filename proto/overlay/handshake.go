@@ -99,7 +99,7 @@ func (o *Overlay) shaker() {
 			_, ok := o.trans[boot.String()]
 			o.lock.RUnlock()
 			if !ok {
-				o.dial(boot)
+				go o.dial(boot)
 			}
 		case ses := <-o.sesSink:
 			go o.shake(ses)
@@ -110,23 +110,19 @@ func (o *Overlay) shaker() {
 // Asynchronously connects to a remote overlay peer and executes handshake. In
 // the mean time, the overlay waitgroup is marked to signal pending connections.
 func (o *Overlay) dial(addr *net.TCPAddr) {
-	o.pend.Add(1)
-	go func() {
-		defer o.pend.Done()
-		// Sanity check to make sure self connections are not possible (i.e. malicious bootstrapper)
-		for _, a := range o.addrs {
-			if addr.String() == a {
-				log.Printf("self connection not allowed: %v.", o.nodeId)
-				return
-			}
+	// Sanity check to make sure self connections are not possible (i.e. malicious bootstrapper)
+	for _, a := range o.addrs {
+		if addr.String() == a {
+			log.Printf("self connection not allowed: %v.", o.nodeId)
+			return
 		}
-		// Dial away
-		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
-			log.Printf("failed to dial remote peer: %v.", err)
-		} else {
-			o.shake(ses)
-		}
-	}()
+	}
+	// Dial away
+	if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
+		log.Printf("failed to dial remote peer: %v.", err)
+	} else {
+		o.shake(ses)
+	}
 }
 
 // Executes a two way overlay handshake where both peers exchange their server
