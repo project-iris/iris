@@ -79,9 +79,8 @@ type Overlay struct {
 	dropSink chan *peer
 	quit     chan struct{}
 
-	// Thread pools to limit prevent thread proliferation
+	// Thread pool to limit thread proliferation
 	auther *pool.ThreadPool
-	excher *pool.ThreadPool
 
 	// Syncer for state mods after booting
 	lock sync.RWMutex
@@ -148,7 +147,6 @@ func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
 	o.quit = make(chan struct{})
 
 	o.auther = pool.NewThreadPool(config.OverlayAuthThreads)
-	o.excher = pool.NewThreadPool(config.OverlayExchThreads)
 
 	return o
 }
@@ -174,17 +172,13 @@ func (o *Overlay) Boot() error {
 	go o.beater()
 
 	o.auther.Start()
-	o.excher.Start()
-
 	return nil
 }
 
 // Sends a termination signal to all the go routines part of the overlay.
 func (o *Overlay) Shutdown() {
 	close(o.quit)
-
 	o.auther.Terminate()
-	o.excher.Terminate()
 }
 
 // Sends a message to the closest node to the given destination.

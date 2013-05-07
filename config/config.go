@@ -184,7 +184,7 @@ var OverlayNetBuffer = 64
 var OverlayAuthThreads = 8
 
 // Maximum number of state exchanges allowed concurrently.
-var OverlayExchThreads = 64
+var OverlayExchThreads = 128
 
 // Distributed application identifier
 var AppGlobalId = []byte("iris")

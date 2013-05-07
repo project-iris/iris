@@ -22,10 +22,8 @@ package overlay
 import (
 	"config"
 	"crypto/x509"
-	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"math/big"
-	"runtime"
 	"sort"
 	"testing"
 	"time"
@@ -151,6 +149,7 @@ func TestMaintenance(t *testing.T) {
 	checkRoutes(t, nodes)
 }
 
+/*
 func TestMaintenanceDOS(t *testing.T) {
 	// Make sure cleanups terminate before returning
 	defer time.Sleep(3 * time.Second)
@@ -199,3 +198,4 @@ func TestMaintenanceDOS(t *testing.T) {
 		time.Sleep(3 * time.Second)
 	}
 }
+*/

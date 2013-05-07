@@ -36,6 +36,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"pool"
 	"sort"
 	"sync"
 	"time"
@@ -48,6 +49,12 @@ import (
 func (o *Overlay) manager() {
 	var pending sync.WaitGroup
 	var routes *table
+
+	// Start the exchange limiter
+	exchPool := pool.NewThreadPool(config.OverlayExchThreads)
+	exchPool.Start()
+	defer exchPool.Terminate()
+
 	for {
 		// Copy the existing routing table if required
 		if routes == nil {
@@ -117,10 +124,10 @@ func (o *Overlay) manager() {
 
 			// Revert to read lock (don't hold up reads) and broadcast state
 			o.lock.RLock()
-			o.excher.Clear()
+			exchPool.Clear()
 			for _, peer := range o.pool {
 				p := peer // Copy for closure!
-				o.excher.Schedule(func() { o.sendState(p, rep) })
+				exchPool.Schedule(func() { o.sendState(p, rep) })
 			}
 			o.lock.RUnlock()
 		}
