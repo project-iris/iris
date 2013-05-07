@@ -22,8 +22,10 @@ package overlay
 import (
 	"config"
 	"crypto/x509"
+	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"math/big"
+	"runtime"
 	"sort"
 	"testing"
 	"time"
@@ -147,4 +149,53 @@ func TestMaintenance(t *testing.T) {
 
 	// Check the routing tables
 	checkRoutes(t, nodes)
+}
+
+func TestMaintenanceDOS(t *testing.T) {
+	// Make sure cleanups terminate before returning
+	defer time.Sleep(3 * time.Second)
+
+	// Make sure there are enough ports to use (use a huge number to simplify test code)
+	olds := config.BootPorts
+	defer func() { config.BootPorts = olds }()
+	for i := 0; i < 16; i++ {
+		config.BootPorts = append(config.BootPorts, 40000+i)
+	}
+	// Parse encryption key
+	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
+
+	// Increment the overlays till the test fails
+	for peers := 4; !t.Failed(); peers++ {
+		fmt.Println("running maintenance for", peers, "peers.")
+		// Start the batch of nodes
+		nodes := []*Overlay{}
+		for i := 0; i < peers; i++ {
+			nodes = append(nodes, New(appId, key, nil))
+			if err := nodes[i].Boot(); err != nil {
+				t.Errorf("failed to boot nodes: %v.", err)
+			}
+		}
+		// Wait a while for the handshakes to complete
+		//		time.Sleep(10 * time.Second)
+		done := time.Tick(10 * time.Second)
+		beat := time.Tick(100 * time.Millisecond)
+		for loop := true; loop; {
+			select {
+			case <-done:
+				loop = false
+			case <-beat:
+				fmt.Println("GOS:", runtime.NumGoroutine())
+			}
+		}
+
+		// Check the routing tables
+		checkRoutes(t, nodes)
+
+		// Terminate all nodes, irrelevent of their state
+		for i := 0; i < peers; i++ {
+			nodes[i].Shutdown()
+		}
+		// Make sure leftovers had time to cleanup
+		time.Sleep(3 * time.Second)
+	}
 }

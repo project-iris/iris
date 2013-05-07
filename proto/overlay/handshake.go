@@ -99,7 +99,7 @@ func (o *Overlay) shaker() {
 			_, ok := o.trans[boot.String()]
 			o.lock.RUnlock()
 			if !ok {
-				go o.dial(boot)
+				o.auther.Schedule(func() { o.dial(boot) })
 			}
 		case ses := <-o.sesSink:
 			go o.shake(ses)

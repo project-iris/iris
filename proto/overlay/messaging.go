@@ -61,7 +61,6 @@ type message struct {
 // either overlay termination, connection termination, network error or packet
 // format error.
 func (o *Overlay) receiver(p *peer) {
-	defer func() { o.dropSink <- p }()
 	for {
 		select {
 		case <-o.quit:
@@ -70,6 +69,7 @@ func (o *Overlay) receiver(p *peer) {
 			return
 		case pkt, ok := <-p.netIn:
 			if !ok {
+				o.dropSink <- p
 				return
 			}
 			// Extract the overlay headers
@@ -77,6 +77,7 @@ func (o *Overlay) receiver(p *peer) {
 			msg := &message{new(header), pkt}
 			if err := p.dec.Decode(msg.head); err != nil {
 				log.Printf("failed to decode headers: %v.", err)
+				o.dropSink <- p
 				return
 			}
 			o.route(p, msg)

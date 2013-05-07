@@ -166,10 +166,10 @@ var OverlayLeaves = 16
 var OverlayNeighbors = 16
 
 // Heartbeat period to ensure connections are alive and tear down unusde ones (ms)
-var OverlayBeatPeriod = 1000
+var OverlayBeatPeriod = 3000
 
 // Time to wait after session setup for the init packet (ms)
-var OverlayInitTimeout = 2500
+var OverlayInitTimeout = 5000
 
 // Time limit for sending a message before the connection is dropped (ms)
 var OverlaySendTimeout = 10000
@@ -177,8 +177,14 @@ var OverlaySendTimeout = 10000
 // Messages to buffer inside the overlay going out to one peer.
 var OverlayNetPreBuffer = 64
 
-// Messages to buffer to and from the network
+// Messages to buffer to and from the network.
 var OverlayNetBuffer = 64
+
+// Maximum number of authentications allowed concurrently.
+var OverlayAuthThreads = 8
+
+// Maximum number of state exchanges allowed concurrently.
+var OverlayExchThreads = 64
 
 // Distributed application identifier
 var AppGlobalId = []byte("iris")

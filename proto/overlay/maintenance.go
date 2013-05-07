@@ -91,10 +91,10 @@ func (o *Overlay) manager() {
 							log.Printf("failed to resolve address %v: %v.", a, err)
 						} else {
 							pending.Add(1)
-							go func() {
+							o.auther.Schedule(func() {
 								defer pending.Done()
 								o.dial(addr)
-							}()
+							})
 						}
 					}
 				}
@@ -115,10 +115,12 @@ func (o *Overlay) manager() {
 			o.stat = done
 			o.lock.Unlock()
 
-			// Revert to read lock and broadcast state
+			// Revert to read lock (don't hold up reads) and broadcast state
 			o.lock.RLock()
+			o.excher.Clear()
 			for _, peer := range o.pool {
-				go o.sendState(peer, rep)
+				p := peer // Copy for closure!
+				o.excher.Schedule(func() { o.sendState(p, rep) })
 			}
 			o.lock.RUnlock()
 		}
@@ -127,22 +129,24 @@ func (o *Overlay) manager() {
 
 // Drops an active peer connection due to either a failure or uselessness.
 func (o *Overlay) drop(d *peer) {
-	o.lock.Lock()
-	defer o.lock.Unlock()
-
 	// Make sure we kill it only once
 	if !d.killed {
 		d.killed = true
 		close(d.quit)
-	}
-	// Clear up leftovers
-	for id, p := range o.pool {
-		if d == p {
-			delete(o.pool, id)
-			for _, addr := range d.addrs {
-				delete(o.trans, addr)
+
+		// Remove it from the overlay state
+		o.lock.Lock()
+		defer o.lock.Unlock()
+
+		// Clear up leftovers
+		for id, p := range o.pool {
+			if d == p {
+				delete(o.pool, id)
+				break
 			}
-			break
+		}
+		for _, addr := range d.addrs {
+			delete(o.trans, addr)
 		}
 	}
 }

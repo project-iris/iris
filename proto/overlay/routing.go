@@ -128,7 +128,7 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {
 				log.Printf("failed to resolve address %v: %v.", s.Addrs[dst.String()][0], err)
 			} else {
-				go o.dial(addr)
+				o.auther.Schedule(func() { o.dial(addr) })
 			}
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either

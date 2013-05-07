@@ -32,6 +32,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"pool"
 	"proto/session"
 	"sync"
 )
@@ -71,12 +72,16 @@ type Overlay struct {
 	time   uint64
 	stat   status
 
-	// Fan-in sinks for bootstrap, network and state update events + quit channel
+	// Fan-in sinks for bootstrap, network, state update and connection drop events + quit channel
 	bootSink chan *net.TCPAddr
 	sesSink  chan *session.Session
 	upSink   chan *state
 	dropSink chan *peer
 	quit     chan struct{}
+
+	// Thread pools to limit prevent thread proliferation
+	auther *pool.ThreadPool
+	excher *pool.ThreadPool
 
 	// Syncer for state mods after booting
 	lock sync.RWMutex
@@ -142,6 +147,9 @@ func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
 	o.dropSink = make(chan *peer)
 	o.quit = make(chan struct{})
 
+	o.auther = pool.NewThreadPool(config.OverlayAuthThreads)
+	o.excher = pool.NewThreadPool(config.OverlayExchThreads)
+
 	return o
 }
 
@@ -160,16 +168,23 @@ func (o *Overlay) Boot() error {
 			}
 		}
 	}
-	// Start the overlay manager, handshaker and heatbeater
+	// Start the overlay processes
 	go o.manager()
 	go o.shaker()
 	go o.beater()
+
+	o.auther.Start()
+	o.excher.Start()
+
 	return nil
 }
 
 // Sends a termination signal to all the go routines part of the overlay.
 func (o *Overlay) Shutdown() {
 	close(o.quit)
+
+	o.auther.Terminate()
+	o.excher.Terminate()
 }
 
 // Sends a message to the closest node to the given destination.
