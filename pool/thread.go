@@ -81,8 +81,8 @@ func (t *ThreadPool) Schedule(task Task) error {
 	}
 	// Schedule the task for future execution
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
 	t.tasks.Push(task)
+	t.mutex.Unlock()
 
 	// Signal the runner to start threads if needed
 	select {
@@ -92,6 +92,13 @@ func (t *ThreadPool) Schedule(task Task) error {
 		// Signal is already pending, no need for multiple
 	}
 	return nil
+}
+
+// Dumps the waiting tasks from the pool.
+func (t *ThreadPool) Clear() {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	t.tasks.Reset()
 }
 
 // Waits for new tasks to be scheduled and executes them.
@@ -121,10 +128,10 @@ func (t *ThreadPool) runner() {
 			t.mutex.Unlock()
 		case <-t.wake:
 			// New tasks were scheduled, execute as many as possible
+			t.mutex.Lock()
 			for available := true; available; {
 				select {
 				case <-t.idle:
-					t.mutex.Lock()
 					if !t.tasks.Empty() {
 						t.execute(t.tasks.Pop().(Task))
 					} else {
@@ -132,11 +139,11 @@ func (t *ThreadPool) runner() {
 						available = false
 						t.idle <- struct{}{}
 					}
-					t.mutex.Unlock()
 				default:
 					available = false
 				}
 			}
+			t.mutex.Unlock()
 		}
 	}
 }

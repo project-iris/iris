@@ -79,6 +79,19 @@ func TestThreadPool(t *testing.T) {
 			t.Errorf("unexpected finished tasks: have %v, want %v.", count, c)
 		}
 	}
+	// Verify that clearing the pool removes all pending tasks
+	count = 0
+	for i := 0; i < 6; i++ {
+		if err := pool.Schedule(task); err != nil {
+			t.Errorf("failed to schedule task: %v.", err)
+		}
+	}
+	time.Sleep(25 * time.Millisecond)
+	pool.Clear()
+	time.Sleep(100 * time.Millisecond)
+	if count != 3 {
+		t.Errorf("unexpected finished tasks: have %v, want %v.", count, 3)
+	}
 	// Verify that termination waits for running threads and discards rest
 	count = 0
 	for i := 0; i < 4; i++ {
