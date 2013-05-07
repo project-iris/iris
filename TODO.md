@@ -5,10 +5,9 @@ Stuff that need implementing, fixing or testing.
 
 - Features
     - Overlay
-        - Limit the state exchange threads
-        - Limit number of parallel STS handshakes (CPU exhaustion)
+        - Limit number of parallel incoming STS handshakes (CPU exhaustion)
+        - Filter bootstrap results (connect'em all is too CPU intensive)
         - Proximity features for Pastry
-        - Buffered channels to handle bursts
 - Bugs
     - Overlay
         - Self connection is sometimes attempted. Should only occured with a malicious node.
