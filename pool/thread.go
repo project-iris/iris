@@ -17,6 +17,10 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
+// This file contains a thread pool implementation that allows tasks to be
+// scheduled and executes them concurrently, but making sure that at all times a
+// limited number of threads exist.
+
 package pool
 
 import (
