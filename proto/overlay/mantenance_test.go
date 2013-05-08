@@ -143,7 +143,7 @@ func TestMaintenance(t *testing.T) {
 	nodes = nodes[:originals]
 
 	// Wait a while for state updates to propagate
-	time.Sleep(5 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	// Check the routing tables
 	checkRoutes(t, nodes)

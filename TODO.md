@@ -7,6 +7,7 @@ Stuff that need implementing, fixing or testing.
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
+        - Convergence check to remove annoying sleeps from tests. 
 - Bugs
 - Misc
     - Overlay
