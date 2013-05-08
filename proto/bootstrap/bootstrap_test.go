@@ -50,34 +50,34 @@ func TestScan(t *testing.T) {
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	addr1, quit, err := Boot(over1.IP, []byte("magic"), over1.Port)
+	evs1, quit, err := Boot(over1.IP, []byte("magic"), over1.Port)
 	if err != nil {
 		t.Errorf("failed to start first booter: %v.", err)
 	}
 	defer close(quit)
 
-	addr2, quit, err := Boot(over2.IP, []byte("magic"), over2.Port)
+	evs2, quit, err := Boot(over2.IP, []byte("magic"), over2.Port)
 	if err != nil {
 		t.Errorf("failed to start second booter: %v.", err)
 	}
 	defer close(quit)
 
 	// Wait and make sure they found each other and not themselves
-	a1, a2 := <-addr1, <-addr2
-	if !a1.IP.Equal(over2.IP) || a1.Port != over2.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", a1, over2)
+	e1, e2 := <-evs1, <-evs2
+	if !e1.Addr.IP.Equal(over2.IP) || e1.Addr.Port != over2.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
 	}
-	if !a2.IP.Equal(over1.IP) || a2.Port != over1.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", a2, over1)
+	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", e2.Addr, over1)
 	}
 
 	// Each should report twice (foreign request + foreign response to local request)
-	a1, a2 = <-addr1, <-addr2
-	if !a1.IP.Equal(over2.IP) || a1.Port != over2.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", a1, over2)
+	e1, e2 = <-evs1, <-evs2
+	if !e1.Addr.IP.Equal(over2.IP) || e1.Addr.Port != over2.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
 	}
-	if !a2.IP.Equal(over1.IP) || a2.Port != over1.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", a2, over1)
+	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
+		t.Errorf("invalid address on first booter: have %v, want %v.", e2.Addr, over1)
 	}
 
 	// Further beats shouldn't arrive (unless the probing catches us, should be rare)
@@ -85,9 +85,9 @@ func TestScan(t *testing.T) {
 	select {
 	case <-timeout:
 		// Do nothing
-	case a := <-addr1:
+	case a := <-evs1:
 		t.Errorf("extra address on first booter: %v.", a)
-	case a := <-addr2:
+	case a := <-evs2:
 		t.Errorf("extra address on second booter: %v.", a)
 	}
 }
@@ -100,13 +100,13 @@ func TestMagic(t *testing.T) {
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	addr1, quit, err := Boot(over1.IP, []byte("magic1"), over1.Port)
+	evs1, quit, err := Boot(over1.IP, []byte("magic1"), over1.Port)
 	if err != nil {
 		t.Errorf("failed to start first booter: %v.", err)
 	}
 	defer close(quit)
 
-	addr2, quit, err := Boot(over2.IP, []byte("magic2"), over2.Port)
+	evs2, quit, err := Boot(over2.IP, []byte("magic2"), over2.Port)
 	if err != nil {
 		t.Errorf("failed to start second booter: %v.", err)
 	}
@@ -117,9 +117,9 @@ func TestMagic(t *testing.T) {
 	select {
 	case <-timeout:
 		// Do nothing
-	case a := <-addr1:
+	case a := <-evs1:
 		t.Errorf("extra address on first booter: %v.", a)
-	case a := <-addr2:
+	case a := <-evs2:
 		t.Errorf("extra address on second booter: %v.", a)
 	}
 }

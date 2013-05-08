@@ -72,9 +72,7 @@ type Overlay struct {
 	time   uint64
 	stat   status
 
-	// Fan-in sinks for bootstrap, network, state update and connection drop events + quit channel
-	bootSink chan *net.TCPAddr
-	sesSink  chan *session.Session
+	// Fan-in sinks for state update and connection drop events + quit channel
 	upSink   chan *state
 	dropSink chan *peer
 	quit     chan struct{}
@@ -140,8 +138,6 @@ func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
 	o.routes = newTable(o.nodeId)
 	o.time = 1
 
-	o.bootSink = make(chan *net.TCPAddr)
-	o.sesSink = make(chan *session.Session)
 	o.upSink = make(chan *state)
 	o.dropSink = make(chan *peer)
 	o.quit = make(chan struct{})
@@ -168,7 +164,6 @@ func (o *Overlay) Boot() error {
 	}
 	// Start the overlay processes
 	go o.manager()
-	go o.shaker()
 	go o.beater()
 
 	o.auther.Start()

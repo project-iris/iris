@@ -71,37 +71,26 @@ func (o *Overlay) acceptor(ip net.IP) {
 	}
 	defer close(quit)
 
-	// Loop indefinitely, faning in the sessions and discovered peers
+	// Processes the incoming connections
 	for {
 		select {
 		case <-o.quit:
 			return
 		case boot := <-bootSink:
-			o.bootSink <- boot
-		case ses := <-sesSink:
-			o.sesSink <- ses
-		}
-	}
-}
-
-// Processes the incoming connections: for bootstrap messages it makes sure that
-// the node isn't already connected and if not, dials the remote node, setting
-// up a secure session and executing the overlay handshake. For incoming session
-// requests the handshake alone is done.
-func (o *Overlay) shaker() {
-	for {
-		select {
-		case <-o.quit:
-			return
-		case boot := <-o.bootSink:
+			// Discard bootstrap requests (prevent double connecting)
+			if !boot.Resp {
+				break
+			}
 			// Discard already connected nodes
 			o.lock.RLock()
-			_, ok := o.trans[boot.String()]
+			_, ok := o.trans[boot.Addr.String()]
 			o.lock.RUnlock()
 			if !ok {
-				o.auther.Schedule(func() { o.dial(boot) })
+				// Dial the remote node and authenticate it
+				o.auther.Schedule(func() { o.dial(boot.Addr) })
 			}
-		case ses := <-o.sesSink:
+		case ses := <-sesSink:
+			// Agree upon overlay states
 			go o.shake(ses)
 		}
 	}

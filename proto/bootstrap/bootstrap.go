@@ -41,6 +41,12 @@ import (
 // Constants for the protocol UDP layer
 var acceptTimeout = time.Second
 
+// A direction tagged (req/resp) bootstrap event.
+type Event struct {
+	Addr *net.TCPAddr
+	Resp bool
+}
+
 // Bootstrapper state for a single network interface.
 type bootstrapper struct {
 	addr *net.UDPAddr
@@ -50,7 +56,7 @@ type bootstrapper struct {
 	beatReq   []byte
 	beatRes   []byte
 
-	beats chan *net.TCPAddr
+	beats chan *Event
 	quit  chan struct{}
 
 	fast bool
@@ -61,7 +67,7 @@ type bootstrapper struct {
 // and will scan that specific interface for other peers. The overlay argument
 // is used to advertize the overlay TCP listener whilst the magic is used to
 // filter multiple apps in the same network from each other.
-func Boot(ip net.IP, magic []byte, overlay int) (chan *net.TCPAddr, chan struct{}, error) {
+func Boot(ip net.IP, magic []byte, overlay int) (chan *Event, chan struct{}, error) {
 	bs := new(bootstrapper)
 	bs.fast = true
 
@@ -96,7 +102,7 @@ func Boot(ip net.IP, magic []byte, overlay int) (chan *net.TCPAddr, chan struct{
 	copy(bs.beatRes[n:], magic)
 
 	// Create the channels for the communicating threads
-	bs.beats = make(chan *net.TCPAddr, config.BootBeatsBuffer)
+	bs.beats = make(chan *Event, config.BootBeatsBuffer)
 	bs.quit = make(chan struct{})
 
 	// Create the two channels, start the packet acceptor and return
@@ -133,15 +139,17 @@ func (bs *bootstrapper) accept() {
 				if port, err := binary.ReadUvarint(reader); err == nil {
 					if bytes.Compare(bs.beatMagic, reader.Bytes()) == 0 {
 						// If it's a beat request, respond to it otherwise clear the response bit
+						resp := false
 						if port&(1<<17) == 0 {
 							bs.sock.WriteToUDP(bs.beatRes, from)
 						} else {
 							port &= ^(uint64(1) << 17)
+							resp = true
 						}
 						// Notify the maintenance routine
 						host := net.JoinHostPort(from.IP.String(), strconv.Itoa(int(port)))
 						if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
-							bs.beats <- addr
+							bs.beats <- &Event{addr, resp}
 						} else {
 							panic(err)
 						}
