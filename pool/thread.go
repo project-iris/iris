@@ -38,30 +38,28 @@ type ThreadPool struct {
 	mutex sync.Mutex
 	tasks *queue.Queue
 
-	done chan struct{}
-	idle chan struct{}
-	wake chan struct{}
+	idle  int
+	total int
+
 	quit chan struct{}
 }
 
 // Creates a thread pool with the given concurrent thread capacity.
 func NewThreadPool(cap int) *ThreadPool {
-	t := &ThreadPool{
+	return &ThreadPool{
 		tasks: queue.New(),
-		done:  make(chan struct{}, cap),
-		idle:  make(chan struct{}, cap),
-		wake:  make(chan struct{}, 1),
+		idle:  0,
+		total: cap,
 		quit:  make(chan struct{}),
 	}
-	for i := 0; i < cap; i++ {
-		t.idle <- struct{}{}
-	}
-	return t
 }
 
 // Starts the thread pool and workers.
 func (t *ThreadPool) Start() {
-	go t.runner()
+	// Although we could check to start min(tasks, total), but this way is simpler
+	for i := 0; i < t.total; i++ {
+		go t.runner()
+	}
 }
 
 // Waits for all threads to finish, terminating the whole pool afterwards. No
@@ -79,18 +77,15 @@ func (t *ThreadPool) Schedule(task Task) error {
 	default:
 		// Ok, schedule
 	}
-	// Schedule the task for future execution
+	// Schedule the task and start execution if threads available
 	t.mutex.Lock()
 	t.tasks.Push(task)
+	if t.idle > 0 {
+		t.idle--
+		go t.runner()
+	}
 	t.mutex.Unlock()
 
-	// Signal the runner to start threads if needed
-	select {
-	case t.wake <- struct{}{}:
-		// Ok, pool notified
-	default:
-		// Signal is already pending, no need for multiple
-	}
 	return nil
 }
 
@@ -101,57 +96,34 @@ func (t *ThreadPool) Clear() {
 	t.tasks.Reset()
 }
 
-// Waits for new tasks to be scheduled and executes them.
 func (t *ThreadPool) runner() {
-	for {
+	// Make sure the idle count is incremented bask even if we die
+	defer func() {
+		t.mutex.Lock()
+		t.idle++
+		t.mutex.Unlock()
+	}()
+	// Execute jobs until all's done
+	var task Task
+	for done := false; !done; {
+		// Check for termination
 		select {
 		case <-t.quit:
-			// Wait till pending workers complete and terminate
-			for i := 0; i < cap(t.idle); i++ {
-				select {
-				case <-t.done:
-					// Stop a recently finished thread
-				case <-t.idle:
-					// Stop an idling thread
-				}
-			}
 			return
-		case <-t.done:
-			// Worker done, give out new task
-			t.mutex.Lock()
-			if !t.tasks.Empty() {
-				t.execute(t.tasks.Pop().(Task))
-			} else {
-				// No tasks available, mark a thread idle
-				t.idle <- struct{}{}
-			}
-			t.mutex.Unlock()
-		case <-t.wake:
-			// New tasks were scheduled, execute as many as possible
-			t.mutex.Lock()
-			for available := true; available; {
-				select {
-				case <-t.idle:
-					if !t.tasks.Empty() {
-						t.execute(t.tasks.Pop().(Task))
-					} else {
-						// Nothing to execute, place thread back into idle pool
-						available = false
-						t.idle <- struct{}{}
-					}
-				default:
-					available = false
-				}
-			}
-			t.mutex.Unlock()
+		default:
+		}
+		// Fetch a new task or terminate if all's done
+		t.mutex.Lock()
+		if t.tasks.Empty() {
+			done = true
+		} else {
+			task = t.tasks.Pop().(Task)
+		}
+		t.mutex.Unlock()
+
+		// Execute the task if any was fetched
+		if !done {
+			task()
 		}
 	}
-}
-
-// Executes a given task, signaling the pool on completion.
-func (t *ThreadPool) execute(task Task) {
-	go func() {
-		defer func() { t.done <- struct{}{} }()
-		task()
-	}()
 }
