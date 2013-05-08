@@ -177,6 +177,11 @@ func (o *Overlay) Shutdown() {
 	o.auther.Terminate()
 }
 
+// Returns the overlay node's identifier.
+func (o *Overlay) Self() *big.Int {
+	return o.nodeId
+}
+
 // Sends a message to the closest node to the given destination.
 func (o *Overlay) Send(dst *big.Int, msg *session.Message) {
 	// Extract the metadata from the message
