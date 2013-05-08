@@ -145,13 +145,13 @@ var BootPorts = []int{14142, 27182, 31415}
 var BootBeatsBuffer = 32
 
 // Probing interval during bootstrapping in startup mode (ms)
-var BootFastProbe = 100
+var BootFastProbe = 250
 
 // Probing interval during bootstrapping in maintenance mode (ms)
 var BootSlowProbe = 1000
 
 // Scanning interval during bootstrapping (ms)
-var BootScan = 100
+var BootScan = 250
 
 // Virtual address space in bits
 var OverlaySpace = 128
