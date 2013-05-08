@@ -8,8 +8,6 @@ Stuff that need implementing, fixing or testing.
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
 - Bugs
-    - Overlay
-        - Self connection is sometimes attempted. Should only occured with a malicious node.
 - Misc
     - Overlay
         - Benchmark and tune the handshakes
