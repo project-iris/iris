@@ -80,14 +80,14 @@ func TestHandshake(t *testing.T) {
 	bad, _ := x509.ParsePKCS1PrivateKey(privKeyDerBad)
 
 	// Start first overlay node
-	alice := New(appId, key, nil)
+	alice := New(appId, key, new(nopCallback))
 	if err := alice.Boot(); err != nil {
 		t.Errorf("failed to boot alice: %v.", err)
 	}
 	defer alice.Shutdown()
 
 	// Start second overlay node
-	bob := New(appId, key, nil)
+	bob := New(appId, key, new(nopCallback))
 	if err := bob.Boot(); err != nil {
 		t.Errorf("failed to boot bob: %v.", err)
 	}
@@ -109,7 +109,7 @@ func TestHandshake(t *testing.T) {
 	}
 
 	// Start a second application
-	eve := New(appIdBad, key, nil)
+	eve := New(appIdBad, key, new(nopCallback))
 	if err := eve.Boot(); err != nil {
 		t.Errorf("failed to boot eve: %v.", err)
 	}
@@ -133,7 +133,7 @@ func TestHandshake(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// Start a malicious node impersonating the app but invalid key
-	mallory := New(appId, bad, nil)
+	mallory := New(appId, bad, new(nopCallback))
 	if err := mallory.Boot(); err != nil {
 		t.Errorf("failed to boot mallory: %v.", err)
 	}

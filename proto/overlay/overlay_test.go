@@ -18,6 +18,11 @@
 // Author: peterke@gmail.com (Peter Szilagyi)
 package overlay
 
+import (
+	"math/big"
+	"proto/session"
+)
+
 // 512 bit RSA key in DER format
 var privKeyDer = []byte{
 	0x30, 0x82, 0x01, 0x39, 0x02, 0x01, 0x00, 0x02,
@@ -64,3 +69,14 @@ var privKeyDer = []byte{
 
 // Id for connection filtering
 var appId = "overlay.test"
+
+// No-op overlay callback
+type nopCallback struct {
+}
+
+func (cb *nopCallback) Deliver(msg *session.Message, key *big.Int) {
+}
+
+func (cb *nopCallback) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+	return true
+}

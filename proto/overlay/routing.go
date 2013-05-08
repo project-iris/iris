@@ -102,7 +102,10 @@ func (o *Overlay) deliver(src *peer, msg *message) {
 		// Remove all overlay infos from the message and send upwards
 		m := msg.data
 		m.Head.Meta = msg.head.Meta
-		o.app.Deliver(m)
+
+		o.lock.RUnlock()
+		o.app.Deliver(m, msg.head.Dest)
+		o.lock.RLock()
 	}
 }
 
@@ -112,8 +115,23 @@ func (o *Overlay) forward(src *peer, msg *message, id *big.Int) {
 	if msg.head.State != nil {
 		o.process(src, msg.head.Dest, msg.head.State)
 	}
-	if p, ok := o.pool[id.String()]; ok {
-		o.send(msg, p)
+	// Extract the origin id or local
+	origin := o.nodeId
+	if src != nil {
+		origin = src.nodeId
+	}
+	// Remove all overlay infos from the message and send upwards
+	m := msg.data
+	m.Head.Meta = msg.head.Meta
+
+	o.lock.RUnlock()
+	allow := o.app.Forward(m, msg.head.Dest, origin)
+	o.lock.RLock()
+
+	if allow {
+		if p, ok := o.pool[id.String()]; ok {
+			o.send(msg, p)
+		}
 	}
 }
 

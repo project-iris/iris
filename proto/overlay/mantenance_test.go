@@ -111,7 +111,7 @@ func TestMaintenance(t *testing.T) {
 	// Start handful of nodes and ensure valid routing state
 	nodes := []*Overlay{}
 	for i := 0; i < originals; i++ {
-		nodes = append(nodes, New(appId, key, nil))
+		nodes = append(nodes, New(appId, key, new(nopCallback)))
 		if err := nodes[i].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}
@@ -125,7 +125,7 @@ func TestMaintenance(t *testing.T) {
 
 	// Start some additional nodes and ensure still valid routing state
 	for i := 0; i < additions; i++ {
-		nodes = append(nodes, New(appId, key, nil))
+		nodes = append(nodes, New(appId, key, new(nopCallback)))
 		if err := nodes[len(nodes)-1].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}

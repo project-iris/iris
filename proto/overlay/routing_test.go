@@ -35,8 +35,12 @@ type collector struct {
 	delivs []*session.Message
 }
 
-func (c *collector) Deliver(msg *session.Message) {
+func (c *collector) Deliver(msg *session.Message, key *big.Int) {
 	c.delivs = append(c.delivs, msg)
+}
+
+func (c *collector) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+	return true
 }
 
 func TestRouting(t *testing.T) {
@@ -154,12 +158,16 @@ type sequencer struct {
 	quit chan struct{}
 }
 
-func (s *sequencer) Deliver(msg *session.Message) {
+func (s *sequencer) Deliver(msg *session.Message, key *big.Int) {
 	if s.left--; s.left < 0 {
 		close(s.quit)
 	} else {
 		s.over.Send(s.dest, &s.msgs[s.left])
 	}
+}
+
+func (s *sequencer) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+	return true
 }
 
 func benchmarkPassing(b *testing.B, block int) {
@@ -178,7 +186,7 @@ func benchmarkPassing(b *testing.B, block int) {
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
 	// Create the sender node
-	send := New(appId, key, nil)
+	send := New(appId, key, new(nopCallback))
 	send.Boot()
 	defer send.Shutdown()
 
@@ -194,7 +202,7 @@ func benchmarkPassing(b *testing.B, block int) {
 
 	// Reset timer and start message passing
 	b.ResetTimer()
-	recvApp.Deliver(nil)
+	recvApp.Deliver(nil, nil)
 	<-recvApp.quit
 }
 
@@ -240,10 +248,14 @@ type waiter struct {
 	quit chan struct{}
 }
 
-func (w *waiter) Deliver(msg *session.Message) {
+func (w *waiter) Deliver(msg *session.Message, key *big.Int) {
 	if w.left--; w.left <= 0 {
 		close(w.quit)
 	}
+}
+
+func (w *waiter) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+	return true
 }
 
 func benchmarkThroughput(b *testing.B, block int) {
@@ -262,7 +274,7 @@ func benchmarkThroughput(b *testing.B, block int) {
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
 	// Create two overlay nodes to communicate
-	send := New(appId, key, nil)
+	send := New(appId, key, new(nopCallback))
 	send.Boot()
 	defer send.Shutdown()
 
