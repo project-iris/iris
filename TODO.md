@@ -6,7 +6,6 @@ Stuff that need implementing, fixing or testing.
 - Features
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
-        - Filter bootstrap results (connect'em all is too CPU intensive)
         - Proximity features for Pastry
 - Bugs
     - Overlay

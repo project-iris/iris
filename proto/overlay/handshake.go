@@ -19,9 +19,7 @@
 
 // This file contains the overlay session listener and negotiation. For every
 // network interface a separate bootstrapper and session acceptor is started,
-// faning in discovered peers and incoming (cryptographically already set up
-// sessions). An single go routine is responsible for gathering all the data
-// from the interfaces and executing the overlay handshake.
+// each conencting nodes and executing the overlay handshake.
 
 package overlay
 
@@ -159,7 +157,7 @@ func (o *Overlay) shake(ses *session.Session) {
 		break
 	case msg, ok := <-p.netIn:
 		if !ok {
-			log.Printf("remote closed connection before init packet.")
+			// Remote closed connection before init packet
 			success = false
 			break
 		}

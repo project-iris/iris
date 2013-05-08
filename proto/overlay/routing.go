@@ -123,8 +123,12 @@ func (o *Overlay) forward(src *peer, msg *message, id *big.Int) {
 // heartbeat messages are checked and two-way idle connections dropped.
 func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
-		// Join request, connect (if needed) and send local state
+		// Join request, discard self joins (rare race condition suring update)
+		if o.nodeId.Cmp(dst) == 0 {
+			return
+		}
 		if p, ok := o.pool[dst.String()]; !ok {
+			// Connect new peers and let the handshake do the state exchange
 			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {
 				log.Printf("failed to resolve address %v: %v.", s.Addrs[dst.String()][0], err)
 			} else {
