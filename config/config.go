@@ -165,6 +165,9 @@ var OverlayLeaves = 16
 // Number of closes nodes to track in the real network
 var OverlayNeighbors = 16
 
+// Hash for mapping external ids into the overlay id space
+var OverlayResolver = md5.New
+
 // Heartbeat period to ensure connections are alive and tear down unusde ones (ms)
 var OverlayBeatPeriod = 3000
 

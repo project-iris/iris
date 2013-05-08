@@ -25,6 +25,7 @@ package overlay
 
 import (
 	"config"
+	"io"
 	"math/big"
 )
 
@@ -86,4 +87,20 @@ func prefix(a, b *big.Int) (int, int) {
 		d |= b.Bit(config.OverlaySpace-(p+1)*config.OverlayBase+bit) << uint(bit)
 	}
 	return p, int(d)
+}
+
+// Converts a string id into an overlay id.
+func Resolve(id string) *big.Int {
+	// Hash the textual id
+	h := config.OverlayResolver()
+	io.WriteString(h, id)
+	sum := h.Sum(nil)
+
+	// Extract enough bits, and clear overflows
+	raw := sum[:(config.OverlaySpace+7)/8]
+	for i := 0; i < len(raw)*8-config.OverlaySpace; i++ {
+		raw[0] &= ^byte(1 << (7 - uint(i)))
+	}
+	// Return the new id
+	return new(big.Int).SetBytes(raw)
 }

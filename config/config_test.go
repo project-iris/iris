@@ -104,6 +104,9 @@ func TestOverlay(t *testing.T) {
 	if OverlaySpace != 128 {
 		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", OverlaySpace, 128)
 	}
+	if size := OverlayResolver().Size() * 8; size < OverlaySpace {
+		t.Errorf("config (overlay): resolver does not output enough bits for space: have %v, want %v.", size, OverlaySpace)
+	}
 	// Do some sanity checks on the parameters
 	if OverlayBase < 1 {
 		t.Errorf("config (overlay): invalid base bits: have %v, want min 1.", OverlayBase)
@@ -118,6 +121,9 @@ func TestOverlay(t *testing.T) {
 		t.Errorf("config (overlay): invalid neghborhood size: have %v, want %v or %v.", OverlayNeighbors, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
 	}
 	// Make some trivial checks for the tuning parameters
+	if OverlayNetPreBuffer < 16 || OverlayNetPreBuffer > 128 {
+		t.Errorf("config (overlay): strange network pre-buffer size: have %v, want from [16..128].", OverlayNetPreBuffer)
+	}
 	if OverlayNetBuffer < 16 || OverlayNetBuffer > 128 {
 		t.Errorf("config (overlay): strange network buffer size: have %v, want from [16..128].", OverlayNetBuffer)
 	}

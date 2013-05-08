@@ -21,6 +21,10 @@ package overlay
 
 import (
 	"config"
+	"crypto/md5"
+	"crypto/sha1"
+	"crypto/sha256"
+	"hash"
 	"math/big"
 	"testing"
 )
@@ -75,6 +79,51 @@ func TestSpace(t *testing.T) {
 		}
 		if p, d := prefix(tt.idA, tt.idB); tt.prefix != p || tt.digit != d {
 			t.Errorf("test %d: prefix/digit mismatch: have %v/%v, want %v/%v.", i, p, d, tt.prefix, tt.digit)
+		}
+	}
+}
+
+type resolveTest struct {
+	hasher func() hash.Hash
+	bitlen int
+	text   string
+	id     []byte
+}
+
+var resolveTests = []resolveTest{
+	// Inter-byte boundaries
+	{md5.New, 8, "", []byte{0xd4}},
+	{md5.New, 16, "", []byte{0xd4, 0x1d}},
+	{md5.New, 24, "", []byte{0xd4, 0x1d, 0x8c}},
+	{md5.New, 8, "string", []byte{0xb4}},
+	{md5.New, 16, "string", []byte{0xb4, 0x5c}},
+	{md5.New, 24, "string", []byte{0xb4, 0x5c, 0xff}},
+
+	// Intra-byte boundaries
+	{md5.New, 1, "", []byte{0x00}},
+	{md5.New, 2, "", []byte{0x00}},
+	{md5.New, 3, "", []byte{0x04}},
+	{md5.New, 4, "", []byte{0x04}},
+	{md5.New, 5, "", []byte{0x14}},
+	{md5.New, 6, "", []byte{0x14}},
+	{md5.New, 7, "", []byte{0x54}},
+
+	// Other hashes
+	{sha1.New, 32, "", []byte{0xda, 0x39, 0xa3, 0xee}},
+	{sha256.New, 32, "", []byte{0xe3, 0xb0, 0xc4, 0x42}},
+}
+
+func TestResolve(t *testing.T) {
+	// Save the previous config values
+	s, h := config.OverlaySpace, config.OverlayResolver
+	defer func() { config.OverlaySpace, config.OverlayResolver = s, h }()
+
+	// Run the tests
+	for i, tt := range resolveTests {
+		config.OverlaySpace = tt.bitlen
+		config.OverlayResolver = tt.hasher
+		if id := Resolve(tt.text); id.Cmp(new(big.Int).SetBytes(tt.id)) != 0 {
+			t.Errorf("test %d: resolution mismatch: have %v, want %v.", i, id.Bytes(), tt.id)
 		}
 	}
 }
