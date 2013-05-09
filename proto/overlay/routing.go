@@ -114,22 +114,23 @@ func (o *Overlay) deliver(src *peer, msg *session.Message) {
 func (o *Overlay) forward(src *peer, msg *session.Message, id *big.Int) {
 	head := msg.Head.Meta.(*header)
 	if head.State != nil {
+		// Overlay system message, process and forward
 		o.process(src, head.Dest, head.State)
+		if p, ok := o.pool[id.String()]; ok {
+			o.send(msg, p)
+		}
+		return
 	}
-	// Extract the origin id or local
-	origin := o.nodeId
-	if src != nil {
-		origin = src.nodeId
-	}
-	// Remove all overlay infos from the message and send upwards
+	// Upper layer message, pass up and check if forward is needed
 	o.lock.RUnlock()
 	msg.Head.Meta = head.Meta
-	allow := o.app.Forward(msg, head.Dest, origin)
+	allow := o.app.Forward(msg, head.Dest)
 	o.lock.RLock()
 
 	// Forwarding was allowed, repack headers and send
 	if allow {
 		if p, ok := o.pool[id.String()]; ok {
+			head.Meta = msg.Head.Meta
 			msg.Head.Meta = head
 			o.send(msg, p)
 		}

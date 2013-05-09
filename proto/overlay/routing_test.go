@@ -39,7 +39,7 @@ func (c *collector) Deliver(msg *session.Message, key *big.Int) {
 	c.delivs = append(c.delivs, msg)
 }
 
-func (c *collector) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+func (c *collector) Forward(msg *session.Message, key *big.Int) bool {
 	return true
 }
 
@@ -166,7 +166,7 @@ func (s *sequencer) Deliver(msg *session.Message, key *big.Int) {
 	}
 }
 
-func (s *sequencer) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+func (s *sequencer) Forward(msg *session.Message, key *big.Int) bool {
 	return true
 }
 
@@ -254,7 +254,7 @@ func (w *waiter) Deliver(msg *session.Message, key *big.Int) {
 	}
 }
 
-func (w *waiter) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+func (w *waiter) Forward(msg *session.Message, key *big.Int) bool {
 	return true
 }
 

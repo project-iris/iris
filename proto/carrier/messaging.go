@@ -20,106 +20,131 @@
 package carrier
 
 import (
-	"config"
-	"fmt"
+	"encoding/gob"
 	"math/big"
 	"proto/session"
 )
 
+// Carrier operation code type.
+type opcode uint8
+
 // Carrier operation types.
 const (
-	opSub byte = iota
+	opSub opcode = iota
 	opUnsub
 	opPub
+	opBcast
 )
 
-var idSize = config.OverlaySpace / 8
+// Extra headers for the carrier.
+type header struct {
+	Meta interface{}
 
-// Encodes the op, node id and app id into a single byte buffer:
-//   - First byte: operation
-//   - Next fixed bytes: node overlay id
-//   - Final variable bytes: application id
-func (c *carrier) encode(op byte, app string) []byte {
-	appId := []byte(app)
-	nodeId := c.transport.Self().Bytes()
+	// The operation to execute
+	Op opcode
 
-	data := make([]byte, 1+idSize+len(appId))
+	// Sender ids to allow direct reply
+	SrcNode *big.Int
+	SrcApp  *big.Int
 
-	data[0] = op
-	copy(data[1+idSize-len(nodeId):], nodeId)
-	copy(data[len(data)-len(app):], app)
-
-	return data
+	// Destination topic OR app
+	Dest *big.Int
 }
 
-// Decodes the op, node id and app id from a byte buffer
-func (c *carrier) decode(data []byte) (byte, *big.Int, string) {
-	op := data[0]
-	node := new(big.Int).SetBytes(data[1 : 1+idSize])
-	app := string(data[1+idSize:])
-	return op, node, app
+// Creates a copy of the header needed by the broadcast.
+func (h *header) copy() *header {
+	cpy := new(header)
+	*cpy = *h
+	return cpy
+}
+
+// Make sure the header struct is registered with gob.
+func init() {
+	gob.Register(&header{})
+}
+
+// Broadcasts and already assembled message.
+func (c *carrier) sendBcast(dest, topic *big.Int, msg *session.Message) {
+	msg.Head.Meta.(*header).Op = opBcast
+	msg.Head.Meta.(*header).Dest = topic
+	c.transport.Send(dest, msg)
 }
 
 // Assembles a subscription message and sends it towards its destination.
-func (c *carrier) sendSub(src string, dest *big.Int) {
-	head := session.Header{Meta: c.encode(opSub, src)}
-	msg := &session.Message{Head: head}
+func (c *carrier) sendSub(dest *big.Int) {
+	msg := &session.Message{
+		Head: session.Header{
+			Meta: &header{
+				Op:      opSub,
+				SrcNode: c.transport.Self(),
+			},
+		},
+	}
 	c.transport.Send(dest, msg)
 }
 
 // Assembles an unsubscription message and sends it towards its destination.
-func (c *carrier) sendUnsub(src string, dest *big.Int) {
-	head := session.Header{Meta: c.encode(opUnsub, src)}
-	msg := &session.Message{Head: head}
+func (c *carrier) sendUnsub(dest *big.Int) {
+	msg := &session.Message{
+		Head: session.Header{
+			Meta: &header{
+				Op:      opUnsub,
+				SrcNode: c.transport.Self(),
+			},
+		},
+	}
 	c.transport.Send(dest, msg)
 }
 
-// Publishes msg towards the topic identified by dest.
-func (c *carrier) sendPub(src string, dest *big.Int, msg *Message) {
-	packet := &session.Message{
-		Head: session.Header{
-			Meta: c.encode(opPub, src),
-			Key:  msg.Key,
-			Iv:   msg.Iv,
-		},
-		Data: msg.Data,
+// Publishes a message towards the topic identified by dest.
+func (c *carrier) sendPub(src *big.Int, dest *big.Int, msg *session.Message) {
+	// Envelope the upper meta into the carrier headers
+	head := &header{
+		Meta:    msg.Head.Meta,
+		Op:      opPub,
+		SrcNode: c.transport.Self(),
+		SrcApp:  src,
 	}
-	c.transport.Send(dest, packet)
+	msg.Head.Meta = head
+
+	c.transport.Send(dest, msg)
 }
 
 // Implements the overlay.Callback.Deliver method.
 func (c *carrier) Deliver(msg *session.Message, key *big.Int) {
-	op, node, app := c.decode(msg.Head.Meta)
-	switch op {
+	head := msg.Head.Meta.(*header)
+	switch head.Op {
 	case opSub:
-		fmt.Printf("%v:%v sub to %v\n", node, app, key)
+		// Accept remote subscription if not self-passthrough
+		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
+			c.subscribe(head.SrcNode, key, false)
+		}
 	case opUnsub:
-		fmt.Printf("%v:%v unsub to %v\n", node, app, key)
+		// Accept remote unsubscription if not self-passthrough
+		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
+			c.unsubscribe(head.SrcNode, key, false)
+		}
 	case opPub:
-		fmt.Printf("%v:%v pub %v from %v\n", node, app, msg.Data, key)
+		// Topic root, start broadcast
+		c.broadcast(msg, key)
+	case opBcast:
+		// Topic forwarder, also broadcast
+		c.broadcast(msg, head.Dest)
 	}
 }
 
 // Implements the overlay.Callback.Forward method.
-func (c *carrier) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
-
-	// REWRITE RWERITE BLA BLA BE
-
-	// If the message is a data container, let itt pass
-	if len(msg.Data) != 0 {
+func (c *carrier) Forward(msg *session.Message, key *big.Int) bool {
+	// Pick out subscriptions, forward anything else
+	head := msg.Head.Meta.(*header)
+	if head.Op == opSub {
+		// Accept remote subscription if not self-passthrough
+		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
+			c.subscribe(head.SrcNode, key, false)
+		}
+		// Swap out the originating node to the current and forward
+		head.SrcNode = c.transport.Self()
 		return true
 	}
-	// If it's a subscribe, process and let it cascade
-	if msg.Head.Meta[0] == opSub {
-		fmt.Printf("Cascade subscribe\n")
-		return false
-	}
-	// If it's an unsubscribe,
-	// Process other events and discard them
-	if msg.Head.Meta[0] == opSub {
-		fmt.Printf("Stopping subscribe\n")
-	} else {
-		fmt.Printf("Stopping unsubscribe\n")
-	}
-	return false
+	return true
 }

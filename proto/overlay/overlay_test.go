@@ -77,6 +77,6 @@ type nopCallback struct {
 func (cb *nopCallback) Deliver(msg *session.Message, key *big.Int) {
 }
 
-func (cb *nopCallback) Forward(msg *session.Message, key *big.Int, src *big.Int) bool {
+func (cb *nopCallback) Forward(msg *session.Message, key *big.Int) bool {
 	return true
 }

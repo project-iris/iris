@@ -7,10 +7,14 @@ Stuff that need implementing, fixing or testing.
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
-        - Convergence check to remove annoying sleeps from tests. 
+        - Convergence check to remove annoying sleeps from tests
+    - Session
+        - Memory pool to reduce GC overhead (maybe will need larger refactor)
 - Bugs
 - Misc
     - Overlay
         - Benchmark and tune the handshakes
         - Benchmark and tune the state maintenance and updates
         - Benchmark and tune the routing performance
+    - Gobber
+        - Internal gobs were removed, package still needed?

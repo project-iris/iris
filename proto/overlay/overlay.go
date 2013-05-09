@@ -47,7 +47,7 @@ const (
 // Callback for events leaving the overlay network.
 type Callback interface {
 	Deliver(msg *session.Message, key *big.Int)
-	Forward(msg *session.Message, key *big.Int, src *big.Int) bool
+	Forward(msg *session.Message, key *big.Int) bool
 }
 
 // Internal structure for the overlay state information.
