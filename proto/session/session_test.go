@@ -80,7 +80,7 @@ func TestForwarding(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			bytes.Compare(msgs[i].Head.Meta, []byte("meta")) != 0 {
+			bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
@@ -104,7 +104,7 @@ func TestForwarding(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			bytes.Compare(msgs[i].Head.Meta, []byte("meta")) != 0 {
+			bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}

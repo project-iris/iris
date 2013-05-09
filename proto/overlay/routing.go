@@ -29,17 +29,18 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"proto/session"
 )
 
 // Pastry routing algorithm.
-func (o *Overlay) route(src *peer, msg *message) {
+func (o *Overlay) route(src *peer, msg *session.Message) {
 	// Sync the routing table
 	o.lock.RLock()
 	defer o.lock.RUnlock()
 
 	// Extract some vars for easier access
 	tab := o.routes
-	dst := msg.head.Dest
+	dst := msg.Head.Meta.(*header).Dest
 
 	// Check the leaf set for direct delivery
 	// TODO: corner cases with if only handful of nodes
@@ -95,25 +96,25 @@ func (o *Overlay) route(src *peer, msg *message) {
 }
 
 // Delivers a message to the application layer or processes it if a system message.
-func (o *Overlay) deliver(src *peer, msg *message) {
-	if msg.head.State != nil {
-		o.process(src, msg.head.Dest, msg.head.State)
+func (o *Overlay) deliver(src *peer, msg *session.Message) {
+	head := msg.Head.Meta.(*header)
+	if head.State != nil {
+		o.process(src, head.Dest, head.State)
 	} else {
 		// Remove all overlay infos from the message and send upwards
-		m := msg.data
-		m.Head.Meta = msg.head.Meta
-
 		o.lock.RUnlock()
-		o.app.Deliver(m, msg.head.Dest)
+		msg.Head.Meta = head.Meta
+		o.app.Deliver(msg, head.Dest)
 		o.lock.RLock()
 	}
 }
 
 // Forwards a message to the node with the given id and also checks its contents
 // if it's a system message.
-func (o *Overlay) forward(src *peer, msg *message, id *big.Int) {
-	if msg.head.State != nil {
-		o.process(src, msg.head.Dest, msg.head.State)
+func (o *Overlay) forward(src *peer, msg *session.Message, id *big.Int) {
+	head := msg.Head.Meta.(*header)
+	if head.State != nil {
+		o.process(src, head.Dest, head.State)
 	}
 	// Extract the origin id or local
 	origin := o.nodeId
@@ -121,15 +122,15 @@ func (o *Overlay) forward(src *peer, msg *message, id *big.Int) {
 		origin = src.nodeId
 	}
 	// Remove all overlay infos from the message and send upwards
-	m := msg.data
-	m.Head.Meta = msg.head.Meta
-
 	o.lock.RUnlock()
-	allow := o.app.Forward(m, msg.head.Dest, origin)
+	msg.Head.Meta = head.Meta
+	allow := o.app.Forward(msg, head.Dest, origin)
 	o.lock.RLock()
 
+	// Forwarding was allowed, repack headers and send
 	if allow {
 		if p, ok := o.pool[id.String()]; ok {
+			msg.Head.Meta = head
 			o.send(msg, p)
 		}
 	}

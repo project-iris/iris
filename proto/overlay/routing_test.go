@@ -77,7 +77,7 @@ func TestRouting(t *testing.T) {
 	// Create the messages to pass around
 	meta := []byte{0x99, 0x98, 0x97, 0x96}
 	head := session.Header{make([]byte, len(meta)), []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
-	copy(head.Meta, meta)
+	copy(head.Meta.([]byte), meta)
 
 	msgs := make([][]session.Message, peers)
 	for i := 0; i < peers; i++ {
@@ -102,7 +102,7 @@ func TestRouting(t *testing.T) {
 		} else {
 			for j := 0; j < peers; j++ {
 				// Check contents (a bit reduced, not every field was verified below)
-				if bytes.Compare(meta, apps[j].delivs[i].Head.Meta) != 0 {
+				if bytes.Compare(meta, apps[j].delivs[i].Head.Meta.([]byte)) != 0 {
 					t.Errorf("send/receive meta mismatch: have %v, want %v.", apps[i].delivs[j].Head.Meta, meta)
 				}
 				if bytes.Compare(msgs[i][j].Data, apps[j].delivs[i].Data) != 0 {

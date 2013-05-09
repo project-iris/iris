@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log"
 	"net"
 	"proto/stream"
 )
@@ -39,7 +40,7 @@ import (
 //  - symmetric key and ctr iv used to encrypt the payload
 //  - mac of the encrypted payload (internal)
 type Header struct {
-	Meta []byte
+	Meta interface{}
 	Key  []byte
 	Iv   []byte
 	Mac  []byte
@@ -170,6 +171,7 @@ func (s *Session) send(msg *Message) (err error) {
 
 	// Flatten and encrypt the headers
 	if err = s.outCoder.Encode(msg.Head); err != nil {
+		log.Printf("failed to encode header %v: %v", msg.Head, err)
 		return
 	}
 	s.outCipher.XORKeyStream(s.outBuffer.Bytes(), s.outBuffer.Bytes())

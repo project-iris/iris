@@ -27,8 +27,7 @@ package overlay
 
 import (
 	"config"
-	"fmt"
-	"log"
+	"encoding/gob"
 	"math/big"
 	"proto/session"
 	"time"
@@ -45,15 +44,14 @@ type state struct {
 // Extra headers for the overlay: destination id for routing, state for routing
 // table exchanges and meta for upper layer application use.
 type header struct {
+	Meta  interface{}
 	Dest  *big.Int
 	State *state
-	Meta  []byte
 }
 
-// Overlay message container for channel passing.
-type message struct {
-	head *header
-	data *session.Message
+// Make sure the header struct is registered with gob.
+func init() {
+	gob.Register(&header{})
 }
 
 // Listens on one particular session, extracts the overlay headers out of each
@@ -67,16 +65,8 @@ func (o *Overlay) receiver(p *peer) {
 			return
 		case <-p.quit:
 			return
-		case pkt, ok := <-p.netIn:
+		case msg, ok := <-p.netIn:
 			if !ok {
-				o.dropSink <- p
-				return
-			}
-			// Extract the overlay headers
-			p.inBuf.Write(pkt.Head.Meta)
-			msg := &message{new(header), pkt}
-			if err := p.dec.Decode(msg.head); err != nil {
-				log.Printf("failed to decode headers: %v.", err)
 				o.dropSink <- p
 				return
 			}
@@ -101,21 +91,13 @@ func (o *Overlay) sender(p *peer) {
 			if !ok {
 				return
 			}
-			// Check whether header recode is needed (i.e. optimized forwarding)
-			if msg.head != nil {
-				if err := p.enc.Encode(msg.head); err != nil {
-					panic(fmt.Sprintf("failed to encode headers: %v.", err))
-				}
-				msg.data.Head.Meta = append(msg.data.Head.Meta[:0], p.outBuf.Bytes()...)
-				p.outBuf.Reset()
-			}
 			// Send the packet but prevent infinite blocking
 			select {
 			case <-o.quit:
 				return
 			case <-p.quit:
 				return
-			case p.netOut <- msg.data:
+			case p.netOut <- msg:
 				// All's fine and boring
 			}
 		}
@@ -125,7 +107,7 @@ func (o *Overlay) sender(p *peer) {
 // Sends an already assembled message m to peer p. To prevent the system from
 // locking up due to a slow peer, p is dropped if a timeout is reached. Quit
 // events are also checked to ensure a close immediately notifies all senders.
-func (o *Overlay) send(m *message, p *peer) {
+func (o *Overlay) send(m *session.Message, p *peer) {
 	timeout := time.Tick(time.Duration(config.OverlaySendTimeout) * time.Millisecond)
 	select {
 	case <-o.quit:
@@ -140,6 +122,20 @@ func (o *Overlay) send(m *message, p *peer) {
 	}
 }
 
+// Simple utility function to wrap the contents of a system message into the
+// wire format.
+func (o *Overlay) sendWrap(s *state, dest *big.Int, p *peer) {
+	msg := &session.Message{
+		Head: session.Header{
+			Meta: &header{
+				Dest:  o.nodeId,
+				State: s,
+			},
+		},
+	}
+	o.send(msg, p)
+}
+
 // Sends an overlay join message to the remote peer, which is a simple state
 // package having 0 as the update time and containing only the local addresses.
 func (o *Overlay) sendJoin(p *peer) {
@@ -151,7 +147,7 @@ func (o *Overlay) sendJoin(p *peer) {
 	s.Addrs[o.nodeId.String()] = o.addrs
 	o.lock.RUnlock()
 
-	o.send(&message{&header{o.nodeId, s, nil}, new(session.Message)}, p)
+	o.sendWrap(s, o.nodeId, p)
 }
 
 // Sends an overlay state message to the remote peer and optionally may request a
@@ -192,7 +188,8 @@ func (o *Overlay) sendState(p *peer, repair bool) {
 		}
 	}
 	o.lock.RUnlock()
-	o.send(&message{&header{o.nodeId, s, nil}, new(session.Message)}, p)
+
+	o.sendWrap(s, o.nodeId, p)
 }
 
 // Sends a heartbeat message, tagging whether the connection is an active route
@@ -205,5 +202,5 @@ func (o *Overlay) sendBeat(p *peer, passive bool) {
 	s.Updated = o.time
 	o.lock.RUnlock()
 
-	o.send(&message{&header{o.nodeId, s, nil}, new(session.Message)}, p)
+	o.sendWrap(s, o.nodeId, p)
 }

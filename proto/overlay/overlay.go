@@ -23,11 +23,9 @@
 package overlay
 
 import (
-	"bytes"
 	"config"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"math/big"
@@ -96,17 +94,10 @@ type peer struct {
 	raddr string
 
 	// In/out-bound transport channels and quit channel
-	out    chan *message
+	out    chan *session.Message
 	netIn  chan *session.Message
 	netOut chan *session.Message
 	quit   chan struct{}
-
-	// Buffers and gob coders for the overlay specific meta-headers
-	inBuf  bytes.Buffer
-	outBuf bytes.Buffer
-
-	dec *gob.Decoder
-	enc *gob.Encoder
 
 	// Overlay state infos
 	time    uint64
@@ -183,11 +174,14 @@ func (o *Overlay) Self() *big.Int {
 }
 
 // Sends a message to the closest node to the given destination.
-func (o *Overlay) Send(dst *big.Int, msg *session.Message) {
-	// Extract the metadata from the message
-	meta := msg.Head.Meta
-	msg.Head.Meta = nil
+func (o *Overlay) Send(dest *big.Int, msg *session.Message) {
+	// Package into overlay envelope
+	head := &header{
+		Meta: msg.Head.Meta,
+		Dest: dest,
+	}
+	msg.Head.Meta = head
 
 	// Assemble and send an internal message with overlay state included
-	o.route(nil, &message{&header{dst, nil, meta}, msg})
+	o.route(nil, msg)
 }

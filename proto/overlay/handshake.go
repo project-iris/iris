@@ -42,6 +42,11 @@ type initPacket struct {
 	Addrs []string
 }
 
+// Make sure the init packet is registered with gob.
+func init() {
+	gob.Register(&initPacket{})
+}
+
 // Starts up the overlay networking on a specified interface and fans in all the
 // inbound connections into the overlay-global channels.
 func (o *Overlay) acceptor(ip net.IP) {
@@ -121,11 +126,9 @@ func (o *Overlay) shake(ses *session.Session) {
 
 	p.laddr = ses.Raw().LocalAddr().String()
 	p.raddr = ses.Raw().RemoteAddr().String()
-	p.dec = gob.NewDecoder(&p.inBuf)
-	p.enc = gob.NewEncoder(&p.outBuf)
 
 	p.quit = make(chan struct{})
-	p.out = make(chan *message, config.OverlayNetPreBuffer)
+	p.out = make(chan *session.Message, config.OverlayNetPreBuffer)
 	p.netIn = make(chan *session.Message, config.OverlayNetBuffer)
 	p.netOut = ses.Communicate(p.netIn, p.quit)
 
@@ -138,13 +141,8 @@ func (o *Overlay) shake(ses *session.Session) {
 	copy(pkt.Addrs, o.addrs)
 	o.lock.RUnlock()
 
-	if err := p.enc.Encode(pkt); err != nil {
-		panic(fmt.Sprintf("failed to encode init packet: %v.", err))
-	}
 	msg := new(session.Message)
-	msg.Head.Meta = make([]byte, p.outBuf.Len())
-	copy(msg.Head.Meta, p.outBuf.Bytes())
-	p.outBuf.Reset()
+	msg.Head.Meta = pkt
 	p.netOut <- msg
 
 	// Wait for an incoming init packet
@@ -161,12 +159,7 @@ func (o *Overlay) shake(ses *session.Session) {
 			success = false
 			break
 		}
-		p.inBuf.Write(msg.Head.Meta)
-		if err := p.dec.Decode(pkt); err != nil {
-			log.Printf("failed to decode remote init packet: %v.", err)
-			success = false
-			break
-		}
+		pkt = msg.Head.Meta.(*initPacket)
 		p.nodeId = pkt.Id
 		p.addrs = pkt.Addrs
 
