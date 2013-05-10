@@ -24,13 +24,20 @@ package carrier
 import (
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"math/big"
+	"math/rand"
 	"sync"
 )
 
+// Special id to reffer to the local node.
+var localId = big.NewInt(-1)
+
 // The maintenance data related to a single topic.
 type topic struct {
-	nodes []*big.Int
-	apps  []*big.Int
+	parent *big.Int   // Parent node in the topic tree
+	nodes  []*big.Int // Remote children in the topic tree
+	apps   []*big.Int // Local children in the topic tree
+
+	bal *balancer
 
 	lock sync.RWMutex
 }
@@ -40,6 +47,7 @@ func newTopic() *topic {
 	return &topic{
 		nodes: []*big.Int{},
 		apps:  []*big.Int{},
+		bal:   newBalancer(),
 	}
 }
 
@@ -61,10 +69,16 @@ func (t *topic) subscribe(id *big.Int, app bool) {
 		list = append(list, id)
 		sortext.BigInts(list)
 	}
-	// Save the updated list
+	// Save the updated list and insert into balancer
 	if app {
+		if len(t.apps) == 0 {
+			t.bal.Register(localId)
+		}
 		t.apps = list
 	} else {
+		if len(t.nodes) < len(list) {
+			t.bal.Register(id)
+		}
 		t.nodes = list
 	}
 }
@@ -90,9 +104,30 @@ func (t *topic) unsubscribe(id *big.Int, app bool) bool {
 	}
 	// Save the updated list
 	if app {
+		if len(t.apps) == 1 && len(list) == 0 {
+			t.bal.Unregister(localId)
+		}
 		t.apps = list
 	} else {
+		if len(t.nodes) > len(list) {
+			t.bal.Unregister(id)
+		}
 		t.nodes = list
 	}
 	return len(t.apps) == 0 && len(t.nodes) == 0
+}
+
+// Returns a node OR app id to which the balancer deemed the next message should
+// be sent.
+func (t *topic) balance(src *big.Int) (nodeId, appId *big.Int) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	// Pick a balance target and forward of remote node
+	id := t.bal.Balance(src)
+	if id.Cmp(localId) != 0 {
+		return id, nil
+	}
+	// Otherwise balance between local apps
+	return nil, t.apps[rand.Intn(len(t.apps))]
 }

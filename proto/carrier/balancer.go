@@ -23,7 +23,6 @@
 package carrier
 
 import (
-	"fmt"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -54,7 +53,8 @@ func (b *balancer) Register(id *big.Int) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
-	b.nodes = append(b.nodes, entity{id: id})
+	b.nodes = append(b.nodes, entity{id: id, cap: 1})
+	b.capacity += 1
 }
 
 // Unregisters an entity from the possible balancing destinations.
@@ -105,13 +105,13 @@ func (b *balancer) Update(id *big.Int, cap int) {
 // Returns an id to which to send the next message to. The optional src (can be
 // nil) is used to exclude an entity from balancing to (if it's the only one
 // available then this guarantee will be forfeit).
-func (b *balancer) Balance(src *big.Int) (*big.Int, error) {
+func (b *balancer) Balance(src *big.Int) *big.Int {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
 	// Make sure there is actually somebody to balance to
 	if b.capacity == 0 {
-		return nil, fmt.Errorf("no capacity to balance")
+		panic("no capacity to balance")
 	}
 	// Calculate the available capacity without the excluded entity
 	available := b.capacity
@@ -136,7 +136,7 @@ func (b *balancer) Balance(src *big.Int) (*big.Int, error) {
 		}
 		cap -= node.cap
 		if cap < 0 {
-			return node.id, nil
+			return node.id
 		}
 	}
 	// Just in case to prevent bugs

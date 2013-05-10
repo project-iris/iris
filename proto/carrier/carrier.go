@@ -40,6 +40,7 @@ type Carrier interface {
 	Subscribe(id *big.Int, topic string) chan *session.Message
 	Unsubscribe(id *big.Int, topic string)
 	Publish(id *big.Int, topic string, msg *session.Message)
+	Balance(id *big.Int, topic string, msg *session.Message)
 }
 
 // The real carrier implementation, receiving the overlay events and processing
@@ -93,6 +94,11 @@ func (c *carrier) Publish(id *big.Int, topic string, msg *session.Message) {
 	c.sendPub(id, overlay.Resolve(topic), msg)
 }
 
+// Delivers a message to a subscribed node, balancing amongst all subscriptions.
+func (c *carrier) Balance(id *big.Int, topic string, msg *session.Message) {
+	c.sendBal(id, overlay.Resolve(topic), msg)
+}
+
 // Handles the subscription event to a topic.
 func (c *carrier) subscribe(id, topic *big.Int, app bool) {
 	c.lock.Lock()
@@ -132,7 +138,7 @@ func (c *carrier) broadcast(msg *session.Message, topic *big.Int) {
 	sid := topic.String()
 	top, ok := c.topics[sid]
 	if !ok {
-		log.Printf("unknown topic %v, discarding message %v.", topic, msg)
+		log.Printf("unknown topic %v, discarding broadcast %v.", topic, msg)
 		return
 	}
 	// Send to all in the topic
@@ -153,6 +159,24 @@ func (c *carrier) broadcast(msg *session.Message, topic *big.Int) {
 		*cpy = *msg
 		cpy.Head.Meta = msg.Head.Meta.(*header).Meta
 
-		fmt.Printf("Delivering message to local %v: %v\n", app, cpy)
+		fmt.Printf("Delivering broadcast message to local %v: %v\n", app, cpy)
 	}
+}
+
+// Handles the load balancing event of a topic.
+func (c *carrier) balance(msg *session.Message, topic *big.Int, prev *big.Int) bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if top, ok := c.topics[topic.String()]; ok {
+		// Fetch the recipient and either forward or deliver
+		node, app := top.balance(prev)
+		if node != nil {
+			c.fwdBal(node, msg)
+		} else {
+			fmt.Printf("Delivering balanced message to local %v: %v\n", app, msg)
+		}
+		return true
+	}
+	return false
 }

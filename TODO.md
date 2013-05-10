@@ -4,6 +4,8 @@
 Stuff that need implementing, fixing or testing.
 
 - Features
+    - Carrier
+        - Use full topic tree (midway terminations) for publishing too (like balancing)
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
