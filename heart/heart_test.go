@@ -27,12 +27,12 @@ import (
 
 // Simple heartbeat callback to gather the events
 type testCallback struct {
-	ping []*big.Int
+	beat int
 	dead []*big.Int
 }
 
-func (cb *testCallback) Ping(id *big.Int) {
-	cb.ping = append(cb.ping, id)
+func (cb *testCallback) Beat() {
+	cb.beat++
 }
 
 func (cb *testCallback) Dead(id *big.Int) {
@@ -47,43 +47,43 @@ func TestHeart(t *testing.T) {
 	// Heartbeat parameters
 	beat := time.Duration(50 * time.Millisecond)
 	kill := 3
-	call := &testCallback{[]*big.Int{}, []*big.Int{}}
+	call := &testCallback{dead: []*big.Int{}}
 
 	// Create the heartbeat mechanism and monitor some entities
 	heart := New(beat, kill, call)
 	heart.Monitor(alice)
 
-	// Make sure no ping requests are issued before starting
+	// Make sure no beat requests are issued before starting
 	for i := 0; i < kill+1; i++ {
 		time.Sleep(beat)
 	}
-	if len(call.ping) > 0 || len(call.dead) > 0 {
+	if call.beat > 0 || len(call.dead) > 0 {
 		t.Errorf("events received before starting beater: %v", call)
 	}
-	// Start the beater and check for ping events
+	// Start the beater and check for beat events
 	heart.Start()
 	time.Sleep(10 * time.Millisecond) // Go out of sync with beater
 
 	time.Sleep(beat)
-	if n := len(call.ping); n != 1 {
-		t.Errorf("ping event count mismatch: have %v, want %v", n, 1)
+	if n := call.beat; n != 1 {
+		t.Errorf("beat event count mismatch: have %v, want %v", n, 1)
 	}
 	if n := len(call.dead); n != 0 {
 		t.Errorf("dead event count mismatch: have %v, want %v", n, 0)
 	}
-	// Insert another entity, check the pings again
+	// Insert another entity, check the beats again
 	heart.Monitor(bob)
 	time.Sleep(beat)
-	if n := len(call.ping); n != 3 {
-		t.Errorf("ping event count mismatch: have %v, want %v", n, 3)
+	if n := call.beat; n != 2 {
+		t.Errorf("beat event count mismatch: have %v, want %v", n, 2)
 	}
 	if n := len(call.dead); n != 0 {
 		t.Errorf("dead event count mismatch: have %v, want %v", n, 0)
 	}
-	// Wait another beat, check pings and dead reports
+	// Wait another beat, check beats and dead reports
 	time.Sleep(beat)
-	if n := len(call.ping); n != 4 {
-		t.Errorf("ping event count mismatch: have %v, want %v", n, 4)
+	if n := call.beat; n != 3 {
+		t.Errorf("beat event count mismatch: have %v, want %v", n, 3)
 	}
 	if n := len(call.dead); n != 1 {
 		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)
@@ -93,8 +93,8 @@ func TestHeart(t *testing.T) {
 	heart.Ping(bob)
 
 	time.Sleep(beat)
-	if n := len(call.ping); n != 5 {
-		t.Errorf("ping event count mismatch: have %v, want %v", n, 5)
+	if n := call.beat; n != 4 {
+		t.Errorf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	if n := len(call.dead); n != 1 {
 		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)
@@ -102,8 +102,8 @@ func TestHeart(t *testing.T) {
 	// Terminate beater and ensure no more events are fired
 	heart.Terminate()
 	time.Sleep(beat)
-	if n := len(call.ping); n != 5 {
-		t.Errorf("ping event count mismatch: have %v, want %v", n, 5)
+	if n := call.beat; n != 4 {
+		t.Errorf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	if n := len(call.dead); n != 1 {
 		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)

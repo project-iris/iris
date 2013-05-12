@@ -30,7 +30,7 @@ import (
 
 // Heartbeat callback interface to get notified of events.
 type Callback interface {
-	Ping(id *big.Int)
+	Beat()
 	Dead(id *big.Int)
 }
 
@@ -119,16 +119,15 @@ func (h *Heart) beater() {
 		case <-h.quit:
 			return
 		case <-beat:
-			// Beat cycle: update tick, report dead entities, ping others
+			// Beat cycle: update tick, report dead entities and signal beat
 			h.lock.Lock()
 			h.tick++
 			for _, m := range h.mems {
 				if h.tick-m.tick >= h.kill {
 					h.call.Dead(m.id)
-				} else {
-					h.call.Ping(m.id)
 				}
 			}
+			h.call.Beat()
 			h.lock.Unlock()
 		}
 	}
