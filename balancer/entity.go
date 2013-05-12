@@ -20,7 +20,7 @@
 // This file contains the entity definition and some helper funcs, separated to
 // leave the main logic clearer.
 
-package heart
+package balancer
 
 import (
 	"math/big"
@@ -29,8 +29,8 @@ import (
 
 // Entity and related information.
 type entity struct {
-	id   *big.Int // Unique identifier of the entity
-	tick int      // Tick of the last recorded activity
+	id  *big.Int // Unique identifier of the entity
+	cap int      // Message capacity as reported by entity
 }
 
 // Entity slice implementing sort.Interface.

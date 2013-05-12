@@ -17,7 +17,7 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-package carrier
+package balancer
 
 import (
 	"math/big"
@@ -40,7 +40,7 @@ func TestBalancer(t *testing.T) {
 		caps[i] = rand.Intn(1000) + 1
 	}
 	// Create the balancer and register all entities
-	bal := newBalancer()
+	bal := New()
 	for i := 0; i < entities; i++ {
 		bal.Register(ids[i])
 		bal.Update(ids[i], caps[i])

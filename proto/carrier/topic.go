@@ -22,6 +22,7 @@
 package carrier
 
 import (
+	"balancer"
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"math/big"
 	"math/rand"
@@ -37,7 +38,7 @@ type topic struct {
 	nodes  []*big.Int // Remote children in the topic tree
 	apps   []*big.Int // Local children in the topic tree
 
-	bal *balancer
+	bal *balancer.Balancer
 
 	lock sync.RWMutex
 }
@@ -47,7 +48,7 @@ func newTopic() *topic {
 	return &topic{
 		nodes: []*big.Int{},
 		apps:  []*big.Int{},
-		bal:   newBalancer(),
+		bal:   balancer.New(),
 	}
 }
 
