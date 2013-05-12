@@ -36,8 +36,10 @@ func TestBalancer(t *testing.T) {
 	}
 	// Assign a capacity to each of them
 	caps := make([]int, entities)
+	total := 0
 	for i := 0; i < len(caps); i++ {
 		caps[i] = rand.Intn(1000) + 1
+		total += caps[i]
 	}
 	// Create the balancer and register all entities
 	bal := New()
@@ -45,11 +47,16 @@ func TestBalancer(t *testing.T) {
 		bal.Register(ids[i])
 		bal.Update(ids[i], caps[i])
 	}
-	// Balance N x total capacity on separate threads each
-	total := 0
-	for _, cap := range caps {
-		total += cap
+	// Check total and excluded capacities
+	if cap := bal.Capacity(nil); cap != total {
+		t.Errorf("total capacity mismatch: have %v, want %v.", cap, total)
 	}
+	for i, ex := range ids {
+		if cap := bal.Capacity(ex); cap != total-caps[i] {
+			t.Errorf("excluded capacity mismatch: have %v, want %v.", cap, total-caps[i])
+		}
+	}
+	// Balance N x total capacity on separate threads each
 	res := make(chan *big.Int, total)
 	for i := 0; i < threads; i++ {
 		go func(idx int) {

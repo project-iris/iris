@@ -98,10 +98,10 @@ func (b *Balancer) Update(id *big.Int, cap int) {
 	}
 }
 
-// Returns an id to which to send the next message to. The optional src (can be
+// Returns an id to which to send the next message to. The optional ex (can be
 // nil) is used to exclude an entity from balancing to (if it's the only one
 // available then this guarantee will be forfeit).
-func (b *Balancer) Balance(src *big.Int) *big.Int {
+func (b *Balancer) Balance(ex *big.Int) *big.Int {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
@@ -109,12 +109,12 @@ func (b *Balancer) Balance(src *big.Int) *big.Int {
 	if b.capacity == 0 {
 		panic("no capacity to balance")
 	}
-	// Calculate the available capacity with src excluded
+	// Calculate the available capacity with ex excluded
 	available := b.capacity
 	exclude := -1
-	if src != nil {
-		idx := b.members.Search(src)
-		if idx < len(b.members) && b.members[idx].id.Cmp(src) == 0 {
+	if ex != nil {
+		idx := b.members.Search(ex)
+		if idx < len(b.members) && b.members[idx].id.Cmp(ex) == 0 {
 			if available != b.members[idx].cap {
 				available -= b.members[idx].cap
 				exclude = idx
@@ -135,4 +135,23 @@ func (b *Balancer) Balance(src *big.Int) *big.Int {
 	}
 	// Just in case to prevent bugs
 	panic("balanced out of bounds")
+}
+
+// Returns the total capacity that the balancer can handle, optionally with ex
+// excluded from the count.
+func (b *Balancer) Capacity(ex *big.Int) int {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
+	// If nothing's excluded, return total capacity
+	if ex == nil {
+		return b.capacity
+	}
+	// Otherwise find the excluded node and return reduced capacity
+	idx := b.members.Search(ex)
+	if idx < len(b.members) && b.members[idx].id.Cmp(ex) == 0 {
+		return b.capacity - b.members[idx].cap
+	} else {
+		return b.capacity
+	}
 }
