@@ -23,6 +23,7 @@
 package balancer
 
 import (
+	"fmt"
 	"math/big"
 	"math/rand"
 	"sort"
@@ -76,7 +77,7 @@ func (b *Balancer) Unregister(id *big.Int) {
 }
 
 // Updates an entry's capacity to cap.
-func (b *Balancer) Update(id *big.Int, cap int) {
+func (b *Balancer) Update(id *big.Int, cap int) error {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
@@ -94,8 +95,9 @@ func (b *Balancer) Update(id *big.Int, cap int) {
 		// Update local capacity
 		b.members[idx].cap = cap
 	} else {
-		panic("trying to update non-registered entity")
+		return fmt.Errorf("non-registered entity: %v", id)
 	}
+	return nil
 }
 
 // Returns an id to which to send the next message to. The optional ex (can be

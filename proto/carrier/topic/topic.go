@@ -69,6 +69,38 @@ func (t *Topic) Self() *big.Int {
 	return t.id
 }
 
+// Returns the current topic parent node.
+func (t *Topic) Parent() *big.Int {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	return t.parent
+}
+
+// Sets the topic parent to the one specified.
+func (t *Topic) Reown(parent *big.Int) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	// In an old parent existed, clear out leftovers
+	if t.parent != nil {
+		t.heart.Unmonitor(t.parent)
+		t.load.Unregister(t.parent)
+	}
+	// Initialize and save the new parent
+	t.parent = parent
+	t.heart.Monitor(parent)
+	t.load.Register(parent)
+}
+
+// Returns whether the current topic subtree is empty.
+func (t *Topic) Empty() bool {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	return len(t.apps) == 0 && len(t.nodes) == 0
+}
+
 // Subscribes an application to the topic and inserts the local node into the
 // load balancer.
 func (t *Topic) SubscribeApp(id *big.Int) {
@@ -107,9 +139,8 @@ func (t *Topic) SubscribeNode(id *big.Int) {
 }
 
 // Unsubscribes a local application from the topic and possibly removes the
-// local node from the balancer if no apps remained. Returns whether the topic
-// became empty.
-func (t *Topic) UnsubscribeApp(id *big.Int) bool {
+// local node from the balancer if no apps remained.
+func (t *Topic) UnsubscribeApp(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -128,14 +159,11 @@ func (t *Topic) UnsubscribeApp(id *big.Int) bool {
 			t.load.Unregister(localId)
 		}
 	}
-	// Return whether the topic became empty
-	return len(t.apps) == 0 && len(t.nodes) == 0
 }
 
 // Unregisters a remote node from the topic, removing it from the balancer's
-// registry as well as the heart-beaters monitor list. Returns whether the topic
-// became empty.
-func (t *Topic) UnsubscribeNode(id *big.Int) bool {
+// registry as well as the heart-beaters monitor list.
+func (t *Topic) UnsubscribeNode(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -153,19 +181,19 @@ func (t *Topic) UnsubscribeNode(id *big.Int) bool {
 		// Create ordered list once again
 		sortext.BigInts(t.nodes)
 	}
-	// Return whether the topic became empty
-	return len(t.apps) == 0 && len(t.nodes) == 0
 }
 
 // Returns the list of nodes and apps that a broadcast message should be sent.
-func (t *Topic) Broadcast() ([]*big.Int, []*big.Int) {
+func (t *Topic) Broadcast() (nodes, apps []*big.Int) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	nodes := make([]*big.Int, len(t.nodes))
+	nodes = make([]*big.Int, len(t.nodes), len(t.nodes)+1)
 	copy(nodes, t.nodes)
-
-	apps := make([]*big.Int, len(t.apps))
+	if t.parent != nil {
+		nodes = append(nodes, t.parent)
+	}
+	apps = make([]*big.Int, len(t.apps))
 	copy(apps, t.apps)
 
 	return nodes, apps
@@ -210,10 +238,12 @@ func (t *Topic) GenerateReport() ([]*big.Int, []int) {
 }
 
 // Sets the load capacity for a source node in the balancer.
-func (t *Topic) ProcessReport(src *big.Int, cap int) {
+func (t *Topic) ProcessReport(id *big.Int, cap int) error {
 	// Update the capacity in the load balancer
-	t.load.Update(src, cap)
-
+	if err := t.load.Update(id, cap); err != nil {
+		return err
+	}
 	// Notify the heartbeater of the source presence
-	t.heart.Ping(src)
+	t.heart.Ping(id)
+	return nil
 }

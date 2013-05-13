@@ -189,6 +189,12 @@ var OverlayAuthThreads = 8
 // Maximum number of state exchanges allowed concurrently.
 var OverlayExchThreads = 128
 
+// Heartbeat period to distribute current cpu load and also check liveliness.
+var CarrierBeatPeriod = 500
+
+// Number of missed heartbeats after which to consider a node down.
+var CarrierKillCount = 3
+
 // Distributed application identifier
 var AppGlobalId = []byte("iris")
 

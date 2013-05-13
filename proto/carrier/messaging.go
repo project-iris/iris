@@ -21,7 +21,6 @@ package carrier
 
 import (
 	"encoding/gob"
-	"log"
 	"math/big"
 	"proto/session"
 )
@@ -34,16 +33,9 @@ const (
 	opSub opcode = iota
 	opUnsub
 	opPub
-	opBcast
 	opBal
-	opLoad
+	opRep
 )
-
-// Load report for a topic subtree
-type report struct {
-	Load float32
-	Msgs int
-}
 
 // Extra headers for the carrier.
 type header struct {
@@ -55,10 +47,9 @@ type header struct {
 
 	// Operation dependent fields
 	DestApp *big.Int // Destination app used during direct messaging
-	Topic   *big.Int // Topic id used during broadcasting and balancing
+	Topic   *big.Int // Topic id used during unsubscribing, broadcasting and balancing
 	Prev    *big.Int // Previous hop inside topic to prevent optimize routes
-
-	//Load *report
+	Report  *report  // CPU load/capacity report
 }
 
 // Creates a copy of the header needed by the broadcast.
@@ -73,15 +64,8 @@ func init() {
 	gob.Register(&header{})
 }
 
-// Broadcasts and already assembled message.
-func (c *carrier) sendBcast(dest, topic *big.Int, msg *session.Message) {
-	msg.Head.Meta.(*header).Op = opBcast
-	msg.Head.Meta.(*header).Topic = topic
-	c.transport.Send(dest, msg)
-}
-
-// Assembles a subscription message and sends it towards its destination.
-func (c *carrier) sendSub(dest *big.Int) {
+// Assembles a subscription message and sends it towards the topic root.
+func (c *carrier) sendSubscribe(topicId *big.Int) {
 	msg := &session.Message{
 		Head: session.Header{
 			Meta: &header{
@@ -90,101 +74,69 @@ func (c *carrier) sendSub(dest *big.Int) {
 			},
 		},
 	}
-	c.transport.Send(dest, msg)
+	c.transport.Send(topicId, msg)
 }
 
-// Assembles an unsubscription message and sends it towards its destination.
-func (c *carrier) sendUnsub(dest *big.Int) {
+// Assembles an unsubscription message and sends it to dest.
+func (c *carrier) sendUnsubscribe(dest, topic *big.Int) {
 	msg := &session.Message{
 		Head: session.Header{
 			Meta: &header{
 				Op:      opUnsub,
 				SrcNode: c.transport.Self(),
+				Topic:   topic,
 			},
 		},
 	}
 	c.transport.Send(dest, msg)
 }
 
-// Publishes a message towards the topic identified by dest.
-func (c *carrier) sendPub(src *big.Int, dest *big.Int, msg *session.Message) {
-	// Envelope the upper meta into the carrier headers
-	head := &header{
+// Publishes a message into a topic.
+func (c *carrier) sendPublish(app, topic *big.Int, msg *session.Message) {
+	msg.Head.Meta = &header{
 		Meta:    msg.Head.Meta,
 		Op:      opPub,
 		SrcNode: c.transport.Self(),
-		SrcApp:  src,
+		SrcApp:  app,
+		Topic:   topic,
 	}
-	msg.Head.Meta = head
+	c.transport.Send(topic, msg)
+}
 
+// Forwards a published message inside the topic to dest.
+func (c *carrier) fwdPublish(dest *big.Int, msg *session.Message) {
+	msg.Head.Meta.(*header).Prev = c.transport.Self()
 	c.transport.Send(dest, msg)
 }
 
 // Requests a message balancing in the topic identified by dest.
-func (c *carrier) sendBal(src *big.Int, dest *big.Int, msg *session.Message) {
-	// Envelope the upper meta into the carrier headers
-	head := &header{
+func (c *carrier) sendBalance(src *big.Int, dest *big.Int, msg *session.Message) {
+	msg.Head.Meta = &header{
 		Meta:    msg.Head.Meta,
 		Op:      opBal,
 		SrcNode: c.transport.Self(),
 		SrcApp:  src,
 		Topic:   dest,
 	}
-	msg.Head.Meta = head
 	c.transport.Send(dest, msg)
 }
 
 // Forwards a balanced message to dest for remote balancing.
-func (c *carrier) fwdBal(dest *big.Int, msg *session.Message) {
+func (c *carrier) fwdBalance(dest *big.Int, msg *session.Message) {
 	msg.Head.Meta.(*header).Prev = c.transport.Self()
 	c.transport.Send(dest, msg)
 }
 
-// Implements the overlay.Callback.Deliver method.
-func (c *carrier) Deliver(msg *session.Message, key *big.Int) {
-	head := msg.Head.Meta.(*header)
-	switch head.Op {
-	case opSub:
-		// Accept remote subscription if not self-passthrough
-		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
-			c.subscribe(head.SrcNode, key, false)
-		}
-	case opUnsub:
-		// Accept remote unsubscription if not self-passthrough
-		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
-			c.unsubscribe(head.SrcNode, key, false)
-		}
-	case opPub:
-		// Topic root, start broadcast
-		c.broadcast(msg, key)
-	case opBcast:
-		// Topic forwarder, also broadcast
-		c.broadcast(msg, head.Topic)
-	case opBal:
-		// Balance locally or send forth
-		c.balance(msg, head.Topic, head.Prev)
-	default:
-		log.Printf("unknown opcode received: %v", head.Op)
+// Sends out a load report to a remote carrier node.
+func (c *carrier) sendReport(dest *big.Int, rep *report) {
+	msg := &session.Message{
+		Head: session.Header{
+			Meta: &header{
+				Op:      opRep,
+				SrcNode: c.transport.Self(),
+				Report:  rep,
+			},
+		},
 	}
-}
-
-// Implements the overlay.Callback.Forward method.
-func (c *carrier) Forward(msg *session.Message, key *big.Int) bool {
-	head := msg.Head.Meta.(*header)
-
-	// If subscription event, process locally and reinitiate
-	if head.Op == opSub {
-		// Accept remote subscription if not self-passthrough
-		if head.SrcNode.Cmp(c.transport.Self()) != 0 {
-			c.subscribe(head.SrcNode, key, false)
-		}
-		// Swap out the originating node to the current and forward
-		head.SrcNode = c.transport.Self()
-		return true
-	}
-	// Catch virgin balance messages and only blindly forward if cannot handle
-	if head.Op == opBal && head.Prev == nil {
-		return !c.balance(msg, head.Topic, nil)
-	}
-	return true
+	c.transport.Send(dest, msg)
 }
