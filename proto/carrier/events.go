@@ -23,7 +23,6 @@ package carrier
 
 import (
 	"config"
-	"fmt"
 	"log"
 	"math/big"
 	"proto/carrier/topic"
@@ -58,6 +57,9 @@ func (c *carrier) Deliver(msg *session.Message, key *big.Int) {
 	case opRep:
 		// Load report, integrate into topics
 		c.handleReport(head.SrcNode, head.Report)
+	case opDir:
+		// Direct message, deliver
+		c.handleDirect(msg, head.DestApp)
 	default:
 		log.Printf("unknown opcode received: %v, %v", head.Op, head)
 	}
@@ -153,6 +155,7 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 		nodes, apps := top.Broadcast()
 		for _, id := range nodes {
 			if prevHop == nil || id.Cmp(prevHop) != 0 {
+				// Create a copy since overlay will modify headers
 				cpy := new(session.Message)
 				*cpy = *msg
 				cpy.Head.Meta = msg.Head.Meta.(*header).copy()
@@ -161,12 +164,19 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 			}
 		}
 		// Deliver to all local apps
+		head := msg.Head.Meta.(*header)
 		for _, id := range apps {
+			// Copy and remove all carrier messages
 			cpy := new(session.Message)
 			*cpy = *msg
-			cpy.Head.Meta = msg.Head.Meta.(*header).Meta
+			cpy.Head.Meta = head.Meta
 
-			fmt.Printf("Pub (%v): %v\n", id, cpy.Data)
+			// Deliver to the application on the specific topic
+			if app, ok := c.apps[id.String()]; ok {
+				app.deliverSubscription(&Address{head.SrcNode, head.SrcApp}, topicId, cpy)
+			} else {
+				log.Printf("unknown application %v, discarding message.", app)
+			}
 		}
 		return true
 	}
@@ -184,7 +194,16 @@ func (c *carrier) handleBalance(msg *session.Message, topicId *big.Int, prevHop 
 		if node != nil {
 			c.fwdBalance(node, msg)
 		} else {
-			fmt.Printf("Balance (%v): %v\n", app, msg.Data)
+			if a, ok := c.apps[app.String()]; ok {
+				// Remove all carrier headers
+				head := msg.Head.Meta.(*header)
+				msg.Head.Meta = head.Meta
+
+				// Deliver to the application on the specific topic
+				a.deliverSubscription(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
+			} else {
+				log.Printf("unknown application %v, discarding message.", app)
+			}
 		}
 		return true
 	}
@@ -193,6 +212,9 @@ func (c *carrier) handleBalance(msg *session.Message, topicId *big.Int, prevHop 
 
 // Handles a remote member report, possibly assigning a new parent to the topic.
 func (c *carrier) handleReport(src *big.Int, rep *report) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
 	// Update local topics with the remote reports
 	for i, id := range rep.Tops {
 		if top, ok := c.topics[id.String()]; ok {
@@ -210,5 +232,22 @@ func (c *carrier) handleReport(src *big.Int, rep *report) {
 		} else {
 			log.Printf("unknown topic %v, discarding load report %v.", id, rep.Caps[i])
 		}
+	}
+}
+
+// Handles the receiving of a direct message.
+func (c *carrier) handleDirect(msg *session.Message, appId *big.Int) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if app, ok := c.apps[appId.String()]; ok {
+		// Remove all carrier headers
+		head := msg.Head.Meta.(*header)
+		msg.Head.Meta = head.Meta
+
+		// Deliver the source-tagged message
+		app.deliverDirect(&Address{head.SrcNode, head.SrcApp}, msg)
+	} else {
+		log.Printf("unknown application %v, discarding direct message %v.", appId, msg)
 	}
 }

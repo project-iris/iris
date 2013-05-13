@@ -26,10 +26,8 @@ import (
 	"config"
 	"crypto/rsa"
 	"heart"
-	"math/big"
 	"proto/carrier/topic"
 	"proto/overlay"
-	"proto/session"
 	"sync"
 	"time"
 )
@@ -38,19 +36,17 @@ import (
 type Carrier interface {
 	Boot() error
 	Shutdown()
-
-	Subscribe(id *big.Int, topic string) chan *session.Message
-	Unsubscribe(id *big.Int, topic string)
-	Publish(id *big.Int, topic string, msg *session.Message)
-	Balance(id *big.Int, topic string, msg *session.Message)
+	NewApp() *Application
 }
 
 // The real carrier implementation, receiving the overlay events and processing
 // them according to the protocol.
 type carrier struct {
-	transport *overlay.Overlay
-	topics    map[string]*topic.Topic
-	heart     *heart.Heart
+	transport *overlay.Overlay // Overlay network to route the mess
+	heart     *heart.Heart     // Heartbeat mechanism
+
+	topics map[string]*topic.Topic // Locally active topics
+	apps   map[string]*Application // Locally active and connected apps
 
 	lock sync.RWMutex
 }
@@ -60,6 +56,7 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 	// Create and initialize the overlay
 	c := &carrier{
 		topics: make(map[string]*topic.Topic),
+		apps:   make(map[string]*Application),
 	}
 	c.transport = overlay.New(overId, key, c)
 	c.heart = heart.New(time.Duration(config.CarrierBeatPeriod)*time.Millisecond, config.CarrierKillCount, c)
@@ -79,31 +76,4 @@ func (c *carrier) Boot() error {
 func (c *carrier) Shutdown() {
 	c.heart.Terminate()
 	c.transport.Shutdown()
-}
-
-// Subscribes to the specified topic and returns a new channel on which incoming
-// messages will arrive.
-func (c *carrier) Subscribe(id *big.Int, topic string) chan *session.Message {
-	key := overlay.Resolve(topic)
-
-	// Subscribe the app to the topic and initiate a subscription message
-	c.handleSubscribe(id, key, true)
-	c.sendSubscribe(key)
-
-	return nil
-}
-
-// Removes the subscription of ch from topic.
-func (c *carrier) Unsubscribe(id *big.Int, topic string) {
-	c.handleUnsubscribe(id, overlay.Resolve(topic), true)
-}
-
-// Publishes a message into topic to be broadcast to everyone.
-func (c *carrier) Publish(id *big.Int, topic string, msg *session.Message) {
-	c.sendPublish(id, overlay.Resolve(topic), msg)
-}
-
-// Delivers a message to a subscribed node, balancing amongst all subscriptions.
-func (c *carrier) Balance(id *big.Int, topic string, msg *session.Message) {
-	c.sendBalance(id, overlay.Resolve(topic), msg)
 }

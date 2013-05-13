@@ -153,7 +153,7 @@ var BootSlowProbe = 1000
 // Scanning interval during bootstrapping (ms)
 var BootScan = 250
 
-// Virtual address space in bits
+// Virtual address space (bits)
 var OverlaySpace = 128
 
 // Number of matching bits for the next hop
@@ -189,11 +189,17 @@ var OverlayAuthThreads = 8
 // Maximum number of state exchanges allowed concurrently.
 var OverlayExchThreads = 128
 
-// Heartbeat period to distribute current cpu load and also check liveliness.
+// Heartbeat period to distribute current cpu load and also check liveliness (ms).
 var CarrierBeatPeriod = 500
 
 // Number of missed heartbeats after which to consider a node down.
 var CarrierKillCount = 3
+
+// Application identifier space (bits).
+var CarrierSpace = 32
+
+// Number of messages to buffer for application delivery before dropping.
+var CarrierAppBuffer = 128
 
 // Distributed application identifier
 var AppGlobalId = []byte("iris")

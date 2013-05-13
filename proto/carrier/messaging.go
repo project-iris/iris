@@ -35,6 +35,7 @@ const (
 	opPub
 	opBal
 	opRep
+	opDir
 )
 
 // Extra headers for the carrier.
@@ -139,4 +140,16 @@ func (c *carrier) sendReport(dest *big.Int, rep *report) {
 		},
 	}
 	c.transport.Send(dest, msg)
+}
+
+// Sends out a message directed to a specific node and app.
+func (c *carrier) sendDirect(src *big.Int, dest *Address, msg *session.Message) {
+	msg.Head.Meta = &header{
+		Meta:    msg.Head.Meta,
+		Op:      opDir,
+		SrcNode: c.transport.Self(),
+		SrcApp:  src,
+		DestApp: dest.appId,
+	}
+	c.transport.Send(dest.nodeId, msg)
 }
