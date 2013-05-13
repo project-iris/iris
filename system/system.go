@@ -44,6 +44,12 @@ func CpuUsage() float32 {
 
 // Init function to start the measurements
 func init() {
+	// Make sure state is initialized to something
+	gatherCpuInfo()
+	time.Sleep(100 * time.Millisecond)
+	gatherCpuInfo()
+
+	// Measure till program is terminated
 	go func() {
 		tick := time.Tick(3 * time.Second)
 		for {
