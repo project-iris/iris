@@ -114,21 +114,28 @@ func (h *Heart) Ping(id *big.Int) {
 // monitored entity and report when some fail to respond within alloted time.
 func (h *Heart) beater() {
 	beat := time.Tick(h.beat)
+	dead := []*big.Int{}
 	for {
 		select {
 		case <-h.quit:
 			return
 		case <-beat:
-			// Beat cycle: update tick, report dead entities and signal beat
+			// Beat cycle: update tick and collec dead entries
 			h.lock.Lock()
 			h.tick++
+			dead = dead[:0]
 			for _, m := range h.mems {
 				if h.tick-m.tick >= h.kill {
-					h.call.Dead(m.id)
+					dead = append(dead, m.id)
 				}
 			}
-			h.call.Beat()
 			h.lock.Unlock()
+
+			// Signal beat and dead entities after releasing the lock
+			h.call.Beat()
+			for _, id := range dead {
+				h.call.Dead(id)
+			}
 		}
 	}
 }
