@@ -172,8 +172,8 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 			cpy.Head.Meta = head.Meta
 
 			// Deliver to the application on the specific topic
-			if app, ok := c.apps[id.String()]; ok {
-				app.deliverSubscription(&Address{head.SrcNode, head.SrcApp}, topicId, cpy)
+			if app, ok := c.conns[id.String()]; ok {
+				app.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, cpy)
 			} else {
 				log.Printf("unknown application %v, discarding message.", app)
 			}
@@ -194,13 +194,13 @@ func (c *carrier) handleBalance(msg *session.Message, topicId *big.Int, prevHop 
 		if node != nil {
 			c.fwdBalance(node, msg)
 		} else {
-			if a, ok := c.apps[app.String()]; ok {
+			if a, ok := c.conns[app.String()]; ok {
 				// Remove all carrier headers
 				head := msg.Head.Meta.(*header)
 				msg.Head.Meta = head.Meta
 
 				// Deliver to the application on the specific topic
-				a.deliverSubscription(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
+				a.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
 			} else {
 				log.Printf("unknown application %v, discarding message.", app)
 			}
@@ -240,7 +240,7 @@ func (c *carrier) handleDirect(msg *session.Message, appId *big.Int) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	if app, ok := c.apps[appId.String()]; ok {
+	if app, ok := c.conns[appId.String()]; ok {
 		// Remove all carrier headers
 		head := msg.Head.Meta.(*header)
 		msg.Head.Meta = head.Meta

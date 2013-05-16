@@ -36,7 +36,7 @@ import (
 type Carrier interface {
 	Boot() error
 	Shutdown()
-	NewApp() *Application
+	Connect(cb ConnectionCallback) *Connection
 }
 
 // The real carrier implementation, receiving the overlay events and processing
@@ -46,7 +46,7 @@ type carrier struct {
 	heart     *heart.Heart     // Heartbeat mechanism
 
 	topics map[string]*topic.Topic // Locally active topics
-	apps   map[string]*Application // Locally active and connected apps
+	conns  map[string]*Connection  // Locally active connections
 
 	lock sync.RWMutex
 }
@@ -56,7 +56,7 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 	// Create and initialize the overlay
 	c := &carrier{
 		topics: make(map[string]*topic.Topic),
-		apps:   make(map[string]*Application),
+		conns:  make(map[string]*Connection),
 	}
 	c.transport = overlay.New(overId, key, c)
 	c.heart = heart.New(time.Duration(config.CarrierBeatPeriod)*time.Millisecond, config.CarrierKillCount, c)
