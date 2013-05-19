@@ -209,3 +209,6 @@ var AppLocalId = []byte("broker")
 
 // Use in case of federated applications
 var AppParentId = []byte(nil)
+
+// Version number for relay API compatibility check
+var RelayVersion = "v1.0a"

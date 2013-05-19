@@ -29,10 +29,11 @@ import (
 type tunnel struct {
 	relay *carrier.Connection
 
-	peerAddr  *carrier.Address
-	peerTunId uint64
+	peerAddr *carrier.Address
+	peerId   uint64
 
-	init chan struct{}
+	init chan uint64
+	data chan []byte
 
 	inBuf  chan []byte
 	outBuf chan []byte
@@ -42,37 +43,68 @@ type tunnel struct {
 
 // Implements iris.Connection.Tunnel.
 func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
-	// Create an uninitialized tunnel
+	return c.initiateTunnel(app, timeout)
+}
+
+func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, error) {
+	// Create a potential tunnel
 	c.lock.Lock()
 	tun := &tunnel{
 		relay: c.relay,
-		init:  make(chan struct{}, 1),
-		//buff:  make(chan Message, 4096),
+		init:  make(chan uint64, 1),
+		data:  make(chan []byte, 64),
 	}
 	tunId := c.tunIdx
-	c.tuns[tunId] = tun
 	c.tunIdx++
+	c.tuns[tunId] = tun
 	c.lock.Unlock()
 
-	// Send the tunnel request
+	// Send the tunneling request
 	c.relay.Balance(appPrefix+app, assembleTunnelRequest(tunId))
 
-	// Wait till tunneling completes or times out
-	tick := time.Tick(timeout)
+	// Retrieve the results or time out
+	tick := time.Tick(time.Duration(timeout) * time.Millisecond)
 	select {
-	case <-tick:
-		// Timeout, remove tunnel and fail
-		c.lock.Lock()
-		defer c.lock.Unlock()
-		delete(c.tuns, tunId)
-		return nil, fmt.Errorf("tunneling timed out")
-	case <-tun.init:
+	case peer := <-tun.init:
+		// Remote id arrived, save and return
+		tun.peerId = peer
 		return tun, nil
+	case <-tick:
+		// Timeout, remove the tunnel leftover and error out
+		c.lock.Lock()
+		delete(c.tuns, tunId)
+		c.lock.Unlock()
+
+		return nil, fmt.Errorf("iris: couldn't tunnel within %d ms", timeout)
 	}
+}
+
+// Accepts an incoming tunneling request from a remote app.
+func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, error) {
+	// Create the local tunnel endpoint
+	c.lock.Lock()
+	tun := &tunnel{
+		relay:    c.relay,
+		peerAddr: src,
+		peerId:   peerId,
+		data:     make(chan []byte, 64),
+	}
+	tunId := c.tunIdx
+	c.tunIdx++
+	c.tuns[tunId] = tun
+	c.lock.Unlock()
+
+	// Reply with a successful tunnel setup message
+	go c.relay.Direct(src, assembleTunnelReply(peerId, tunId))
+
+	// Return the accepted tunnel
+	return tun, nil
 }
 
 // Implements iris.Tunnel.Send.
 func (t *tunnel) Send(msg []byte) error {
+	fmt.Println(t, "IRIS TUNNEL SEND", msg)
+	go t.relay.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
 	/*select {
 	case t.buff <- msg:
 		return nil
@@ -83,10 +115,15 @@ func (t *tunnel) Send(msg []byte) error {
 }
 
 func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+	msg := <-t.data
+	return msg, nil
 }
 
 // Implements iris.Tunnel.Close.
 func (t *tunnel) Close() {
 
+}
+
+func (t *tunnel) handleData(msg []byte) {
+	t.data <- msg
 }

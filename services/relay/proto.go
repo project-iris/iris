@@ -22,6 +22,7 @@
 package relay
 
 import (
+	"config"
 	"encoding/binary"
 	"fmt"
 	"iris"
@@ -32,14 +33,19 @@ import (
 )
 
 const (
-	opReq byte = iota
+	opBcast byte = iota
+	opReq
 	opRep
-	opBcast
-	opTun
 	opSub
 	opPub
 	opUnsub
 	opClose
+	opTunReq
+	opTunRep
+	opTunAck
+	opTunData
+	opTunPoll
+	opTunClose
 )
 
 // Accepts an incoming relay connection and logs the app in into the carrier.
@@ -64,6 +70,15 @@ func (r *relay) sendByte(data byte) error {
 		return err
 	}
 	return nil
+}
+
+// Serializes a boolean into the relay.
+func (r *relay) sendBool(data bool) error {
+	if data {
+		return r.sendByte(1)
+	} else {
+		return r.sendByte(0)
+	}
 }
 
 // Serializes a variable int into the relay.
@@ -144,26 +159,6 @@ func (r *relay) sendBroadcast(msg []byte) error {
 	return nil
 }
 
-// Atomically sends a tunneling message into the relay.
-func (r *relay) sendTunnel(tunId uint64, app string, time uint64) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTun); err != nil {
-		return err
-	}
-	if err := r.sendVarint(tunId); err != nil {
-		return err
-	}
-	if err := r.sendString(app); err != nil {
-		return err
-	}
-	if err := r.sendVarint(time); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Atomically sends a topic subscription message into the relay.
 func (r *relay) sendSubscribe(topic string) error {
 	r.sockLock.Lock()
@@ -209,6 +204,59 @@ func (r *relay) sendUnsubscribe(topic string) error {
 	return nil
 }
 
+// Atomically sends a tunneling message into the relay.
+func (r *relay) sendTunnelRequest(tunId uint64, win int) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunReq); err != nil {
+		return err
+	}
+	if err := r.sendVarint(tunId); err != nil {
+		return err
+	}
+	return r.sendVarint(uint64(win))
+}
+
+// Atomically sends a topic publish message into the relay.
+func (r *relay) sendTunnelReply(tunId uint64, win int) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunRep); err != nil {
+		return err
+	}
+	if err := r.sendVarint(tunId); err != nil {
+		return err
+	}
+	return r.sendVarint(uint64(win))
+}
+
+// Atomically sends a topic publish message into the relay.
+func (r *relay) sendTunnelRecv(tunId uint64, msg []byte) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunData); err != nil {
+		return err
+	}
+	if err := r.sendVarint(tunId); err != nil {
+		return err
+	}
+	return r.sendBinary(msg)
+}
+
+// Atomically sends a topic publish message into the relay.
+func (r *relay) sendTunnelClose(tunId uint64) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunClose); err != nil {
+		return err
+	}
+	return r.sendVarint(tunId)
+}
+
 // Atomically sends a close message into the relay.
 func (r *relay) sendClose() error {
 	r.sockLock.Lock()
@@ -226,6 +274,15 @@ func (r *relay) recvByte() (byte, error) {
 		return 0, err
 	}
 	return r.inByteBuf[0], nil
+}
+
+// Retrieves a boolean from the relay.
+func (r *relay) recvBool() (bool, error) {
+	b, err := r.recvByte()
+	if err != nil {
+		return false, err
+	}
+	return b == 1, nil
 }
 
 // Retrieves a variable int from the relay.
@@ -276,6 +333,14 @@ func (r *relay) recvString() (string, error) {
 
 // Retrieves the connection initialization and processes it.
 func (r *relay) procInit(car carrier.Carrier) error {
+	// Read and verify API compatibility
+	ver, err := r.recvString()
+	if err != nil {
+		return err
+	}
+	if ver != config.RelayVersion {
+		return fmt.Errorf("incompatible version: have %v, want %v", ver, config.RelayVersion)
+	}
 	app, err := r.recvString()
 	if err != nil {
 		return err
@@ -382,6 +447,81 @@ func (r *relay) procUnsubscribe() error {
 	return nil
 }
 
+// Retrieves a tunneling request and relays it.
+func (r *relay) procTunnelRequest() error {
+	// Retrieve the message parts
+	tunId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	app, err := r.recvString()
+	if err != nil {
+		return err
+	}
+	timeout, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	// Pass the tunnel request to the iris connection
+	go r.handleTunnelRequest(tunId, app, time.Duration(timeout)*time.Millisecond)
+	return nil
+}
+
+// Retrieves a tunneling reply and relays it.
+func (r *relay) procTunnelReply() error {
+	// Retrieve the message parts
+	peerId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	tunId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	// Pass the tunnel request to the iris connection
+	go r.handleTunnelReply(peerId, tunId)
+	return nil
+}
+
+// Retrieves a tunnel message relays it.
+func (r *relay) procTunnelData() error {
+	// Retrieve the message parts
+	tunId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	msg, err := r.recvBinary()
+	if err != nil {
+		return err
+	}
+	// Pass the tunnel request to the iris connection
+	go r.handleTunnelSend(tunId, msg)
+	return nil
+}
+
+func (r *relay) procTunnelPoll() error {
+	// Retrieve the message parts
+	tunId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	// Pass the tunnel request to the iris connection
+	go r.handleTunnelRecv(tunId)
+	return nil
+}
+
+// Retrieves a tunneling request and relays it.
+func (r *relay) procTunnelClose() error {
+	// Retrieve the message parts
+	tunId, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	// Pass the tunnel request to the iris connection
+	go r.handleTunnelClose(tunId)
+	return nil
+}
+
 // Retrieves messages from the client connection and keeps processing them until
 // either side closes the socket.
 func (r *relay) process() {
@@ -397,19 +537,30 @@ func (r *relay) process() {
 		if op, err = r.recvByte(); err == nil {
 			// Read the rest of the message and process
 			switch op {
+			case opBcast:
+				err = r.procBroadcast()
 			case opReq:
 				err = r.procRequest()
 			case opRep:
 				err = r.procReply()
-			case opBcast:
-				err = r.procBroadcast()
 			case opSub:
 				err = r.procSubscribe()
 			case opPub:
 				err = r.procPublish()
 			case opUnsub:
 				err = r.procUnsubscribe()
+			case opTunReq:
+				err = r.procTunnelRequest()
+			case opTunRep:
+				err = r.procTunnelReply()
+			case opTunData:
+				err = r.procTunnelData()
+			case opTunPoll:
+				err = r.procTunnelPoll()
+			case opTunClose:
+				err = r.procTunnelClose()
 			case opClose:
+				r.sendClose()
 				return
 			default:
 				err = fmt.Errorf("unknown operation code: %v", op)

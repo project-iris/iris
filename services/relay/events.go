@@ -20,7 +20,9 @@
 package relay
 
 import (
+	"fmt"
 	"iris"
+	"log"
 	"time"
 )
 
@@ -61,7 +63,27 @@ func (r *relay) HandleBroadcast(msg []byte) {
 
 // Handles the request to open a direct tunnel.
 func (r *relay) HandleTunnel(tun iris.Tunnel) {
+	// Allocate a temporary tunnel id
+	r.tunLock.Lock()
+	tmpId := r.tunIdx
+	tmpCh := make(chan uint64, 1)
+	r.tunPend[tmpId] = tmpCh
+	r.tunIdx++
+	r.tunLock.Unlock()
 
+	// Send a tunneling request to the attached app
+	if err := r.sendTunnelRequest(tmpId, 64); err != nil {
+		log.Println("FAILED TO TUNNEL")
+	}
+	// Wait for the final id and save
+	tunId := <-tmpCh
+	r.tunLock.Lock()
+	delete(r.tunPend, tmpId)
+	r.tunLive[tunId] = tun
+	r.tunLock.Unlock()
+
+	// Start some reader/writer whatev
+	fmt.Println("START THE IRIS - APP DATA TRANSFERERS")
 }
 
 type subscriptionHandler struct {
@@ -83,4 +105,75 @@ func (r *relay) handleReply(reqId uint64, msg []byte) {
 	if ch, ok := r.reqs[reqId]; ok {
 		ch <- msg
 	}
+}
+
+func (r *relay) handleTunnelRequest(tunId uint64, app string, timeout time.Duration) {
+	// Create the new tunnel connection
+	tun, err := r.iris.Tunnel(app, timeout)
+	if err != nil {
+		fmt.Println("Failed to create iris tunnel")
+		return
+	}
+	// Store the app to iris tunnel
+	r.tunLock.Lock()
+	r.tunLive[tunId] = tun
+	r.tunLock.Unlock()
+
+	// Reply to the app
+	r.sendTunnelReply(tunId, 64)
+
+	// Start some reader/writer whatev
+	fmt.Println("START THE APP - IRIS DATA TRANSFERERS")
+}
+
+func (r *relay) handleTunnelReply(tmpId, tunId uint64) {
+	r.tunLock.Lock()
+	defer r.tunLock.Unlock()
+
+	if ch, ok := r.tunPend[tmpId]; ok {
+		fmt.Println("mapped", tmpId, "to", tunId)
+		ch <- tunId
+	} else {
+		fmt.Println("Temp tunnel already dead")
+	}
+}
+
+func (r *relay) handleTunnelSend(tunId uint64, msg []byte) {
+	r.tunLock.RLock()
+	defer r.tunLock.RUnlock()
+
+	if tun, ok := r.tunLive[tunId]; ok {
+		tun.Send(msg)
+	} else {
+		fmt.Println("Tunnel dead ? (maybe race, not yet inited)")
+	}
+}
+
+func (r *relay) handleTunnelRecv(tunId uint64) {
+	r.tunLock.RLock()
+	defer r.tunLock.RUnlock()
+
+	if tun, ok := r.tunLive[tunId]; ok {
+		if msg, err := tun.Recv(1000); err == nil {
+			r.sendTunnelRecv(tunId, msg)
+		} else {
+			fmt.Println("shit:", err)
+		}
+	} else {
+		fmt.Println("Tunnel dead ? (maybe race, not yet inited)")
+	}
+}
+
+func (r *relay) handleTunnelClose(tunId uint64) {
+	r.tunLock.Lock()
+	defer r.tunLock.Unlock()
+
+	if tun, ok := r.tunLive[tunId]; ok {
+		fmt.Println("STOP THE TRANSFER", tun)
+		delete(r.tunLive, tunId)
+	} else {
+		log.Printf("iris: stale close of local tunnel #%v.", tunId)
+	}
+
+	fmt.Println("Close res:", r.sendTunnelClose(tunId))
 }

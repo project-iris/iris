@@ -19,6 +19,7 @@
 package iris
 
 import (
+	"fmt"
 	"log"
 	"proto/carrier"
 	"proto/session"
@@ -33,6 +34,8 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 		c.handleReply(*head.ReqId, msg.Data)
 	case opTunRep:
 		c.handleTunnelReply(src, *head.ReqId, *head.RepId)
+	case opTunDat:
+		c.handleTunnelData(*head.ReqId, msg.Data)
 	default:
 		log.Printf("unsupported opcode in direct handler: %v.", head.Op)
 	}
@@ -94,25 +97,11 @@ func (c *connection) handlePublish(topic string, msg []byte) {
 
 // Handles a remote tunneling event.
 func (c *connection) handleTunnelRequest(src *carrier.Address, peerId uint64) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	// Assemble the local tunnel.
-	tun := &tunnel{
-		relay:     c.relay,
-		peerAddr:  src,
-		peerTunId: peerId,
-		//buff:      make(chan []byte, 4096),
+	if tun, err := c.acceptTunnel(src, peerId); err != nil {
+		fmt.Println("Tunnel request error: ", err)
+	} else {
+		go c.hand.HandleTunnel(tun)
 	}
-	tunId := c.tunIdx
-	c.tuns[tunId] = tun
-	c.tunIdx++
-
-	// Reply with a successful tunnel setup message
-	c.relay.Direct(src, assembleTunnelReply(peerId, tunId))
-
-	// Call the handler
-	go c.hand.HandleTunnel(tun)
 }
 
 // Handles teh response to a local tunneling request.
@@ -120,10 +109,24 @@ func (c *connection) handleTunnelReply(src *carrier.Address, localId uint64, pee
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	fmt.Println("Handling tunnel reply")
+
 	// Make sure the tunnel is still pending and initialize it if so
 	if tun, ok := c.tuns[localId]; ok {
 		tun.peerAddr = src
-		tun.peerTunId = peerId
-		tun.init <- struct{}{}
+		tun.init <- peerId
+	}
+}
+
+// Handles teh tunnel data traffic.
+func (c *connection) handleTunnelData(tunId uint64, msg []byte) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	fmt.Println("Handling tunnel data", tunId, msg)
+
+	// Make sure the tunnel is still live
+	if tun, ok := c.tuns[tunId]; ok {
+		tun.handleData(msg)
 	}
 }

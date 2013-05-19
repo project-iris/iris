@@ -45,20 +45,24 @@ type Relay struct {
 
 //
 type relay struct {
-	sock net.Conn        // Network connection to the client application
-	iris iris.Connection // Interface into the distributed carrier
+	sock     net.Conn // Network connection to the client application
+	sockLock sync.Mutex
+	iris     iris.Connection // Interface into the distributed carrier
 
 	outVarBuf []byte // Buffer for socket variable int encoding
 	inByteBuf []byte // Buffer for socket byte decoding
 	inVarBuf  []byte // Buffer for socket variable int decoding
 
-	reqIdx uint64                 // Index to assign the next request
-	reqs   map[uint64]chan []byte // Active requests waiting for a reply
+	reqIdx  uint64                 // Index to assign the next request
+	reqs    map[uint64]chan []byte // Active requests waiting for a reply
+	reqLock sync.Mutex
+
+	tunIdx  uint64
+	tunPend map[uint64]chan uint64 // Tunnels pending id assignment
+	tunLive map[uint64]iris.Tunnel
+	tunLock sync.RWMutex
 
 	quit chan struct{}
-
-	sockLock sync.Mutex
-	reqLock  sync.Mutex
 }
 
 // Creates a new relay attached to a carrier and opens the listener socket on
@@ -118,6 +122,8 @@ func (r *Relay) handle(sock net.Conn) {
 		inByteBuf: make([]byte, 1),
 		inVarBuf:  make([]byte, binary.MaxVarintLen64),
 		reqs:      make(map[uint64]chan []byte),
+		tunPend:   make(map[uint64]chan uint64),
+		tunLive:   make(map[uint64]iris.Tunnel),
 	}
 	// Initialize the relay
 	if err := rel.procInit(r.car); err != nil {
