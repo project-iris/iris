@@ -22,11 +22,11 @@
 package carrier
 
 import (
-	"config"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/carrier/topic"
+	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
-	"proto/carrier/topic"
-	"proto/session"
 	"time"
 )
 

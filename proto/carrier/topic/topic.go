@@ -22,9 +22,9 @@
 package topic
 
 import (
-	"balancer"
 	"github.com/karalabe/cookiejar/exts/sortext"
-	"heart"
+	"github.com/karalabe/iris/balancer"
+	"github.com/karalabe/iris/heart"
 	"math/big"
 	"math/rand"
 	"sync"

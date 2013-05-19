@@ -20,9 +20,9 @@ package iris
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/proto/carrier"
+	"github.com/karalabe/iris/proto/session"
 	"log"
-	"proto/carrier"
-	"proto/session"
 	"time"
 )
 

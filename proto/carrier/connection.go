@@ -23,11 +23,11 @@ package carrier
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/proto/overlay"
+	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"math/rand"
-	"proto/overlay"
-	"proto/session"
 	"sync"
 )
 

@@ -38,9 +38,9 @@ package sts
 import (
 	"crypto"
 	"crypto/cipher"
-	"crypto/hkdf"
 	"crypto/rsa"
 	"errors"
+	"github.com/karalabe/iris/crypto/hkdf"
 	"hash"
 	"io"
 	"math/big"

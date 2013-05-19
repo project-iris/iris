@@ -26,10 +26,10 @@
 package overlay
 
 import (
-	"config"
 	"encoding/gob"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/session"
 	"math/big"
-	"proto/session"
 	"time"
 )
 

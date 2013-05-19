@@ -23,15 +23,15 @@
 package overlay
 
 import (
-	"config"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/pool"
+	"github.com/karalabe/iris/proto/session"
 	"io"
 	"math/big"
 	"net"
-	"pool"
-	"proto/session"
 	"sync"
 )
 

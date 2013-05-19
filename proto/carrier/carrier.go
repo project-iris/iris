@@ -23,11 +23,11 @@
 package carrier
 
 import (
-	"config"
 	"crypto/rsa"
-	"heart"
-	"proto/carrier/topic"
-	"proto/overlay"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/heart"
+	"github.com/karalabe/iris/proto/carrier/topic"
+	"github.com/karalabe/iris/proto/overlay"
 	"sync"
 	"time"
 )

@@ -24,14 +24,14 @@
 package overlay
 
 import (
-	"config"
 	"encoding/gob"
 	"fmt"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/bootstrap"
+	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"net"
-	"proto/bootstrap"
-	"proto/session"
 	"sort"
 	"time"
 )

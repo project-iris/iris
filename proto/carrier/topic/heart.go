@@ -23,10 +23,10 @@
 package topic
 
 import (
+	"github.com/karalabe/iris/system"
 	"math"
 	"math/big"
 	"sync/atomic"
-	"system"
 )
 
 // Implements the heart.Callback.Beat method. If local subscriptions are alive

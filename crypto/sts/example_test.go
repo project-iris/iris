@@ -26,8 +26,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha1"
-	"crypto/sts"
 	"fmt"
+	"github.com/karalabe/iris/crypto/sts"
 	"math/big"
 )
 

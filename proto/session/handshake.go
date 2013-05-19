@@ -19,15 +19,15 @@
 package session
 
 import (
-	"config"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sts"
 	"errors"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/crypto/sts"
+	"github.com/karalabe/iris/proto/stream"
 	"log"
 	"math/big"
 	"net"
-	"proto/stream"
 )
 
 // Authenticated connection request message. Contains the originators ID for

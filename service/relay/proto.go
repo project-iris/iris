@@ -22,13 +22,13 @@
 package relay
 
 import (
-	"config"
 	"encoding/binary"
 	"fmt"
-	"iris"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/iris"
+	"github.com/karalabe/iris/proto/carrier"
 	"log"
 	"net"
-	"proto/carrier"
 	"time"
 )
 

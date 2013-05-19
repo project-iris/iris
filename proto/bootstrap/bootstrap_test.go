@@ -19,7 +19,7 @@
 package bootstrap
 
 import (
-	"config"
+	"github.com/karalabe/iris/config"
 	"net"
 	"testing"
 	"time"

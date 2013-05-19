@@ -21,8 +21,8 @@ package carrier
 
 import (
 	"encoding/gob"
+	"github.com/karalabe/iris/proto/session"
 	"math/big"
-	"proto/session"
 )
 
 // Carrier operation code type.

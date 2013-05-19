@@ -26,10 +26,10 @@
 package overlay
 
 import (
+	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"net"
-	"proto/session"
 )
 
 // Pastry routing algorithm.

@@ -20,8 +20,8 @@ package stream_test
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/proto/stream"
 	"net"
-	"proto/stream"
 )
 
 var host = "localhost"

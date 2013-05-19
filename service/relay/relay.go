@@ -24,10 +24,10 @@ package relay
 import (
 	"encoding/binary"
 	"fmt"
-	"iris"
+	"github.com/karalabe/iris/iris"
+	"github.com/karalabe/iris/proto/carrier"
 	"log"
 	"net"
-	"proto/carrier"
 	"sync"
 	"time"
 )

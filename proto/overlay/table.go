@@ -22,7 +22,7 @@
 package overlay
 
 import (
-	"config"
+	"github.com/karalabe/iris/config"
 	"math/big"
 )
 

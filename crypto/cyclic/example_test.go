@@ -19,9 +19,9 @@
 package cyclic_test
 
 import (
-	"crypto/cyclic"
 	"crypto/rand"
 	"fmt"
+	"github.com/karalabe/iris/crypto/cyclic"
 )
 
 func Example_usage() {

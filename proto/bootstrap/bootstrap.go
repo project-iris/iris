@@ -29,9 +29,9 @@ package bootstrap
 
 import (
 	"bytes"
-	"config"
 	"encoding/binary"
 	"fmt"
+	"github.com/karalabe/iris/config"
 	"math/rand"
 	"net"
 	"strconv"

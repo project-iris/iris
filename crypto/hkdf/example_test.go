@@ -20,10 +20,10 @@ package hkdf_test
 
 import (
 	"bytes"
-	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
+	"github.com/karalabe/iris/crypto/hkdf"
 	"io"
 )
 

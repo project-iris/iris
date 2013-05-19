@@ -23,7 +23,7 @@ package iris
 
 import (
 	"encoding/gob"
-	"proto/session"
+	"github.com/karalabe/iris/proto/session"
 )
 
 // Iris operation code type.

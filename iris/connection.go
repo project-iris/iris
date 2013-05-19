@@ -21,7 +21,7 @@ package iris
 
 import (
 	"fmt"
-	"proto/carrier"
+	"github.com/karalabe/iris/proto/carrier"
 	"sync"
 	"time"
 )

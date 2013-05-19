@@ -21,12 +21,12 @@ package overlay
 
 import (
 	"bytes"
-	"config"
 	"crypto/rand"
 	"crypto/x509"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/session"
 	"io"
 	"math/big"
-	"proto/session"
 	"testing"
 	"time"
 )
