@@ -22,18 +22,14 @@
 package relay
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/iris"
-	"github.com/karalabe/iris/proto/carrier"
-	"log"
-	"net"
 	"time"
 )
 
 const (
-	opBcast byte = iota
+	opInit byte = iota
+	opBcast
 	opReq
 	opRep
 	opSub
@@ -47,22 +43,6 @@ const (
 	opTunPoll
 	opTunClose
 )
-
-// Accepts an incoming relay connection and logs the app in into the carrier.
-func accept(sock net.Conn, car carrier.Carrier) (*relay, error) {
-	// Create the relay object
-	rel := &relay{
-		sock:      sock,
-		outVarBuf: make([]byte, binary.MaxVarintLen64),
-		inByteBuf: make([]byte, 1),
-		inVarBuf:  make([]byte, binary.MaxVarintLen64),
-	}
-	// Initialize the relay and return
-	if err := rel.procInit(car); err != nil {
-		return nil, err
-	}
-	return rel, nil
-}
 
 // Serializes a single byte into the relay.
 func (r *relay) sendByte(data byte) error {
@@ -83,11 +63,18 @@ func (r *relay) sendBool(data bool) error {
 
 // Serializes a variable int into the relay.
 func (r *relay) sendVarint(data uint64) error {
-	size := binary.PutUvarint(r.outVarBuf, data)
-	if n, err := r.sock.Write(r.outVarBuf[:size]); n != size || err != nil {
-		return err
+	for {
+		if data > 127 {
+			// Internalt byte, set the continuation flag and send
+			if err := r.sendByte(byte(128 + data%128)); err != nil {
+				return err
+			}
+			data /= 128
+		} else {
+			// Final byte, send and return
+			return r.sendByte(byte(data))
+		}
 	}
-	return nil
 }
 
 // Serializes a length-tagged binary array into the relay.
@@ -107,6 +94,11 @@ func (r *relay) sendString(data string) error {
 		return err
 	}
 	return nil
+}
+
+// Serializes the initialization confirmation.
+func (r *relay) sendInit() error {
+	return r.sendByte(opInit)
 }
 
 // Atomically sends a request message into the relay.
@@ -287,26 +279,22 @@ func (r *relay) recvBool() (bool, error) {
 
 // Retrieves a variable int from the relay.
 func (r *relay) recvVarint() (uint64, error) {
-	// Retrieve the varint bytes one at a time
-	index := 0
+	var num uint64
 	for {
 		// Retreive the next byte of the varint
 		b, err := r.recvByte()
 		if err != nil {
 			return 0, err
 		}
-		// Save it and terminate loop if last byte
-		r.inVarBuf[index] = b
-		index++
-		if b&0x80 == 0 {
+		// Save it and terminate if last byte
+		if b > 127 {
+			num += uint64(b - 128)
+		} else {
+			num += uint64(b)
 			break
 		}
 	}
-	if num, n := binary.Uvarint(r.inVarBuf[:index]); n <= 0 {
-		return 0, fmt.Errorf("failed to decode varint %v", r.inVarBuf[:index])
-	} else {
-		return num, nil
-	}
+	return num, nil
 }
 
 // Retrieves a length-tagged binary array from the relay.
@@ -332,21 +320,25 @@ func (r *relay) recvString() (string, error) {
 }
 
 // Retrieves the connection initialization and processes it.
-func (r *relay) procInit(car carrier.Carrier) error {
-	// Read and verify API compatibility
-	ver, err := r.recvString()
-	if err != nil {
-		return err
+func (r *relay) procInit() (string, error) {
+	// Retrieve the init code
+	if op, err := r.recvByte(); err != nil {
+		return "", err
+	} else if op != opInit {
+		return "", fmt.Errorf("relay: protocol violation: invalid init code: %v.", op)
 	}
-	if ver != config.RelayVersion {
-		return fmt.Errorf("incompatible version: have %v, want %v", ver, config.RelayVersion)
+	// Retrieve and check the protocol version
+	if ver, err := r.recvString(); err != nil {
+		return "", err
+	} else if ver != config.RelayVersion {
+		return "", fmt.Errorf("relay: protocol violation: incompatible version: have %v, want %v", ver, config.RelayVersion)
 	}
+	// Retrieve the app id
 	app, err := r.recvString()
 	if err != nil {
-		return err
+		return "", err
 	}
-	r.iris = iris.Connect(car, app, r)
-	return nil
+	return app, nil
 }
 
 // Retrieves a remote request from the relay and processes it.
@@ -523,16 +515,11 @@ func (r *relay) procTunnelClose() error {
 }
 
 // Retrieves messages from the client connection and keeps processing them until
-// either side closes the socket.
+// either side closes the socket or the connection drops.
 func (r *relay) process() {
-	defer func() {
-		r.iris.Close()
-		r.sock.Close()
-	}()
-
 	var op byte
 	var err error
-	for err == nil {
+	for closed := false; !closed && err == nil; {
 		// Retrieve the next message opcode
 		if op, err = r.recvByte(); err == nil {
 			// Read the rest of the message and process
@@ -560,13 +547,21 @@ func (r *relay) process() {
 			case opTunClose:
 				err = r.procTunnelClose()
 			case opClose:
-				r.sendClose()
-				return
+				err = r.sendClose()
+				closed = true
 			default:
-				err = fmt.Errorf("unknown operation code: %v", op)
+				err = fmt.Errorf("unknown opcode: %v", op)
 			}
 		}
 	}
-	// Log the error and terminate
-	log.Printf("relay failure: %v", err)
+	// Failure or deliberate close, clean up resources
+	r.sock.Close()
+	r.iris.Close()
+
+	// Notify the supervisor if succesfull termination
+	if err == nil {
+		r.done <- r
+	}
+	errc := <-r.quit
+	errc <- err
 }

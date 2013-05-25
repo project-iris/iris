@@ -21,7 +21,7 @@ package relay
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/iris"
+	"github.com/karalabe/iris/proto/iris"
 	"log"
 	"time"
 )
