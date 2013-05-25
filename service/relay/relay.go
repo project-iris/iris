@@ -22,6 +22,7 @@
 package relay
 
 import (
+	"bufio"
 	"github.com/karalabe/iris/proto/iris"
 	"net"
 	"sync"
@@ -29,11 +30,8 @@ import (
 
 //
 type relay struct {
-	sock     net.Conn // Network connection to the client application
-	sockLock sync.Mutex
-	iris     iris.Connection // Interface into the distributed carrier
-
-	inByteBuf []byte // Buffer for socket byte decoding
+	// Application layer fields
+	iris iris.Connection // Interface into the distributed carrier
 
 	reqIdx  uint64                 // Index to assign the next request
 	reqs    map[uint64]chan []byte // Active requests waiting for a reply
@@ -44,6 +42,12 @@ type relay struct {
 	tunLive map[uint64]iris.Tunnel
 	tunLock sync.RWMutex
 
+	// Network layer fields
+	sock     net.Conn          // Network connection to the attached client
+	sockBuf  *bufio.ReadWriter // Buffered access to the network socket
+	sockLock sync.Mutex        // Mutex to atomise message sending
+
+	// Bookkeeping fields
 	done chan *relay     // Channel on which to signal termination
 	quit chan chan error // Quit channel to synchronize relay termination
 }
@@ -52,13 +56,17 @@ type relay struct {
 func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Create the relay object
 	rel := &relay{
-		sock:      sock,
-		inByteBuf: make([]byte, 1),
-		reqs:      make(map[uint64]chan []byte),
-		tunPend:   make(map[uint64]chan uint64),
-		tunLive:   make(map[uint64]iris.Tunnel),
-		done:      r.done,
-		quit:      make(chan chan error),
+		reqs:    make(map[uint64]chan []byte),
+		tunPend: make(map[uint64]chan uint64),
+		tunLive: make(map[uint64]iris.Tunnel),
+		done:    r.done,
+
+		// Network layer
+		sock:    sock,
+		sockBuf: bufio.NewReadWriter(bufio.NewReader(sock), bufio.NewWriter(sock)),
+
+		// Misc
+		quit: make(chan chan error),
 	}
 	// Initialize the relay
 	app, err := rel.procInit()
