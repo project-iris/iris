@@ -28,14 +28,14 @@ import (
 	"sync"
 )
 
-//
+// Message relay between the local carrier and an attached client app.
 type relay struct {
 	// Application layer fields
 	iris iris.Connection // Interface into the distributed carrier
 
 	reqIdx  uint64                 // Index to assign the next request
-	reqs    map[uint64]chan []byte // Active requests waiting for a reply
-	reqLock sync.Mutex
+	reqPend map[uint64]chan []byte // Active requests waiting for a reply
+	reqLock sync.RWMutex           // Mutex to protect the request map
 
 	tunIdx  uint64
 	tunPend map[uint64]chan uint64 // Tunnels pending id assignment
@@ -49,24 +49,26 @@ type relay struct {
 
 	// Bookkeeping fields
 	done chan *relay     // Channel on which to signal termination
-	quit chan chan error // Quit channel to synchronize relay termination
+	quit chan chan error // Quit channe to synchronize relay termination
+	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 
 // Accepts an inbound relay connection, executing the initialization procedure.
 func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Create the relay object
 	rel := &relay{
-		reqs:    make(map[uint64]chan []byte),
+		reqPend: make(map[uint64]chan []byte),
 		tunPend: make(map[uint64]chan uint64),
 		tunLive: make(map[uint64]iris.Tunnel),
-		done:    r.done,
 
 		// Network layer
 		sock:    sock,
 		sockBuf: bufio.NewReadWriter(bufio.NewReader(sock), bufio.NewWriter(sock)),
 
 		// Misc
+		done: r.done,
 		quit: make(chan chan error),
+		term: make(chan struct{}),
 	}
 	// Initialize the relay
 	app, err := rel.procInit()
@@ -81,17 +83,6 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	rel.iris = iris.Connect(r.carrier, app, rel)
 	go rel.process()
 	return rel, nil
-}
-
-// Terminates a relay connection with an attached app.
-func (r *relay) close() error {
-	// Send a graceful close to the attached application
-	if err := r.sendClose(); err != nil {
-		return err
-	}
-	// Close down the socket to handle buggy clients
-	r.sock.Close()
-	return r.report()
 }
 
 // Fetches the closure report from the relay.

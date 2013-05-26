@@ -114,9 +114,13 @@ func (r *Relay) acceptor() {
 	if errc == nil {
 		errc = <-r.quit
 	}
-	// Close all active client connections
+	// Forcefully close all active client connections
 	for rel, _ := range r.clients {
-		rel.close()
+		rel.sock.Close()
+		<-r.done
+	}
+	for rel, _ := range r.clients {
+		rel.report()
 	}
 	// Clean up and report
 	errc <- r.listener.Close()

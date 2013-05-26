@@ -17,6 +17,9 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
+// Event handlers for both relay and carrier side messages. All methods in this
+// file are assumed to be running in a separate go routine!
+
 package relay
 
 import (
@@ -26,20 +29,36 @@ import (
 	"time"
 )
 
+// Forwards an app broadcast arriving from the Iris network to the attached app.
+func (r *relay) HandleBroadcast(msg []byte) {
+	if err := r.sendBroadcast(msg); err != nil {
+		log.Printf("relay: failed to forward broadcast: %v.", err)
+	}
+}
+
+// Forwards an app broadcast from the attached relay to the Iris network.
+func (r *relay) handleBroadcast(app string, msg []byte) {
+	r.iris.Broadcast(app, msg)
+}
+
+// Forwards a request arriving from the Iris network to the attached app. Also a
+// local timer is started to ensure a faulty client doesn't fill the node with
+// stale requests.
 func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 	// Create a reply channel for the results
 	r.reqLock.Lock()
 	reqChan := make(chan []byte, 1)
 	reqId := r.reqIdx
-	r.reqs[reqId] = reqChan
+	r.reqPend[reqId] = reqChan
 	r.reqIdx++
 	r.reqLock.Unlock()
 
-	// Make sure reply channel is cleaned up
+	// Ensure no just is left after the function terminates
 	defer func() {
 		r.reqLock.Lock()
 		defer r.reqLock.Unlock()
-		delete(r.reqs, reqId)
+
+		delete(r.reqPend, reqId)
 		close(reqChan)
 	}()
 	// Send the request to the specified app
@@ -47,18 +66,36 @@ func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 		return nil
 	}
 	// Retrieve the results or time out
-	tick := time.Tick(timeout)
 	select {
-	case <-tick:
+	case <-r.term:
+		return nil
+	case <-time.After(timeout):
 		return nil
 	case rep := <-reqChan:
 		return rep
 	}
 }
 
-// Handles a message broadcast to all applications of the local type.
-func (r *relay) HandleBroadcast(msg []byte) {
-	r.sendBroadcast(msg)
+// Forwards a request arriving from the attached app to the Iris network, and
+// waits for a reply to arrive back which can be forwarded. If the request times
+// out, a reply is sent back accordingly.
+func (r *relay) handleRequest(app string, reqId uint64, req []byte, timeout time.Duration) {
+	if rep, err := r.iris.Request(app, req, timeout); err != nil {
+		r.sendReply(reqId, nil, true)
+	} else {
+		r.sendReply(reqId, rep, false)
+	}
+}
+
+// Forwards a reply arriving from the attached app to the Iris node by looking
+// up the pending request channel and if still live, inserting the results.
+func (r *relay) handleReply(reqId uint64, msg []byte) {
+	r.reqLock.RLock()
+	defer r.reqLock.RUnlock()
+
+	if ch, ok := r.reqPend[reqId]; ok {
+		ch <- msg
+	}
 }
 
 // Handles the request to open a direct tunnel.
@@ -93,18 +130,6 @@ type subscriptionHandler struct {
 
 func (s *subscriptionHandler) HandleEvent(msg []byte) {
 	s.r.sendPublish(s.t, msg)
-}
-
-// Handles a remote reply by looking up the pending request and forwarding the
-// reply.
-func (r *relay) handleReply(reqId uint64, msg []byte) {
-	r.reqLock.Lock()
-	defer r.reqLock.Unlock()
-
-	// Make sure the request is still alive and don't block if dying
-	if ch, ok := r.reqs[reqId]; ok {
-		ch <- msg
-	}
 }
 
 func (r *relay) handleTunnelRequest(tunId uint64, app string, timeout time.Duration) {

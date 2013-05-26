@@ -67,7 +67,7 @@ func (r *relay) sendBool(data bool) error {
 func (r *relay) sendVarint(data uint64) error {
 	for {
 		if data > 127 {
-			// Internalt byte, set the continuation flag and send
+			// Internal byte, set the continuation flag and send
 			if err := r.sendByte(byte(128 + data%128)); err != nil {
 				return err
 			}
@@ -143,7 +143,7 @@ func (r *relay) sendRequest(reqId uint64, req []byte) error {
 }
 
 // Atomically sends a reply message into the relay.
-func (r *relay) sendReply(reqId uint64, rep []byte) error {
+func (r *relay) sendReply(reqId uint64, rep []byte, timeout bool) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
@@ -153,8 +153,13 @@ func (r *relay) sendReply(reqId uint64, rep []byte) error {
 	if err := r.sendVarint(reqId); err != nil {
 		return err
 	}
-	if err := r.sendBinary(rep); err != nil {
+	if err := r.sendBool(timeout); err != nil {
 		return err
+	}
+	if !timeout {
+		if err := r.sendBinary(rep); err != nil {
+			return err
+		}
 	}
 	return r.sendFlush()
 }
@@ -273,7 +278,7 @@ func (r *relay) recvBool() (bool, error) {
 // Retrieves a variable int from the relay.
 func (r *relay) recvVarint() (uint64, error) {
 	var num uint64
-	for {
+	for i := uint(0); ; i++ {
 		// Retreive the next byte of the varint
 		b, err := r.recvByte()
 		if err != nil {
@@ -281,9 +286,9 @@ func (r *relay) recvVarint() (uint64, error) {
 		}
 		// Save it and terminate if last byte
 		if b > 127 {
-			num += uint64(b - 128)
+			num += uint64(b-128) << (7 * i)
 		} else {
-			num += uint64(b)
+			num += uint64(b) << (7 * i)
 			break
 		}
 	}
@@ -297,8 +302,13 @@ func (r *relay) recvBinary() ([]byte, error) {
 		return nil, err
 	}
 	data := make([]byte, size)
-	if n, err := r.sockBuf.Read(data); n != int(size) || err != nil {
-		return nil, err
+	read := uint64(0)
+	for read < size {
+		if n, err := r.sockBuf.Read(data[read:]); err != nil {
+			return nil, err
+		} else {
+			read += uint64(n)
+		}
 	}
 	return data, nil
 }
@@ -334,9 +344,22 @@ func (r *relay) procInit() (string, error) {
 	return app, nil
 }
 
-// Retrieves a remote request from the relay and processes it.
+// Retrieves a local broadcast message from the relay and forwards to the Iris network.
+func (r *relay) procBroadcast() error {
+	app, err := r.recvString()
+	if err != nil {
+		return err
+	}
+	msg, err := r.recvBinary()
+	if err != nil {
+		return err
+	}
+	go r.handleBroadcast(app, msg)
+	return nil
+}
+
+// Retrieves a local request from the relay and forwards to the Iris network.
 func (r *relay) procRequest() error {
-	// Retrieve the message parts
 	reqId, err := r.recvVarint()
 	if err != nil {
 		return err
@@ -353,18 +376,12 @@ func (r *relay) procRequest() error {
 	if err != nil {
 		return err
 	}
-	// Pass the request to the iris connection
-	go func() {
-		if rep, err := r.iris.Request(app, req, time.Duration(timeout)*time.Millisecond); err == nil {
-			r.sendReply(reqId, rep)
-		}
-	}()
+	go r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond)
 	return nil
 }
 
-// Retrieves a remote reply from the relay and processes it.
+// Retrieves a local reply from the relay and forwards to the Iris network.
 func (r *relay) procReply() error {
-	// Retrieve the message parts
 	reqId, err := r.recvVarint()
 	if err != nil {
 		return err
@@ -373,24 +390,7 @@ func (r *relay) procReply() error {
 	if err != nil {
 		return err
 	}
-	// Pass the reply to the pending handler routine
 	go r.handleReply(reqId, rep)
-	return nil
-}
-
-// Retrieves a remote broadcast message from the relay and processes it.
-func (r *relay) procBroadcast() error {
-	// Retrieve the message parts
-	app, err := r.recvString()
-	if err != nil {
-		return err
-	}
-	msg, err := r.recvBinary()
-	if err != nil {
-		return err
-	}
-	// Pass the request to the iris connection
-	go r.iris.Broadcast(app, msg)
 	return nil
 }
 
@@ -551,10 +551,11 @@ func (r *relay) process() {
 	r.sock.Close()
 	r.iris.Close()
 
-	// Notify the supervisor if succesfull termination
-	if err == nil {
-		r.done <- r
-	}
+	// Signal termination to all blocked threads
+	close(r.term)
+
+	// Notify the supervisor and report error if any
+	r.done <- r
 	errc := <-r.quit
 	errc <- err
 }

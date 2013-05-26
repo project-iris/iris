@@ -79,10 +79,9 @@ func (c *connection) Request(app string, msg []byte, timeout time.Duration) ([]b
 	c.relay.Balance(appPrefix+app, assembleRequest(reqId, msg))
 
 	// Retrieve the results or time out
-	tick := time.Tick(timeout)
 	select {
-	case <-tick:
-		return nil, fmt.Errorf("request timed out")
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("iris: request timed out")
 	case rep := <-reqChan:
 		return rep, nil
 	}
@@ -107,8 +106,6 @@ func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error 
 
 // Implements iris.Connection.Publish.
 func (c *connection) Publish(topic string, msg []byte) {
-	fmt.Println("conn", c)
-	fmt.Println("rel", c.relay)
 	c.relay.Publish(topPrefix+topic, assemblePublish(msg))
 }
 
