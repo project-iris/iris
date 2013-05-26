@@ -88,8 +88,9 @@ func (c *connection) Request(app string, msg []byte, timeout time.Duration) ([]b
 }
 
 // Implements iris.Connection.Broadcast.
-func (c *connection) Broadcast(app string, msg []byte) {
+func (c *connection) Broadcast(app string, msg []byte) error {
 	c.relay.Publish(appPrefix+app, assembleBroadcast(msg))
+	return nil
 }
 
 // Implements iris.Connection.Subscribe.
@@ -105,20 +106,25 @@ func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error 
 }
 
 // Implements iris.Connection.Publish.
-func (c *connection) Publish(topic string, msg []byte) {
+func (c *connection) Publish(topic string, msg []byte) error {
 	c.relay.Publish(topPrefix+topic, assemblePublish(msg))
+	return nil
 }
 
 // Implements iris.Connection.Unsubscribe.
 func (c *connection) Unsubscribe(topic string) error {
+	// Remove subscription if present
 	c.lock.Lock()
-	defer c.lock.Unlock()
+	_, ok := c.subs[topPrefix+topic]
+	delete(c.subs, topPrefix+topic)
+	c.lock.Unlock()
 
-	if _, ok := c.subs[topPrefix+topic]; !ok {
+	// Notify the carrier of the removal
+	if ok {
+		c.relay.Unsubscribe(topPrefix + topic)
+	} else {
 		return fmt.Errorf("not subscribed")
 	}
-	c.relay.Unsubscribe(topPrefix + topic)
-	delete(c.subs, topPrefix+topic)
 	return nil
 }
 
@@ -129,7 +135,7 @@ func (c *connection) Close() {
 
 	// Remove all subscriptions.
 	for topic, _ := range c.subs {
-		c.relay.Unsubscribe(topPrefix + topic)
+		c.relay.Unsubscribe(topic)
 	}
 	c.relay.Unsubscribe(appPrefix + c.app)
 }

@@ -394,19 +394,18 @@ func (r *relay) procReply() error {
 	return nil
 }
 
+// Retrieves a subscription request and forwards it to the Iris network.
 func (r *relay) procSubscribe() error {
-	// Retrieve the message parts
 	topic, err := r.recvString()
 	if err != nil {
 		return err
 	}
-	// Pass the request to the iris connection
-	go r.iris.Subscribe(topic, &subscriptionHandler{r, topic})
+	go r.handleSubscribe(topic)
 	return nil
 }
 
+// Retrieves a publish request and forwards it to the Iris network.
 func (r *relay) procPublish() error {
-	// Retrieve the message parts
 	topic, err := r.recvString()
 	if err != nil {
 		return err
@@ -415,20 +414,18 @@ func (r *relay) procPublish() error {
 	if err != nil {
 		return err
 	}
-	// Pass the request to the iris connection
-	go r.iris.Publish(topic, msg)
+	go r.handlePublish(topic, msg)
 	return nil
 
 }
 
+// Retrieves a subscription removal event and forwards it to the Iris netowrk.
 func (r *relay) procUnsubscribe() error {
-	// Retrieve the message parts
 	topic, err := r.recvString()
 	if err != nil {
 		return err
 	}
-	// Pass the request to the iris connection
-	go r.iris.Unsubscribe(topic)
+	go r.handleUnsubscribe(topic)
 	return nil
 }
 

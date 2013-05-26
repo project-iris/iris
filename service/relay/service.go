@@ -116,7 +116,7 @@ func (r *Relay) acceptor() {
 	}
 	// Forcefully close all active client connections
 	for rel, _ := range r.clients {
-		rel.sock.Close()
+		rel.drop()
 		<-r.done
 	}
 	for rel, _ := range r.clients {

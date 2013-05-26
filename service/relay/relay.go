@@ -85,6 +85,11 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	return rel, nil
 }
 
+// Forcefully drops the relay connection. Used during irrecoverable errors.
+func (r *relay) drop() {
+	r.sock.Close()
+}
+
 // Fetches the closure report from the relay.
 func (r *relay) report() error {
 	errc := make(chan error, 1)

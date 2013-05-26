@@ -30,20 +30,26 @@ import (
 )
 
 // Forwards an app broadcast arriving from the Iris network to the attached app.
+// Any error is considered a protocol violation.
 func (r *relay) HandleBroadcast(msg []byte) {
 	if err := r.sendBroadcast(msg); err != nil {
-		log.Printf("relay: failed to forward broadcast: %v.", err)
+		log.Printf("relay: broadcast forward error: %v.", err)
+		r.drop()
 	}
 }
 
-// Forwards an app broadcast from the attached relay to the Iris network.
+// Forwards an app broadcast from the attached relay to the Iris network. Any
+// error is considered a protocol violation.
 func (r *relay) handleBroadcast(app string, msg []byte) {
-	r.iris.Broadcast(app, msg)
+	if err := r.iris.Broadcast(app, msg); err != nil {
+		log.Printf("relay: broadcast error: %v.", err)
+		r.drop()
+	}
 }
 
 // Forwards a request arriving from the Iris network to the attached app. Also a
 // local timer is started to ensure a faulty client doesn't fill the node with
-// stale requests.
+// stale requests. Any error is considered a protocol violation.
 func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 	// Create a reply channel for the results
 	r.reqLock.Lock()
@@ -63,7 +69,8 @@ func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 	}()
 	// Send the request to the specified app
 	if err := r.sendRequest(reqId, req); err != nil {
-		return nil
+		log.Printf("relay: request error: %v.", err)
+		r.drop()
 	}
 	// Retrieve the results or time out
 	select {
@@ -98,6 +105,56 @@ func (r *relay) handleReply(reqId uint64, msg []byte) {
 	}
 }
 
+// Handler for a topic subscription. Forwards all published events to the app
+// attached.
+type subscriptionHandler struct {
+	relay *relay
+	topic string
+}
+
+// Forwards the arriving event from the Iris network to the attached app. Any
+// error is considered a protocol violation.
+func (s *subscriptionHandler) HandleEvent(msg []byte) {
+	if err := s.relay.sendPublish(s.topic, msg); err != nil {
+		log.Printf("relay: publish forward error: %v.", err)
+		s.relay.drop()
+	}
+}
+
+// Forwards a subscription event arriving from the attached app to the Iris node
+// and creates a new subscription handler to process the arriving events. Any
+// error is considered a protocol violation.
+func (r *relay) handleSubscribe(topic string) {
+	// Create the event forwarder
+	handler := &subscriptionHandler{
+		relay: r,
+		topic: topic,
+	}
+	// Subscribe and drop conenction in case of an error
+	if err := r.iris.Subscribe(topic, handler); err != nil {
+		log.Printf("relay: subscription error: %v.", err)
+		r.drop()
+	}
+}
+
+// Forwards a publish event arriving from the attached app to the Iris node. Any
+// error is considered a protocol violation.
+func (r *relay) handlePublish(topic string, msg []byte) {
+	if err := r.iris.Publish(topic, msg); err != nil {
+		log.Printf("relay: publish error: %v.", err)
+		r.drop()
+	}
+}
+
+// Forwards a subscription removel request arriving from the attached app to the
+// Iris node. Any error is considered a protocol violation.
+func (r *relay) handleUnsubscribe(topic string) {
+	if err := r.iris.Unsubscribe(topic); err != nil {
+		log.Printf("relay: unsubscription error: %v.", err)
+		r.drop()
+	}
+}
+
 // Handles the request to open a direct tunnel.
 func (r *relay) HandleTunnel(tun iris.Tunnel) {
 	// Allocate a temporary tunnel id
@@ -121,15 +178,6 @@ func (r *relay) HandleTunnel(tun iris.Tunnel) {
 
 	// Start some reader/writer whatev
 	fmt.Println("START THE IRIS - APP DATA TRANSFERERS")
-}
-
-type subscriptionHandler struct {
-	r *relay
-	t string
-}
-
-func (s *subscriptionHandler) HandleEvent(msg []byte) {
-	s.r.sendPublish(s.t, msg)
 }
 
 func (r *relay) handleTunnelRequest(tunId uint64, app string, timeout time.Duration) {

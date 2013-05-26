@@ -34,7 +34,7 @@ type Connection interface {
 
 	// Broadcasts asynchronously a message to all applications of type app. No
 	// guarantees are made that all nodes receive the message (best effort).
-	Broadcast(app string, msg []byte)
+	Broadcast(app string, msg []byte) error
 
 	// Opens a direct tunnel to an instance of app, allowing pairwise-exclusive
 	// and order-guaranteed message passing between them. The method blocks until
@@ -47,7 +47,7 @@ type Connection interface {
 
 	// Publishes an event asynchronously to topic. No guarantees are made that all
 	// subscribers receive the message.
-	Publish(topic string, msg []byte)
+	Publish(topic string, msg []byte) error
 
 	// Unsubscribes from topic, receiving no more event notifications for it.
 	Unsubscribe(topic string) error
