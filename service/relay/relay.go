@@ -37,10 +37,11 @@ type relay struct {
 	reqPend map[uint64]chan []byte // Active requests waiting for a reply
 	reqLock sync.RWMutex           // Mutex to protect the request map
 
-	tunIdx  uint64
-	tunPend map[uint64]chan uint64 // Tunnels pending id assignment
-	tunLive map[uint64]iris.Tunnel
-	tunLock sync.RWMutex
+	tunIdx  uint64                   // Temporary index to assign the next inbound tunnel
+	tunPend map[uint64]iris.Tunnel   // Tunnels pending app confirmation
+	tunInit map[uint64]chan struct{} // Confirmation channels for the pending tunnels
+	tunLive map[uint64]*tunnel       // Active tunnels
+	tunLock sync.RWMutex             // Mutex to protect the tunnel maps
 
 	// Network layer fields
 	sock     net.Conn          // Network connection to the attached client
@@ -58,8 +59,9 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Create the relay object
 	rel := &relay{
 		reqPend: make(map[uint64]chan []byte),
-		tunPend: make(map[uint64]chan uint64),
-		tunLive: make(map[uint64]iris.Tunnel),
+		tunPend: make(map[uint64]iris.Tunnel),
+		tunInit: make(map[uint64]chan struct{}),
+		tunLive: make(map[uint64]*tunnel),
 
 		// Network layer
 		sock:    sock,

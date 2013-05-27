@@ -103,7 +103,6 @@ func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, 
 
 // Implements iris.Tunnel.Send.
 func (t *tunnel) Send(msg []byte) error {
-	fmt.Println(t, "IRIS TUNNEL SEND", msg)
 	go t.relay.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
 	/*select {
 	case t.buff <- msg:
@@ -115,8 +114,12 @@ func (t *tunnel) Send(msg []byte) error {
 }
 
 func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
-	msg := <-t.data
-	return msg, nil
+	select {
+	case msg := <-t.data:
+		return msg, nil
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout")
+	}
 }
 
 // Implements iris.Tunnel.Close.

@@ -37,9 +37,8 @@ const (
 	opClose
 	opTunReq
 	opTunRep
-	opTunAck
 	opTunData
-	opTunPoll
+	opTunAck
 	opTunClose
 )
 
@@ -193,7 +192,7 @@ func (r *relay) sendClose() error {
 }
 
 // Atomically sends a tunneling message into the relay.
-func (r *relay) sendTunnelRequest(tmpId uint64, win int) error {
+func (r *relay) sendTunnelRequest(tmpId uint64, buf int) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
@@ -203,14 +202,14 @@ func (r *relay) sendTunnelRequest(tmpId uint64, win int) error {
 	if err := r.sendVarint(tmpId); err != nil {
 		return err
 	}
-	if err := r.sendVarint(uint64(win)); err != nil {
+	if err := r.sendVarint(uint64(buf)); err != nil {
 		return err
 	}
 	return r.sendFlush()
 }
 
-// Atomically sends a topic publish message into the relay.
-func (r *relay) sendTunnelReply(tunId uint64, win int) error {
+// Atomically sends a tunneling reply into the relay.
+func (r *relay) sendTunnelReply(tunId uint64, buf int, timeout bool) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
@@ -220,14 +219,19 @@ func (r *relay) sendTunnelReply(tunId uint64, win int) error {
 	if err := r.sendVarint(tunId); err != nil {
 		return err
 	}
-	if err := r.sendVarint(uint64(win)); err != nil {
+	if err := r.sendBool(timeout); err != nil {
 		return err
+	}
+	if !timeout {
+		if err := r.sendVarint(uint64(buf)); err != nil {
+			return err
+		}
 	}
 	return r.sendFlush()
 }
 
-// Atomically sends a topic publish message into the relay.
-func (r *relay) sendTunnelRecv(tunId uint64, msg []byte) error {
+// Atomically sends a tunnel data packet into the relay.
+func (r *relay) sendTunnelData(tunId uint64, msg []byte) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
@@ -243,7 +247,21 @@ func (r *relay) sendTunnelRecv(tunId uint64, msg []byte) error {
 	return r.sendFlush()
 }
 
-// Atomically sends a topic publish message into the relay.
+// Atomically sends a tunnel data acknowledgement into the relay.
+func (r *relay) sendTunnelAck(tunId uint64) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunAck); err != nil {
+		return err
+	}
+	if err := r.sendVarint(tunId); err != nil {
+		return err
+	}
+	return r.sendFlush()
+}
+
+// Atomically sends a tunnel close request into the relay.
 func (r *relay) sendTunnelClose(tunId uint64) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
@@ -429,9 +447,8 @@ func (r *relay) procUnsubscribe() error {
 	return nil
 }
 
-// Retrieves a tunneling request and relays it.
+// Retrieves a tunneling request and forwards it to the Iris network.
 func (r *relay) procTunnelRequest() error {
-	// Retrieve the message parts
 	tunId, err := r.recvVarint()
 	if err != nil {
 		return err
@@ -440,19 +457,21 @@ func (r *relay) procTunnelRequest() error {
 	if err != nil {
 		return err
 	}
+	buf, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
 	timeout, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	// Pass the tunnel request to the iris connection
-	go r.handleTunnelRequest(tunId, app, time.Duration(timeout)*time.Millisecond)
+	go r.handleTunnelRequest(tunId, app, int(buf), time.Duration(timeout)*time.Millisecond)
 	return nil
 }
 
-// Retrieves a tunneling reply and relays it.
+// Retrieves a tunneling reply and finalizes the tunnel building.
 func (r *relay) procTunnelReply() error {
-	// Retrieve the message parts
-	peerId, err := r.recvVarint()
+	tmpId, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
@@ -460,14 +479,16 @@ func (r *relay) procTunnelReply() error {
 	if err != nil {
 		return err
 	}
-	// Pass the tunnel request to the iris connection
-	go r.handleTunnelReply(peerId, tunId)
+	buf, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	go r.handleTunnelReply(tmpId, tunId, int(buf))
 	return nil
 }
 
-// Retrieves a tunnel message relays it.
+// Retrieves a tunnel data message and relays it.
 func (r *relay) procTunnelData() error {
-	// Retrieve the message parts
 	tunId, err := r.recvVarint()
 	if err != nil {
 		return err
@@ -476,19 +497,17 @@ func (r *relay) procTunnelData() error {
 	if err != nil {
 		return err
 	}
-	// Pass the tunnel request to the iris connection
 	go r.handleTunnelSend(tunId, msg)
 	return nil
 }
 
-func (r *relay) procTunnelPoll() error {
-	// Retrieve the message parts
+// Retrieves a tunnel data acknowledgement and processes it.
+func (r *relay) procTunnelAck() error {
 	tunId, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	// Pass the tunnel request to the iris connection
-	go r.handleTunnelRecv(tunId)
+	go r.handleTunnelAck(tunId)
 	return nil
 }
 
@@ -532,8 +551,8 @@ func (r *relay) process() {
 				err = r.procTunnelReply()
 			case opTunData:
 				err = r.procTunnelData()
-			case opTunPoll:
-				err = r.procTunnelPoll()
+			case opTunAck:
+				err = r.procTunnelAck()
 			case opTunClose:
 				err = r.procTunnelClose()
 			case opClose:

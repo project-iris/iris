@@ -25,7 +25,7 @@ import (
 	"math/big"
 )
 
-// Cyclic group for the STS cryptography (2248 bits)
+// Cyclic group for the STS cryptography (2248 bits).
 var StsGroup = new(big.Int).SetBytes([]byte{
 	0xdc, 0x28, 0x29, 0xab, 0xca, 0xc5, 0x7d, 0x0d,
 	0xf7, 0x44, 0xa4, 0x9a, 0x42, 0x7e, 0x5b, 0xe9,
@@ -65,7 +65,7 @@ var StsGroup = new(big.Int).SetBytes([]byte{
 	0x53,
 })
 
-// Cyclic group generator for the STS cryptography (2248 bits)
+// Cyclic group generator for the STS cryptography (2248 bits).
 var StsGenerator = new(big.Int).SetBytes([]byte{
 	0x09, 0x50, 0x1e, 0x53, 0xeb, 0xce, 0xd4, 0xc8,
 	0x05, 0x0d, 0x76, 0x90, 0xee, 0xf5, 0x48, 0x06,
@@ -105,76 +105,76 @@ var StsGenerator = new(big.Int).SetBytes([]byte{
 	0x96,
 })
 
-// Symmetric cipher to use for the STS encryption
+// Symmetric cipher to use for the STS encryption.
 var StsCipher = aes.NewCipher
 
-// Key size for the symmetric cipher
+// Key size for the symmetric cipher (bits).
 var StsCipherBits = 128
 
-// Hash type for the RSA signature/verification
+// Hash type for the RSA signature/verification.
 var StsSigHash = crypto.MD5
 
-// Hash type for the HMAC within HKDF
+// Hash type for the HMAC within HKDF.
 var HkdfHash = crypto.MD5
 
-// Salt value for the HKDF key extraction
+// Salt value for the HKDF key extraction.
 var HkdfSalt = []byte("iris.proto.session.hkdf.salt")
 
-// Info value for the HKDF key expansion
+// Info value for the HKDF key expansion.
 var HkdfInfo = []byte("iris.proto.session.hkdf.info")
 
-// Symmetric cipher to use for session encryption
+// Symmetric cipher to use for session encryption.
 var SesCipher = aes.NewCipher
 
-// Key size for the session symmetric cipher
+// Key size for the session symmetric cipher (bits).
 var SesCipherBits = 128
 
-// Hash creator for the session HMAC
+// Hash creator for the session HMAC.
 var SesHash = md5.New
 
-// Symmetric cipher for the temporary message encryption
+// Symmetric cipher for the temporary message encryption.
 var PackCipher = aes.NewCipher
 
-// Key size for the temporary cipher
+// Key size for the temporary cipher (bits).
 var PackCipherBits = 128
 
-// Bootstrapping ports to use
+// Bootstrapping ports to use.
 var BootPorts = []int{14142, 27182, 31415}
 
-// Number of heartbeats to queue before blocking
+// Number of heartbeats to queue before blocking.
 var BootBeatsBuffer = 32
 
-// Probing interval during bootstrapping in startup mode (ms)
+// Probing interval during bootstrapping in startup mode (ms).
 var BootFastProbe = 250
 
-// Probing interval during bootstrapping in maintenance mode (ms)
+// Probing interval during bootstrapping in maintenance mode (ms).
 var BootSlowProbe = 1000
 
-// Scanning interval during bootstrapping (ms)
+// Scanning interval during bootstrapping (ms).
 var BootScan = 250
 
-// Virtual address space (bits)
+// Virtual address space (bits).
 var OverlaySpace = 128
 
-// Number of matching bits for the next hop
+// Number of matching bits for the next hop.
 var OverlayBase = 4
 
-// Number of closest nodes to track in the virtual network
+// Number of closest nodes to track in the virtual network.
 var OverlayLeaves = 16
 
-// Number of closes nodes to track in the real network
+// Number of closes nodes to track in the real network.
 var OverlayNeighbors = 16
 
-// Hash for mapping external ids into the overlay id space
+// Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
 
-// Heartbeat period to ensure connections are alive and tear down unusde ones (ms)
+// Heartbeat period to ensure connections are alive and tear down unusde ones (ms).
 var OverlayBeatPeriod = 3000
 
-// Time to wait after session setup for the init packet (ms)
+// Time to wait after session setup for the init packet (ms).
 var OverlayInitTimeout = 5000
 
-// Time limit for sending a message before the connection is dropped (ms)
+// Time limit for sending a message before the connection is dropped (ms).
 var OverlaySendTimeout = 10000
 
 // Messages to buffer inside the overlay going out to one peer.
@@ -201,14 +201,20 @@ var CarrierSpace = 32
 // Number of messages to buffer for application delivery before dropping.
 var CarrierAppBuffer = 128
 
-// Distributed application identifier
+// Distributed application identifier.
 var AppGlobalId = []byte("iris")
 
-// Node type identifier within the distributed application
+// Node type identifier within the distributed application.
 var AppLocalId = []byte("broker")
 
-// Use in case of federated applications
+// Use in case of federated applications.
 var AppParentId = []byte(nil)
 
-// Version number for relay API compatibility check
-var RelayVersion = "v1.0a"
+// Number of messages to buffer per outbound tunnel.
+var RelayTunnelBuffer = 128
+
+// Time alloted to a client to acknowledge a tunnel.
+var RelayTunnelTimeout = 3000
+
+// Block time when trying a tunnel read (ms).
+var RelayTunnelPoll = 1000

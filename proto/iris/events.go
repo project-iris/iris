@@ -109,8 +109,6 @@ func (c *connection) handleTunnelReply(src *carrier.Address, localId uint64, pee
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	fmt.Println("Handling tunnel reply")
-
 	// Make sure the tunnel is still pending and initialize it if so
 	if tun, ok := c.tuns[localId]; ok {
 		tun.peerAddr = src
@@ -122,8 +120,6 @@ func (c *connection) handleTunnelReply(src *carrier.Address, localId uint64, pee
 func (c *connection) handleTunnelData(tunId uint64, msg []byte) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-
-	fmt.Println("Handling tunnel data", tunId, msg)
 
 	// Make sure the tunnel is still live
 	if tun, ok := c.tuns[tunId]; ok {

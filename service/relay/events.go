@@ -23,7 +23,7 @@
 package relay
 
 import (
-	"fmt"
+	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto/iris"
 	"log"
 	"time"
@@ -155,98 +155,134 @@ func (r *relay) handleUnsubscribe(topic string) {
 	}
 }
 
-// Handles the request to open a direct tunnel.
+// Forwards a tunneling request from the Iris network to the attached app. If no
+// reply comes within some alloted time, the tunnel and connection are dropped.
 func (r *relay) HandleTunnel(tun iris.Tunnel) {
 	// Allocate a temporary tunnel id
 	r.tunLock.Lock()
 	tmpId := r.tunIdx
-	tmpCh := make(chan uint64, 1)
-	r.tunPend[tmpId] = tmpCh
+	initChan := make(chan struct{}, 1)
+	r.tunInit[tmpId] = initChan
+	r.tunPend[tmpId] = tun
 	r.tunIdx++
 	r.tunLock.Unlock()
 
 	// Send a tunneling request to the attached app
-	if err := r.sendTunnelRequest(tmpId, 64); err != nil {
-		log.Println("FAILED TO TUNNEL")
+	if err := r.sendTunnelRequest(tmpId, config.RelayTunnelBuffer); err != nil {
+		log.Printf("relay: tunnel request notification failed: %v.", err)
+		r.drop()
 	}
-	// Wait for the final id and save
-	tunId := <-tmpCh
-	r.tunLock.Lock()
-	delete(r.tunPend, tmpId)
-	r.tunLive[tunId] = tun
-	r.tunLock.Unlock()
-
-	// Start some reader/writer whatev
-	fmt.Println("START THE IRIS - APP DATA TRANSFERERS")
+	// Wait for the final id and save the tunnel
+	select {
+	case <-time.After(time.Duration(config.RelayTunnelTimeout) * time.Millisecond):
+		// Tunneling timed out, protocol violation
+		log.Printf("relay: tunnel request timed out.")
+		r.drop()
+	case <-initChan:
+		// Tunnel initialized, release timer
+		r.tunLock.Lock()
+		delete(r.tunInit, tmpId)
+		delete(r.tunPend, tmpId)
+		r.tunLock.Unlock()
+	}
 }
 
-func (r *relay) handleTunnelRequest(tunId uint64, app string, timeout time.Duration) {
-	// Create the new tunnel connection
+// Forwards a tunneling request from the attached application to the Iris node.
+// After the successful setup or a timeout, the respective result is relayed
+// back to the application.
+func (r *relay) handleTunnelRequest(tunId uint64, app string, buf int, timeout time.Duration) {
+	// Create the tunnel
 	tun, err := r.iris.Tunnel(app, timeout)
 	if err != nil {
-		fmt.Println("Failed to create iris tunnel")
+		if err := r.sendTunnelReply(tunId, 0, true); err != nil {
+			log.Printf("relay: tunnel timeout notification error: %v.", err)
+			r.drop()
+		}
 		return
 	}
-	// Store the app to iris tunnel
+	// Insert the tunnel into the tracked ones
 	r.tunLock.Lock()
-	r.tunLive[tunId] = tun
+	tunnel := r.newTunnel(tunId, tun, config.RelayTunnelBuffer, buf)
+	r.tunLive[tunId] = tunnel
 	r.tunLock.Unlock()
 
-	// Reply to the app
-	r.sendTunnelReply(tunId, 64)
-
-	// Start some reader/writer whatev
-	fmt.Println("START THE APP - IRIS DATA TRANSFERERS")
+	// Notify the attached app of the success
+	if err := r.sendTunnelReply(tunId, config.RelayTunnelBuffer, false); err != nil {
+		log.Printf("relay: tunnel success notification error: %v.", err)
+		r.drop()
+	}
+	// Start the data transfer
+	go tunnel.sender()
+	go tunnel.receiver()
 }
 
-func (r *relay) handleTunnelReply(tmpId, tunId uint64) {
+// Finalizes a tunnelling, notifies the tunneler of the success and starts the
+// data flow.
+func (r *relay) handleTunnelReply(tmpId uint64, tunId uint64, buf int) {
 	r.tunLock.Lock()
 	defer r.tunLock.Unlock()
 
-	if ch, ok := r.tunPend[tmpId]; ok {
-		fmt.Println("mapped", tmpId, "to", tunId)
-		ch <- tunId
-	} else {
-		fmt.Println("Temp tunnel already dead")
+	// Create the new relay tunnel
+	tunnel := r.newTunnel(tunId, r.tunPend[tmpId], config.RelayTunnelBuffer, buf)
+	r.tunLive[tunId] = tunnel
+
+	// Signal the tunnel request of the successful initialization
+	if initChan, ok := r.tunInit[tmpId]; ok {
+		initChan <- struct{}{}
 	}
+	// Start the data transfer
+	go tunnel.sender()
+	go tunnel.receiver()
 }
 
+// Forwards a tunnel data packet from the attached app into the correct
+// endpoint. Any errors at this point are considered protocol violations.
 func (r *relay) handleTunnelSend(tunId uint64, msg []byte) {
 	r.tunLock.RLock()
 	defer r.tunLock.RUnlock()
 
 	if tun, ok := r.tunLive[tunId]; ok {
-		tun.Send(msg)
+		if err := tun.send(msg); err != nil {
+			log.Printf("relay: tunnel send failed: %v.", err)
+			r.drop()
+		}
 	} else {
-		fmt.Println("Tunnel dead ? (maybe race, not yet inited)")
+		log.Printf("relay: dead tunnel addressed.")
+		r.drop()
 	}
 }
 
-func (r *relay) handleTunnelRecv(tunId uint64) {
+// Forwards a tunnel data packet from the Iris network to the attached app.
+func (r *relay) handleTunnelRecv(tunId uint64, msg []byte) {
+	if err := r.sendTunnelData(tunId, msg); err != nil {
+		log.Printf("relay: tunnel recv failed: %v.", err)
+		r.drop()
+	}
+}
+
+// Acknowledges the receipt of a tunneled message, permitting the sender to
+// proceed.
+func (r *relay) handleTunnelAck(tunId uint64) {
 	r.tunLock.RLock()
 	defer r.tunLock.RUnlock()
 
 	if tun, ok := r.tunLive[tunId]; ok {
-		if msg, err := tun.Recv(1000); err == nil {
-			r.sendTunnelRecv(tunId, msg)
-		} else {
-			fmt.Println("shit:", err)
+		if err := tun.ack(); err != nil {
+			log.Printf("relay: tunnel ack failed: %v.", err)
+			r.drop()
 		}
-	} else {
-		fmt.Println("Tunnel dead ? (maybe race, not yet inited)")
 	}
 }
 
+// Terminates the tunnel data transfer threads and notifies the remote endpoint.
 func (r *relay) handleTunnelClose(tunId uint64) {
+	// Remove the tunnel
 	r.tunLock.Lock()
-	defer r.tunLock.Unlock()
+	tun, ok := r.tunLive[tunId]
+	delete(r.tunLive, tunId)
+	r.tunLock.Unlock()
 
-	if tun, ok := r.tunLive[tunId]; ok {
-		fmt.Println("STOP THE TRANSFER", tun)
-		delete(r.tunLive, tunId)
-	} else {
-		log.Printf("iris: stale close of local tunnel #%v.", tunId)
+	if ok {
+		tun.close()
 	}
-
-	fmt.Println("Close res:", r.sendTunnelClose(tunId))
 }
