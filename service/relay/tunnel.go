@@ -81,16 +81,10 @@ func (t *tunnel) close() {
 		errc := make(chan error)
 		t.quit <- errc
 		if err := <-errc; err != nil {
-			log.Printf("relay: tunnel failure (%d): %v", i+1, err)
+			// Common for closed tunnels, don't fill log with junk
+			// log.Printf("relay: tunnel failure (%d): %v", i+1, err)
 		}
 	}
-	// Signal the application of termination
-	if err := t.rel.sendTunnelClose(t.id); err != nil {
-		log.Printf("relay: tunnel close notification failed: %v", err)
-		t.rel.drop()
-	}
-	// Signal the remote endpoint of termination
-	t.tun.Close()
 }
 
 // Forwards messages arriving from the application to the Iris network.
@@ -134,11 +128,13 @@ func (t *tunnel) receiver() {
 			// Closing
 		case t.itoa <- struct{}{}:
 			// Message send permitted
-			if msg, e := t.tun.Recv(time.Duration(config.RelayTunnelPoll) * time.Millisecond); e == nil {
+			if msg, rerr := t.tun.Recv(time.Duration(config.RelayTunnelPoll) * time.Millisecond); rerr == nil {
 				go t.rel.handleTunnelRecv(t.id, msg)
-			} else {
-				// Failed to retrieve new message, replace ack and retry later
+			} else if rerr.(iris.Error).Timeout() {
 				<-t.itoa
+			} else {
+				go t.rel.handleTunnelClose(t.id, false)
+				err = rerr
 			}
 		}
 	}

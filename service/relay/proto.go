@@ -513,13 +513,11 @@ func (r *relay) procTunnelAck() error {
 
 // Retrieves a tunneling request and relays it.
 func (r *relay) procTunnelClose() error {
-	// Retrieve the message parts
 	tunId, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	// Pass the tunnel request to the iris connection
-	go r.handleTunnelClose(tunId)
+	go r.handleTunnelClose(tunId, true)
 	return nil
 }
 

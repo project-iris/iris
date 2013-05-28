@@ -38,6 +38,7 @@ const (
 	opTunReq
 	opTunRep
 	opTunDat
+	opTunClose
 )
 
 // Extra headers for the iris implementation.
@@ -137,5 +138,16 @@ func assembleTunnelData(tunId uint64, msg []byte) *session.Message {
 			},
 		},
 		Data: msg,
+	}
+}
+
+func assembleTunnelClose(tunId uint64) *session.Message {
+	return &session.Message{
+		Head: session.Header{
+			Meta: &header{
+				Op:    opTunClose,
+				ReqId: &tunId,
+			},
+		},
 	}
 }

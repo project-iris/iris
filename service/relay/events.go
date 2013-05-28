@@ -246,9 +246,6 @@ func (r *relay) handleTunnelSend(tunId uint64, msg []byte) {
 			log.Printf("relay: tunnel send failed: %v.", err)
 			r.drop()
 		}
-	} else {
-		log.Printf("relay: dead tunnel addressed.")
-		r.drop()
 	}
 }
 
@@ -275,7 +272,7 @@ func (r *relay) handleTunnelAck(tunId uint64) {
 }
 
 // Terminates the tunnel data transfer threads and notifies the remote endpoint.
-func (r *relay) handleTunnelClose(tunId uint64) {
+func (r *relay) handleTunnelClose(tunId uint64, local bool) {
 	// Remove the tunnel
 	r.tunLock.Lock()
 	tun, ok := r.tunLive[tunId]
@@ -283,6 +280,17 @@ func (r *relay) handleTunnelClose(tunId uint64) {
 	r.tunLock.Unlock()
 
 	if ok {
-		tun.close()
+		// In case of a local close, signal the remote endpoint
+		if local {
+			go tun.tun.Close()
+		}
+		// Terminate the tunnel transfers
+		go tun.close()
+
+		// Signal the application of termination
+		if err := r.sendTunnelClose(tunId); err != nil {
+			log.Printf("relay: tunnel close notification failed: %v", err)
+			r.drop()
+		}
 	}
 }

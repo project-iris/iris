@@ -36,6 +36,8 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 		c.handleTunnelReply(src, *head.ReqId, *head.RepId)
 	case opTunDat:
 		c.handleTunnelData(*head.ReqId, msg.Data)
+	case opTunClose:
+		c.handleTunnelClose(*head.ReqId)
 	default:
 		log.Printf("unsupported opcode in direct handler: %v.", head.Op)
 	}
@@ -124,5 +126,15 @@ func (c *connection) handleTunnelData(tunId uint64, msg []byte) {
 	// Make sure the tunnel is still live
 	if tun, ok := c.tuns[tunId]; ok {
 		tun.handleData(msg)
+	}
+}
+
+func (c *connection) handleTunnelClose(tunId uint64) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	// Make sure the tunnel is still live
+	if tun, ok := c.tuns[tunId]; ok {
+		close(tun.term)
 	}
 }

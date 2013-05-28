@@ -39,6 +39,7 @@ type tunnel struct {
 	outBuf chan []byte
 
 	lock sync.Mutex
+	term chan struct{}
 }
 
 // Implements iris.Connection.Tunnel.
@@ -49,12 +50,13 @@ func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
 func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, error) {
 	// Create a potential tunnel
 	c.lock.Lock()
+	tunId := c.tunIdx
 	tun := &tunnel{
 		relay: c.relay,
 		init:  make(chan uint64, 1),
 		data:  make(chan []byte, 64),
+		term:  make(chan struct{}),
 	}
-	tunId := c.tunIdx
 	c.tunIdx++
 	c.tuns[tunId] = tun
 	c.lock.Unlock()
@@ -88,6 +90,7 @@ func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, 
 		peerAddr: src,
 		peerId:   peerId,
 		data:     make(chan []byte, 64),
+		term:     make(chan struct{}),
 	}
 	tunId := c.tunIdx
 	c.tunIdx++
@@ -103,13 +106,12 @@ func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, 
 
 // Implements iris.Tunnel.Send.
 func (t *tunnel) Send(msg []byte) error {
-	go t.relay.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
-	/*select {
-	case t.buff <- msg:
-		return nil
+	select {
+	case <-t.term:
+		return permError(fmt.Errorf("tunnel closed"))
 	default:
-		return fmt.Errorf("buffer full")
-	}*/
+		go t.relay.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
+	}
 	return nil
 }
 
@@ -117,14 +119,18 @@ func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
 	select {
 	case msg := <-t.data:
 		return msg, nil
+	case <-t.term:
+		return nil, permError(fmt.Errorf("tunnel closed"))
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout")
+		return nil, timeError(fmt.Errorf("tunnel recv timeout"))
 	}
 }
 
 // Implements iris.Tunnel.Close.
 func (t *tunnel) Close() {
+	close(t.term)
 
+	go t.relay.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
 }
 
 func (t *tunnel) handleData(msg []byte) {
