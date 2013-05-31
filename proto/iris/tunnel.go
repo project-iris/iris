@@ -27,7 +27,7 @@ import (
 )
 
 type tunnel struct {
-	relay *carrier.Connection
+	conn *carrier.Connection
 
 	peerAddr *carrier.Address
 	peerId   uint64
@@ -52,32 +52,31 @@ func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, 
 	c.lock.Lock()
 	tunId := c.tunIdx
 	tun := &tunnel{
-		relay: c.relay,
-		init:  make(chan uint64, 1),
-		data:  make(chan []byte, 64),
-		term:  make(chan struct{}),
+		conn: c.conn,
+		init: make(chan uint64, 1),
+		data: make(chan []byte, 64),
+		term: make(chan struct{}),
 	}
 	c.tunIdx++
 	c.tuns[tunId] = tun
 	c.lock.Unlock()
 
 	// Send the tunneling request
-	c.relay.Balance(appPrefix+app, assembleTunnelRequest(tunId))
+	c.conn.Balance(appPrefix+app, assembleTunnelRequest(tunId))
 
 	// Retrieve the results or time out
-	tick := time.Tick(time.Duration(timeout) * time.Millisecond)
 	select {
 	case peer := <-tun.init:
 		// Remote id arrived, save and return
 		tun.peerId = peer
 		return tun, nil
-	case <-tick:
+	case <-time.After(timeout):
 		// Timeout, remove the tunnel leftover and error out
 		c.lock.Lock()
 		delete(c.tuns, tunId)
 		c.lock.Unlock()
 
-		return nil, fmt.Errorf("iris: couldn't tunnel within %d ms", timeout)
+		return nil, timeError(fmt.Errorf("tunneling timeout"))
 	}
 }
 
@@ -86,7 +85,7 @@ func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, 
 	// Create the local tunnel endpoint
 	c.lock.Lock()
 	tun := &tunnel{
-		relay:    c.relay,
+		conn:     c.conn,
 		peerAddr: src,
 		peerId:   peerId,
 		data:     make(chan []byte, 64),
@@ -98,7 +97,7 @@ func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, 
 	c.lock.Unlock()
 
 	// Reply with a successful tunnel setup message
-	go c.relay.Direct(src, assembleTunnelReply(peerId, tunId))
+	go c.conn.Direct(src, assembleTunnelReply(peerId, tunId))
 
 	// Return the accepted tunnel
 	return tun, nil
@@ -110,7 +109,7 @@ func (t *tunnel) Send(msg []byte) error {
 	case <-t.term:
 		return permError(fmt.Errorf("tunnel closed"))
 	default:
-		go t.relay.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
+		go t.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
 	}
 	return nil
 }
@@ -130,7 +129,7 @@ func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
 func (t *tunnel) Close() {
 	close(t.term)
 
-	go t.relay.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
+	go t.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
 }
 
 func (t *tunnel) handleData(msg []byte) {

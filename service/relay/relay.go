@@ -75,10 +75,12 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Initialize the relay
 	app, err := rel.procInit()
 	if err != nil {
+		rel.drop()
 		return nil, err
 	}
 	// Report the connection accepted
 	if err := rel.sendInit(); err != nil {
+		rel.drop()
 		return nil, err
 	}
 	// Connect to the Iris network and start accepting messages

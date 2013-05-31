@@ -58,14 +58,14 @@ type Connection interface {
 
 // Handler for the connection scope events: application requests, application
 // broadcasts and tunneling requests.
-type ConnecionHandler interface {
+type ConnectionHandler interface {
+	// Handles a message broadcast to all applications of the local type.
+	HandleBroadcast(msg []byte)
+
 	// Handles the msg request, returning the reply that should be forwarded back
 	// to the caller. If the method crashes, nothing is retuned and the caller
 	// will eventually time out.
 	HandleRequest(req []byte, timeout time.Duration) []byte
-
-	// Handles a message broadcast to all applications of the local type.
-	HandleBroadcast(msg []byte)
 
 	// Handles the request to open a direct tunnel.
 	HandleTunnel(tun Tunnel)

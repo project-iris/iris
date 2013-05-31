@@ -16,6 +16,9 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// Event handlers for carrier side messages.
+
 package iris
 
 import (
@@ -26,74 +29,77 @@ import (
 	"time"
 )
 
-// Implements proto.carrier.ConnectionCallback.HandleDirect.
+// Implements proto.carrier.ConnectionCallback.HandleDirect. Extracts the data
+// from the Iris envelope and calls the appropriate handler. All handlers should
+// be invoked in a new go-routine.
 func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opRep:
-		c.handleReply(*head.ReqId, msg.Data)
+		go c.handleReply(*head.ReqId, msg.Data)
 	case opTunRep:
-		c.handleTunnelReply(src, *head.ReqId, *head.RepId)
+		go c.handleTunnelReply(src, *head.ReqId, *head.RepId)
 	case opTunDat:
-		c.handleTunnelData(*head.ReqId, msg.Data)
+		go c.handleTunnelData(*head.ReqId, msg.Data)
 	case opTunClose:
-		c.handleTunnelClose(*head.ReqId)
+		go c.handleTunnelClose(*head.ReqId)
 	default:
-		log.Printf("unsupported opcode in direct handler: %v.", head.Op)
+		log.Printf("iris: invalid direct opcode: %v.", head.Op)
 	}
 }
 
-// Implements proto.carrier.ConnectionCallback.HandlePublish.
+// Implements proto.carrier.ConnectionCallback.HandlePublish. Extracts the data
+// from the Iris envelope and calls the appropriate handler. All handlers should
+// be invoked in a new go-routine.
 func (c *connection) HandlePublish(src *carrier.Address, topic string, msg *session.Message) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
-	case opReq:
-		c.handleRequest(src, *head.ReqId, msg.Data)
 	case opBcast:
-		c.handleBroadcast(msg.Data)
+		go c.handleBroadcast(msg.Data)
+	case opReq:
+		go c.handleRequest(src, *head.ReqId, msg.Data, *head.ReqTime)
 	case opPub:
-		c.handlePublish(topic, msg.Data)
+		go c.handlePublish(topic, msg.Data)
 	case opTunReq:
-		c.handleTunnelRequest(src, *head.ReqId)
+		go c.handleTunnelRequest(src, *head.ReqId)
 	default:
-		log.Printf("unsupported opcode in publish handler: %v.", head.Op)
+		log.Printf("iris: invalid publish opcode: %v.", head.Op)
 	}
 }
 
-// Handles a remote request by calling the app layer handler on a new thread and
-// replying to the source node with the result.
-func (c *connection) handleRequest(src *carrier.Address, reqId uint64, msg []byte) {
-	go func() {
-		// HACK, FIX TIME SECOND
-		res := c.hand.HandleRequest(msg, time.Second)
-		c.relay.Direct(src, assembleReply(reqId, res))
-	}()
+// Passes the broadcast message up to the application handler.
+func (c *connection) handleBroadcast(msg []byte) {
+	c.handler.HandleBroadcast(msg)
 }
 
-// Handles a remote reply by looking up the pending request and forwarding the
-// reply.
-func (c *connection) handleReply(reqId uint64, msg []byte) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+// Passes the request up to the application handler, also specifying the timeout
+// under which the reply must be sent back. Only a non-nil reply is forwarded to
+// the requester.
+func (c *connection) handleRequest(src *carrier.Address, reqId uint64, msg []byte, timeout time.Duration) {
+	if rep := c.handler.HandleRequest(msg, timeout); rep != nil {
+		c.conn.Direct(src, assembleReply(reqId, rep))
+	}
+}
+
+// Looks up the result channel for the pending request and inserts the reply. If
+// the channel doesn't exist any more the reply is silently dropped.
+func (c *connection) handleReply(reqId uint64, rep []byte) {
+	c.reqLock.RLock()
+	defer c.reqLock.RUnlock()
 
 	// Make sure the request is still alive and don't block if dying
-	if ch, ok := c.reqs[reqId]; ok {
-		ch <- msg
+	if ch, ok := c.reqPend[reqId]; ok {
+		ch <- rep
 	}
-}
-
-// Handles an application broadcast event.
-func (c *connection) handleBroadcast(msg []byte) {
-	go c.hand.HandleBroadcast(msg)
 }
 
 // Handles a remote topic publish event.
 func (c *connection) handlePublish(topic string, msg []byte) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.subLock.RLock()
+	defer c.subLock.RUnlock()
 
-	if hand, ok := c.subs[topic]; ok {
-		go hand.HandleEvent(msg)
+	if handler, ok := c.subLive[topic]; ok {
+		go handler.HandleEvent(msg)
 	}
 }
 
@@ -102,7 +108,7 @@ func (c *connection) handleTunnelRequest(src *carrier.Address, peerId uint64) {
 	if tun, err := c.acceptTunnel(src, peerId); err != nil {
 		fmt.Println("Tunnel request error: ", err)
 	} else {
-		go c.hand.HandleTunnel(tun)
+		go c.handler.HandleTunnel(tun)
 	}
 }
 

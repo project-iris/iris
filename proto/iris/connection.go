@@ -30,112 +30,164 @@ var appPrefix = "app:"
 var topPrefix = "top:"
 
 type connection struct {
-	app   string              // Connection identifier
-	relay *carrier.Connection // Message relay into the network
+	// Application layer fields
+	app     string              // Connection identifier
+	handler ConnectionHandler   // Handler for connection events
+	conn    *carrier.Connection // Interface into the distributed carrier
 
-	reqIdx uint64                         // Index to assign the next request
-	reqs   map[uint64]chan []byte         // Active requests waiting for a reply
-	subs   map[string]SubscriptionHandler // Active subscriptions
-	tunIdx uint64                         // Index to assign the next tunnel
-	tuns   map[uint64]*tunnel             // Active tunnels
+	reqIdx  uint64                 // Index to assign the next request
+	reqPend map[uint64]chan []byte // Active requests waiting for a reply
+	reqLock sync.RWMutex           // Mutex to protect the request map
 
-	hand ConnecionHandler
+	subLive map[string]SubscriptionHandler // Active subscriptions
+	subLock sync.RWMutex                   // Mutex to protect the subscription map
+
+	tunIdx uint64             // Index to assign the next tunnel
+	tuns   map[uint64]*tunnel // Active tunnels
+
 	lock sync.Mutex
+
+	// Bookkeeping fields
+	quit chan chan error // Quit channel to synchronize termination
+	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 
-func Connect(relay carrier.Carrier, app string, hand ConnecionHandler) Connection {
-	// Create the new connection
+func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Connection {
+	// Create the connection object
 	c := &connection{
-		app:  app,
-		reqs: make(map[uint64]chan []byte),
-		subs: make(map[string]SubscriptionHandler),
-		tuns: make(map[uint64]*tunnel),
-		hand: hand,
+		app: app,
+
+		reqPend: make(map[uint64]chan []byte),
+		subLive: make(map[string]SubscriptionHandler),
+		//tunPend: make(map[uint64]iris.Tunnel),
+		//tunInit: make(map[uint64]chan struct{}),
+		//tunLive: make(map[uint64]*tunnel),
+
+		tuns:    make(map[uint64]*tunnel),
+		handler: handler,
+
+		// Bookkeeping
+		quit: make(chan chan error),
+		term: make(chan struct{}),
 	}
-	c.relay = relay.Connect(c)
-	c.relay.Subscribe(appPrefix + app)
+	c.conn = carrier.Connect(c)
+	c.conn.Subscribe(appPrefix + app)
 
 	return c
 }
 
-// Implements iris.Connection.Request.
-func (c *connection) Request(app string, msg []byte, timeout time.Duration) ([]byte, error) {
+// Implements iris.Connection.Broadcast. Tags the destination id with the app
+// prefix to ensure apps and topics can overlap, bundles the payload into a
+// protocol packet and publishes it.
+func (c *connection) Broadcast(app string, msg []byte) error {
+	c.conn.Publish(appPrefix+app, assembleBroadcast(msg))
+	return nil
+}
+
+// Implements iris.Connection.Request. Tags the destination with the app prefix,
+// bundles the request and asks the carrier to balance it to a suitable place,
+// and finally starts the countdown.
+func (c *connection) Request(app string, req []byte, timeout time.Duration) ([]byte, error) {
 	// Create a reply channel for the results
-	c.lock.Lock()
-	reqChan := make(chan []byte, 1)
+	c.reqLock.Lock()
+	reqCh := make(chan []byte, 1)
 	reqId := c.reqIdx
-	c.reqs[reqId] = reqChan
 	c.reqIdx++
-	c.lock.Unlock()
+	c.reqPend[reqId] = reqCh
+	c.reqLock.Unlock()
 
 	// Make sure reply channel is cleaned up
 	defer func() {
-		c.lock.Lock()
-		defer c.lock.Unlock()
-		delete(c.reqs, reqId)
-		close(reqChan)
-	}()
-	// Send the request to the specified app
-	c.relay.Balance(appPrefix+app, assembleRequest(reqId, msg))
+		c.reqLock.Lock()
+		defer c.reqLock.Unlock()
 
-	// Retrieve the results or time out
+		delete(c.reqPend, reqId)
+		close(reqCh)
+	}()
+	// Send the request
+	c.conn.Balance(appPrefix+app, assembleRequest(reqId, req, timeout))
+
+	// Retrieve the results, time out or fail if terminating
 	select {
+	case <-c.term:
+		return nil, permError(fmt.Errorf("connection terminating"))
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("iris: request timed out")
-	case rep := <-reqChan:
+		return nil, timeError(fmt.Errorf("request timed out"))
+	case rep := <-reqCh:
 		return rep, nil
 	}
 }
 
-// Implements iris.Connection.Broadcast.
-func (c *connection) Broadcast(app string, msg []byte) error {
-	c.relay.Publish(appPrefix+app, assembleBroadcast(msg))
-	return nil
-}
-
-// Implements iris.Connection.Subscribe.
+// Implements iris.Connection.Subscribe. Tags the target with the topic prefix,
+// assigns a handler for incoming events and executes a carrier subscription.
 func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	// Add the topic prefix to simplify code
+	topic = topPrefix + topic
 
-	if _, ok := c.subs[topPrefix+topic]; ok {
-		return fmt.Errorf("already subscribed")
+	// Make sure there are no double subscriptions and not closing
+	c.subLock.Lock()
+	select {
+	case <-c.term:
+		c.subLock.Unlock()
+		return permError(fmt.Errorf("connection terminating"))
+	default:
+		if _, ok := c.subLive[topic]; ok {
+			c.subLock.Unlock()
+			return permError(fmt.Errorf("already subscribed"))
+		}
+		c.subLive[topic] = handler
 	}
-	c.subs[topPrefix+topic] = handler
-	return c.relay.Subscribe(topPrefix + topic)
+	c.subLock.Unlock()
+
+	// Subscribe through the carrier
+	return c.conn.Subscribe(topic)
 }
 
-// Implements iris.Connection.Publish.
+// Implements iris.Connection.Publish. Tags the target with the topic prefix,
+// bundles the message and requests the carrier to publish it.
 func (c *connection) Publish(topic string, msg []byte) error {
-	c.relay.Publish(topPrefix+topic, assemblePublish(msg))
+	c.conn.Publish(topPrefix+topic, assemblePublish(msg))
 	return nil
 }
 
-// Implements iris.Connection.Unsubscribe.
+// Implements iris.Connection.Unsubscribe. Removes an active subscription from
+// the local list and notifies the carrier of the request.
 func (c *connection) Unsubscribe(topic string) error {
+	// Add the topic prefix to simplify code
+	topic = topPrefix + topic
+
 	// Remove subscription if present
-	c.lock.Lock()
-	_, ok := c.subs[topPrefix+topic]
-	delete(c.subs, topPrefix+topic)
-	c.lock.Unlock()
+	c.subLock.Lock()
+	select {
+	case <-c.term:
+		c.subLock.Unlock()
+		return permError(fmt.Errorf("connection terminating"))
+	default:
+		if _, ok := c.subLive[topic]; !ok {
+			c.subLock.Unlock()
+			return permError(fmt.Errorf("not subscribed"))
+		}
+	}
+	delete(c.subLive, topic)
+	c.subLock.Unlock()
 
 	// Notify the carrier of the removal
-	if ok {
-		c.relay.Unsubscribe(topPrefix + topic)
-	} else {
-		return fmt.Errorf("not subscribed")
-	}
+	c.conn.Unsubscribe(topic)
 	return nil
 }
 
 // Implements iris.Connection.Close.
 func (c *connection) Close() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	// Signal the connection as terminating
+	close(c.term)
 
-	// Remove all subscriptions.
-	for topic, _ := range c.subs {
-		c.relay.Unsubscribe(topic)
+	// Remove all topic subscriptions
+	c.subLock.Lock()
+	for topic, _ := range c.subLive {
+		c.conn.Unsubscribe(topic)
 	}
-	c.relay.Unsubscribe(appPrefix + c.app)
+	c.subLock.Unlock()
+
+	// Leave the app group
+	c.conn.Unsubscribe(appPrefix + c.app)
 }

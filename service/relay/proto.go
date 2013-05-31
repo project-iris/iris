@@ -43,7 +43,7 @@ const (
 )
 
 // Relay protocol version
-var relayVersion = "v1.0a"
+var relayVersion = "v1.0"
 
 // Serializes a single byte into the relay.
 func (r *relay) sendByte(data byte) error {
