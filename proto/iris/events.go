@@ -22,7 +22,6 @@
 package iris
 
 import (
-	"fmt"
 	"github.com/karalabe/iris/proto/carrier"
 	"github.com/karalabe/iris/proto/session"
 	"log"
@@ -38,11 +37,11 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 	case opRep:
 		go c.handleReply(*head.ReqId, msg.Data)
 	case opTunRep:
-		go c.handleTunnelReply(src, *head.ReqId, *head.RepId)
+		go c.handleTunnelReply(src, *head.TunId, *head.TunRemId)
 	case opTunDat:
-		go c.handleTunnelData(*head.ReqId, msg.Data)
+		go c.handleTunnelData(*head.TunId, msg.Data)
 	case opTunClose:
-		go c.handleTunnelClose(*head.ReqId)
+		go c.handleTunnelClose(*head.TunId)
 	default:
 		log.Printf("iris: invalid direct opcode: %v.", head.Op)
 	}
@@ -61,7 +60,7 @@ func (c *connection) HandlePublish(src *carrier.Address, topic string, msg *sess
 	case opPub:
 		go c.handlePublish(topic, msg.Data)
 	case opTunReq:
-		go c.handleTunnelRequest(src, *head.ReqId)
+		go c.handleTunnelRequest(src, *head.TunRemId)
 	default:
 		log.Printf("iris: invalid publish opcode: %v.", head.Op)
 	}
@@ -93,54 +92,65 @@ func (c *connection) handleReply(reqId uint64, rep []byte) {
 	}
 }
 
-// Handles a remote topic publish event.
+// Delivers a topic event to a subscribed handler. If the subscription does not
+// exist the message is silently dropped.
 func (c *connection) handlePublish(topic string, msg []byte) {
+	// Fetch the handler
 	c.subLock.RLock()
-	defer c.subLock.RUnlock()
+	handler, ok := c.subLive[topic]
+	c.subLock.RUnlock()
 
-	if handler, ok := c.subLive[topic]; ok {
-		go handler.HandleEvent(msg)
+	// Deliver the event
+	if ok {
+		handler.HandleEvent(msg)
 	}
 }
 
-// Handles a remote tunneling event.
-func (c *connection) handleTunnelRequest(src *carrier.Address, peerId uint64) {
-	if tun, err := c.acceptTunnel(src, peerId); err != nil {
-		fmt.Println("Tunnel request error: ", err)
+// Accepts the inbound tunnel, notifies the remote endpoint of the success and
+// starts the local handler.
+func (c *connection) handleTunnelRequest(peerAddr *carrier.Address, peerId uint64) {
+	if tun, err := c.acceptTunnel(peerAddr, peerId); err != nil {
+		// This should not happend, potential extension point to re-route tunnel request
+		panic(err)
 	} else {
-		go c.handler.HandleTunnel(tun)
+		c.handler.HandleTunnel(tun)
 	}
 }
 
-// Handles teh response to a local tunneling request.
-func (c *connection) handleTunnelReply(src *carrier.Address, localId uint64, peerId uint64) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+// Initiates a locally outbound pending tunnel with the remote endpoint data and
+// notifies the tunneler.
+func (c *connection) handleTunnelReply(peerAddr *carrier.Address, tunId uint64, peerId uint64) {
+	c.tunLock.Lock()
+	defer c.tunLock.Unlock()
 
 	// Make sure the tunnel is still pending and initialize it if so
-	if tun, ok := c.tuns[localId]; ok {
-		tun.peerAddr = src
-		tun.init <- peerId
+	if tun, ok := c.tunLive[tunId]; ok {
+		tun.peerAddr = peerAddr
+		tun.peerId = peerId
+		tun.init <- struct{}{}
 	}
 }
 
 // Handles teh tunnel data traffic.
 func (c *connection) handleTunnelData(tunId uint64, msg []byte) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.tunLock.RLock()
+	defer c.tunLock.RUnlock()
 
 	// Make sure the tunnel is still live
-	if tun, ok := c.tuns[tunId]; ok {
+	if tun, ok := c.tunLive[tunId]; ok {
 		tun.handleData(msg)
 	}
 }
 
+// Handles the local or remote closure of the tunnel by terminating all internal
+// operations and removing it from the set of live tunnels.
 func (c *connection) handleTunnelClose(tunId uint64) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.tunLock.Lock()
+	defer c.tunLock.Unlock()
 
 	// Make sure the tunnel is still live
-	if tun, ok := c.tuns[tunId]; ok {
+	if tun, ok := c.tunLive[tunId]; ok {
 		close(tun.term)
+		delete(c.tunLive, tunId)
 	}
 }

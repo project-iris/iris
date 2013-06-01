@@ -22,82 +22,85 @@ package iris
 import (
 	"fmt"
 	"github.com/karalabe/iris/proto/carrier"
-	"sync"
 	"time"
 )
 
 type tunnel struct {
-	conn *carrier.Connection
+	parent *connection
+	id     uint64
 
 	peerAddr *carrier.Address
 	peerId   uint64
 
-	init chan uint64
 	data chan []byte
 
 	inBuf  chan []byte
 	outBuf chan []byte
 
-	lock sync.Mutex
-	term chan struct{}
+	// Bookkeeping fields
+	init chan struct{} // Initialization channel for outbound tunnels
+	term chan struct{} // Channel to signal termination to blocked go-routines
 }
 
-// Implements iris.Connection.Tunnel.
-func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
-	return c.initiateTunnel(app, timeout)
-}
-
+// Initiates an outgoing tunnel to a remote app. A new tunnel is created and set
+// as pending until either the tunneling response arrives or the request times
+// out.
 func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, error) {
 	// Create a potential tunnel
-	c.lock.Lock()
+	c.tunLock.Lock()
 	tunId := c.tunIdx
 	tun := &tunnel{
-		conn: c.conn,
-		init: make(chan uint64, 1),
-		data: make(chan []byte, 64),
+		parent: c,
+		id:     tunId,
+		data:   make(chan []byte, 64),
+
+		init: make(chan struct{}, 1),
 		term: make(chan struct{}),
 	}
 	c.tunIdx++
-	c.tuns[tunId] = tun
-	c.lock.Unlock()
+	c.tunLive[tunId] = tun
+	c.tunLock.Unlock()
 
 	// Send the tunneling request
 	c.conn.Balance(appPrefix+app, assembleTunnelRequest(tunId))
 
-	// Retrieve the results or time out
+	// Retrieve the results, time out or terminate
+	var err error
 	select {
-	case peer := <-tun.init:
-		// Remote id arrived, save and return
-		tun.peerId = peer
-		return tun, nil
+	case <-c.term:
+		err = permError(fmt.Errorf("connection terminating"))
 	case <-time.After(timeout):
-		// Timeout, remove the tunnel leftover and error out
-		c.lock.Lock()
-		delete(c.tuns, tunId)
-		c.lock.Unlock()
-
-		return nil, timeError(fmt.Errorf("tunneling timeout"))
+		err = timeError(fmt.Errorf("tunneling timeout"))
+	case <-tun.init:
+		return tun, nil
 	}
+	// Cleanup and report failure
+	c.tunLock.Lock()
+	delete(c.tunLive, tunId)
+	c.tunLock.Unlock()
+	return nil, err
 }
 
-// Accepts an incoming tunneling request from a remote app.
-func (c *connection) acceptTunnel(src *carrier.Address, peerId uint64) (Tunnel, error) {
+// Accepts an incoming tunneling request from a remote, initializes and stores
+// the new tunnel into the connection state.
+func (c *connection) acceptTunnel(peerAddr *carrier.Address, peerId uint64) (Tunnel, error) {
 	// Create the local tunnel endpoint
-	c.lock.Lock()
+	c.tunLock.Lock()
+	tunId := c.tunIdx
 	tun := &tunnel{
-		conn:     c.conn,
-		peerAddr: src,
+		parent:   c,
+		id:       tunId,
+		peerAddr: peerAddr,
 		peerId:   peerId,
 		data:     make(chan []byte, 64),
 		term:     make(chan struct{}),
 	}
-	tunId := c.tunIdx
 	c.tunIdx++
-	c.tuns[tunId] = tun
-	c.lock.Unlock()
+	c.tunLive[tunId] = tun
+	c.tunLock.Unlock()
 
-	// Reply with a successful tunnel setup message
-	go c.conn.Direct(src, assembleTunnelReply(peerId, tunId))
+	// Return a successful tunnel setup to the initiator
+	c.conn.Direct(peerAddr, assembleTunnelReply(peerId, tunId))
 
 	// Return the accepted tunnel
 	return tun, nil
@@ -109,7 +112,7 @@ func (t *tunnel) Send(msg []byte) error {
 	case <-t.term:
 		return permError(fmt.Errorf("tunnel closed"))
 	default:
-		go t.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
+		go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
 	}
 	return nil
 }
@@ -125,11 +128,11 @@ func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
 	}
 }
 
-// Implements iris.Tunnel.Close.
+// Implements iris.Tunnel.Close. Signals the parent connection of the tunnel
+// closure for clean-up purposes and notifies the remote endpoint too.
 func (t *tunnel) Close() {
-	close(t.term)
-
-	go t.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
+	t.parent.handleTunnelClose(t.id)
+	t.parent.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
 }
 
 func (t *tunnel) handleData(msg []byte) {

@@ -42,10 +42,9 @@ type connection struct {
 	subLive map[string]SubscriptionHandler // Active subscriptions
 	subLock sync.RWMutex                   // Mutex to protect the subscription map
 
-	tunIdx uint64             // Index to assign the next tunnel
-	tuns   map[uint64]*tunnel // Active tunnels
-
-	lock sync.Mutex
+	tunIdx  uint64             // Index to assign the next tunnel
+	tunLive map[uint64]*tunnel // Active tunnels
+	tunLock sync.RWMutex       // Mutex to protect the tunnel map
 
 	// Bookkeeping fields
 	quit chan chan error // Quit channel to synchronize termination
@@ -55,16 +54,12 @@ type connection struct {
 func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Connection {
 	// Create the connection object
 	c := &connection{
-		app: app,
+		app:     app,
+		handler: handler,
 
 		reqPend: make(map[uint64]chan []byte),
 		subLive: make(map[string]SubscriptionHandler),
-		//tunPend: make(map[uint64]iris.Tunnel),
-		//tunInit: make(map[uint64]chan struct{}),
-		//tunLive: make(map[uint64]*tunnel),
-
-		tuns:    make(map[uint64]*tunnel),
-		handler: handler,
+		tunLive: make(map[uint64]*tunnel),
 
 		// Bookkeeping
 		quit: make(chan chan error),
@@ -176,7 +171,13 @@ func (c *connection) Unsubscribe(topic string) error {
 	return nil
 }
 
-// Implements iris.Connection.Close.
+// Implements iris.Connection.Tunnel.
+func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
+	return c.initiateTunnel(app, timeout)
+}
+
+// Implements iris.Connection.Close. Removes all topic subscriptions, closes all
+// tunnels and disconnects from the carrier.
 func (c *connection) Close() {
 	// Signal the connection as terminating
 	close(c.term)
