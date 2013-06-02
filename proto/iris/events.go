@@ -17,7 +17,7 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Event handlers for carrier side messages.
+// Event handlers mostly for the carrier side messages.
 
 package iris
 
@@ -38,8 +38,12 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 		go c.handleReply(*head.ReqId, msg.Data)
 	case opTunRep:
 		go c.handleTunnelReply(src, *head.TunId, *head.TunRemId)
-	case opTunDat:
-		go c.handleTunnelData(*head.TunId, msg.Data)
+	case opTunData:
+		go c.handleTunnelData(*head.TunId, *head.TunSeqId, msg.Data)
+	case opTunAck:
+		go c.handleTunnelAck(*head.TunId, *head.TunSeqId)
+	case opTunGrant:
+		go c.handleTunnelGrant(*head.TunId, *head.TunSeqId)
 	case opTunClose:
 		go c.handleTunnelClose(*head.TunId)
 	default:
@@ -131,14 +135,44 @@ func (c *connection) handleTunnelReply(peerAddr *carrier.Address, tunId uint64, 
 	}
 }
 
-// Handles teh tunnel data traffic.
-func (c *connection) handleTunnelData(tunId uint64, msg []byte) {
+// Delivers tunnel trafic from the Iris network to the specific tunnel.
+func (c *connection) handleTunnelData(tunId uint64, seqId uint64, msg []byte) {
+	// Fetch the target tunnel
 	c.tunLock.RLock()
-	defer c.tunLock.RUnlock()
+	tun, ok := c.tunLive[tunId]
+	c.tunLock.RUnlock()
 
-	// Make sure the tunnel is still live
-	if tun, ok := c.tunLive[tunId]; ok {
-		tun.handleData(msg)
+	// Deliver the message
+	if ok {
+		tun.handleData(seqId, msg)
+	}
+}
+
+// Delivers a tunnel data acknowledgement from the Iris network to the specific
+// local endpoint.
+func (c *connection) handleTunnelAck(tunId uint64, seqId uint64) {
+	// Fetch the target tunnel
+	c.tunLock.RLock()
+	tun, ok := c.tunLive[tunId]
+	c.tunLock.RUnlock()
+
+	// Deliver the ack
+	if ok {
+		tun.handleAck(seqId)
+	}
+}
+
+// Delivers a tunnel data allowance grant from the Iris network to the specific
+// local endpoint.
+func (c *connection) handleTunnelGrant(tunId uint64, seqId uint64) {
+	// Fetch the target tunnel
+	c.tunLock.RLock()
+	tun, ok := c.tunLive[tunId]
+	c.tunLock.RUnlock()
+
+	// Deliver the allowance
+	if ok {
+		tun.handleGrant(seqId)
 	}
 }
 

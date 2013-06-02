@@ -497,7 +497,7 @@ func (r *relay) procTunnelData() error {
 	if err != nil {
 		return err
 	}
-	go r.handleTunnelSend(tunId, msg)
+	r.handleTunnelSend(tunId, msg) // Note, NOT separate go-routine
 	return nil
 }
 

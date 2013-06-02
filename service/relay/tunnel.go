@@ -129,7 +129,7 @@ func (t *tunnel) receiver() {
 		case t.itoa <- struct{}{}:
 			// Message send permitted
 			if msg, rerr := t.tun.Recv(time.Duration(config.RelayTunnelPoll) * time.Millisecond); rerr == nil {
-				go t.rel.handleTunnelRecv(t.id, msg)
+				t.rel.handleTunnelRecv(t.id, msg)
 			} else if rerr.(iris.Error).Timeout() {
 				<-t.itoa
 			} else {

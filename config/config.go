@@ -201,6 +201,12 @@ var CarrierSpace = 32
 // Number of messages to buffer for application delivery before dropping.
 var CarrierAppBuffer = 128
 
+// Send and receive window for tunnel ordering and throttling.
+var IrisTunnelWindow = 256
+
+// Timeout value for receiving a new acknowledgement.
+var IrisTunnelTimeout = 3000
+
 // Distributed application identifier.
 var AppGlobalId = []byte("iris")
 

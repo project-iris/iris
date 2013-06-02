@@ -17,8 +17,9 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Event handlers for both relay and carrier side messages. All methods in this
-// file are assumed to be running in a separate go routine!
+// Event handlers for both relay and carrier side messages. Almost all methods
+// in this file are assumed to be running in a separate go routine! The only two
+// exceptions are the tunnel data transfers, shich need total ordering.
 
 package relay
 

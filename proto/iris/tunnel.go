@@ -21,7 +21,9 @@ package iris
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto/carrier"
+	"sync"
 	"time"
 )
 
@@ -32,10 +34,21 @@ type tunnel struct {
 	peerAddr *carrier.Address
 	peerId   uint64
 
-	data chan []byte
+	// Control flow fields
+	outNext   uint64        // Next message sequence number to place in the send window
+	outAcked  uint64        // Id of the first gap in the acks
+	outGrant  uint64        // Message limit the remote endpoint is accepting (excluded)
+	outWindow [][]byte      // Send window for repeating lost messages
+	outSize   uint64        // Size of the input window
+	outSlots  chan struct{} // Channel for the available window slots
+	outLock   sync.Mutex    // Synchronizer to the output state
 
-	inBuf  chan []byte
-	outBuf chan []byte
+	inNext   uint64        // Next sequence id to be read from the receive window
+	inReady  uint64        // Id of the first gap in the window
+	inWindow [][]byte      // Receive window for ordering messages
+	inSize   uint64        // Size of the input window
+	inSlots  chan struct{} // Channel for the slots ready for recv
+	inLock   sync.Mutex    // Synchronizer to the input state
 
 	// Bookkeeping fields
 	init chan struct{} // Initialization channel for outbound tunnels
@@ -52,7 +65,14 @@ func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, 
 	tun := &tunnel{
 		parent: c,
 		id:     tunId,
-		data:   make(chan []byte, 64),
+
+		outWindow: make([][]byte, config.IrisTunnelWindow),
+		outSize:   uint64(config.IrisTunnelWindow),
+		outGrant:  uint64(config.IrisTunnelWindow),
+		outSlots:  make(chan struct{}, config.IrisTunnelWindow),
+		inWindow:  make([][]byte, config.IrisTunnelWindow),
+		inSize:    uint64(config.IrisTunnelWindow),
+		inSlots:   make(chan struct{}, config.IrisTunnelWindow),
 
 		init: make(chan struct{}, 1),
 		term: make(chan struct{}),
@@ -92,8 +112,16 @@ func (c *connection) acceptTunnel(peerAddr *carrier.Address, peerId uint64) (Tun
 		id:       tunId,
 		peerAddr: peerAddr,
 		peerId:   peerId,
-		data:     make(chan []byte, 64),
-		term:     make(chan struct{}),
+
+		outWindow: make([][]byte, config.IrisTunnelWindow),
+		outSize:   uint64(config.IrisTunnelWindow),
+		outGrant:  uint64(config.IrisTunnelWindow),
+		outSlots:  make(chan struct{}, config.IrisTunnelWindow),
+		inWindow:  make([][]byte, config.IrisTunnelWindow),
+		inSize:    uint64(config.IrisTunnelWindow),
+		inSlots:   make(chan struct{}, config.IrisTunnelWindow),
+
+		term: make(chan struct{}),
 	}
 	c.tunIdx++
 	c.tunLive[tunId] = tun
@@ -107,25 +135,109 @@ func (c *connection) acceptTunnel(peerAddr *carrier.Address, peerId uint64) (Tun
 }
 
 // Implements iris.Tunnel.Send.
+//
+// The method is not reentrant. It is meant to be used in a single thread, with
+// concurrent access leading to undefined behavior!
 func (t *tunnel) Send(msg []byte) error {
+	// Wait till an output slot frees up
 	select {
 	case <-t.term:
 		return permError(fmt.Errorf("tunnel closed"))
-	default:
-		go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, msg))
+	case t.outSlots <- struct{}{}:
+		t.outLock.Lock()
+		defer t.outLock.Unlock()
+
+		// Store the message into the send window
+		t.outWindow[t.outNext%t.outSize] = msg
+
+		// Send the message if allowed
+		if t.outNext < t.outGrant {
+			go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, t.outNext, msg))
+		}
+		// Update state and return
+		t.outNext++
 	}
 	return nil
 }
 
+func (t *tunnel) handleAck(seqId uint64) {
+	t.outLock.Lock()
+	defer t.outLock.Unlock()
+
+	// Acknowledge a message if inside the window and not yet marked as ready for reuse
+	if t.outAcked <= seqId {
+		t.outWindow[seqId%t.outSize] = nil
+	}
+	// Grant send window slots if any became available
+	for t.outWindow[t.outAcked%t.outSize] == nil && t.outAcked < t.outNext {
+		<-t.outSlots
+		t.outAcked++
+	}
+}
+
+func (t *tunnel) handleGrant(seqId uint64) {
+	t.outLock.Lock()
+	defer t.outLock.Unlock()
+
+	// If reordered grant message, discard
+	if t.outGrant >= seqId {
+		return
+	}
+	// Send all pending messages between the last grant and the new
+	for t.outGrant < seqId && t.outGrant < t.outNext {
+		msg := t.outWindow[t.outGrant%t.outSize]
+		go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, t.outGrant, msg))
+		t.outGrant++
+	}
+	// Update grant entry and return
+	t.outGrant = seqId
+}
+
+// The method is not reentrant. It is meant to be used in a single thread, with
+// concurrent access leading to undefined behavior!
 func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
+	// Wait till an input slot is granted
 	select {
-	case msg := <-t.data:
-		return msg, nil
 	case <-t.term:
 		return nil, permError(fmt.Errorf("tunnel closed"))
 	case <-time.After(timeout):
 		return nil, timeError(fmt.Errorf("tunnel recv timeout"))
+	case <-t.inSlots:
+		t.inLock.Lock()
+		defer t.inLock.Unlock()
+
+		// Retrieve the message from the window
+		msg := t.inWindow[t.inNext%t.inSize]
+		t.inWindow[t.inNext%t.inSize] = nil
+		t.inNext++
+
+		// Signal a window shift to the remote endpoint
+		go t.parent.conn.Direct(t.peerAddr, assembleTunnelGrant(t.peerId, t.inNext+t.inSize))
+
+		// Return the retrieved message
+		return msg, nil
 	}
+}
+
+// Handles the arrival
+func (t *tunnel) handleData(seqId uint64, msg []byte) {
+	// Sync the input state
+	t.inLock.Lock()
+
+	// Store the message if inside the window and not yet marked as ready for receive
+	if t.inReady <= seqId {
+		t.inWindow[seqId%t.inSize] = msg
+	}
+	// Grant receive slots if message is new (or filled a hole)
+	for t.inWindow[t.inReady%t.inSize] != nil && t.inReady < t.inNext+t.inSize {
+		t.inSlots <- struct{}{}
+		t.inReady++
+	}
+	// Release lock
+	t.inLock.Unlock()
+
+	// Always ack a message (in case a previous got lost)
+	t.parent.conn.Direct(t.peerAddr, assembleTunnelAck(t.peerId, seqId))
 }
 
 // Implements iris.Tunnel.Close. Signals the parent connection of the tunnel
@@ -133,8 +245,4 @@ func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
 func (t *tunnel) Close() {
 	t.parent.handleTunnelClose(t.id)
 	t.parent.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
-}
-
-func (t *tunnel) handleData(msg []byte) {
-	t.data <- msg
 }
