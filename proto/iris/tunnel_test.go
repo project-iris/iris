@@ -30,7 +30,7 @@ import (
 )
 
 // Boots a random carrier for testing purposes
-func boot() (carrier.Carrier, error) {
+func startCarrier() (carrier.Carrier, error) {
 	// Generate a new temporary key for the carrier
 	key, _ := rsa.GenerateKey(rand.Reader, 512)
 
@@ -46,17 +46,17 @@ func boot() (carrier.Carrier, error) {
 }
 
 // Very simple test handler to stream inbound tunnel messages into a sink channel.
-type tunnelSinkHandler struct {
+type tunnelHandler struct {
 	sink chan []byte
 }
 
-func (h *tunnelSinkHandler) HandleBroadcast(msg []byte) {
+func (h *tunnelHandler) HandleBroadcast(msg []byte) {
 	panic("Not implemented!")
 }
-func (h *tunnelSinkHandler) HandleRequest(req []byte, timeout time.Duration) []byte {
+func (h *tunnelHandler) HandleRequest(req []byte, timeout time.Duration) []byte {
 	panic("Not implemented!")
 }
-func (h *tunnelSinkHandler) HandleTunnel(tun Tunnel) {
+func (h *tunnelHandler) HandleTunnel(tun Tunnel) {
 	defer tun.Close()
 	for {
 		if msg, err := tun.Recv(time.Second); err == nil {
@@ -75,7 +75,7 @@ func (h *tunnelSinkHandler) HandleTunnel(tun Tunnel) {
 // Synchronous tunnel data transfer tests
 func TestTunnelSync(t *testing.T) {
 	// Boot the carrier
-	car, err := boot()
+	car, err := startCarrier()
 	if err != nil {
 		t.Fatalf("failed to boot carrier: %v.", err)
 	}
@@ -83,7 +83,7 @@ func TestTunnelSync(t *testing.T) {
 
 	// Connect to the carrier
 	app := "tunnel-sync-test"
-	handler := &tunnelSinkHandler{
+	handler := &tunnelHandler{
 		sink: make(chan []byte),
 	}
 	conn := Connect(car, app, handler)
@@ -116,15 +116,15 @@ func TestTunnelSync(t *testing.T) {
 // Asynchronous tunnel data transfer tests
 func TestTunnelAsync(t *testing.T) {
 	// Boot the carrier
-	car, err := boot()
+	car, err := startCarrier()
 	if err != nil {
 		t.Fatalf("failed to boot carrier: %v.", err)
 	}
 	defer car.Shutdown()
 
 	// Connect to the carrier
-	app := "tunnel-sync-test"
-	handler := &tunnelSinkHandler{
+	app := "tunnel-async-test"
+	handler := &tunnelHandler{
 		sink: make(chan []byte),
 	}
 	conn := Connect(car, app, handler)
