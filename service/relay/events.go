@@ -19,7 +19,7 @@
 
 // Event handlers for both relay and carrier side messages. Almost all methods
 // in this file are assumed to be running in a separate go routine! The only two
-// exceptions are the tunnel data transfers, shich need total ordering.
+// exceptions are the tunnel data transfers, which need total ordering.
 
 package relay
 
@@ -54,9 +54,9 @@ func (r *relay) handleBroadcast(app string, msg []byte) {
 func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 	// Create a reply channel for the results
 	r.reqLock.Lock()
-	reqChan := make(chan []byte, 1)
+	reqCh := make(chan []byte, 1)
 	reqId := r.reqIdx
-	r.reqPend[reqId] = reqChan
+	r.reqPend[reqId] = reqCh
 	r.reqIdx++
 	r.reqLock.Unlock()
 
@@ -66,7 +66,7 @@ func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 		defer r.reqLock.Unlock()
 
 		delete(r.reqPend, reqId)
-		close(reqChan)
+		close(reqCh)
 	}()
 	// Send the request to the specified app
 	if err := r.sendRequest(reqId, req); err != nil {
@@ -79,7 +79,7 @@ func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
 		return nil
 	case <-time.After(timeout):
 		return nil
-	case rep := <-reqChan:
+	case rep := <-reqCh:
 		return rep
 	}
 }

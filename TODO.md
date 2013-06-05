@@ -4,8 +4,6 @@
 Stuff that need implementing, fixing or testing.
 
 - Features
-    - Carrier
-        - Use full topic tree (midway terminations) for publishing too (like balancing)
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
@@ -18,6 +16,10 @@ Stuff that need implementing, fixing or testing.
     - System
         - CPU usage measurements for darwin and windows
 - Bugs
+    - Thread pool
+        - Terminate does not wait for threads to finish
+    - Relay
+        - Race condition if reply and immediate close (needs close sync with finishing ops)
 - Misc
     - Overlay
         - Benchmark and tune the handshakes
