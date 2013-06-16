@@ -64,6 +64,11 @@ func New(id *big.Int, beat time.Duration, kill int) *Topic {
 	return top
 }
 
+// Closes down a topic, releasing teh internal heartbeat mechanism.
+func (t *Topic) Close() {
+	t.heart.Terminate()
+}
+
 // Returns the topic identifier.
 func (t *Topic) Self() *big.Int {
 	return t.id

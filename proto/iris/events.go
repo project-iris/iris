@@ -35,17 +35,17 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opRep:
-		go c.handleReply(*head.ReqId, msg.Data)
+		c.workers.Schedule(func() { c.handleReply(*head.ReqId, msg.Data) })
 	case opTunRep:
-		go c.handleTunnelReply(src, *head.TunId, *head.TunRemId)
+		c.workers.Schedule(func() { c.handleTunnelReply(src, *head.TunId, *head.TunRemId) })
 	case opTunData:
-		go c.handleTunnelData(*head.TunId, *head.TunSeqId, msg.Data)
+		c.workers.Schedule(func() { c.handleTunnelData(*head.TunId, *head.TunSeqId, msg.Data) })
 	case opTunAck:
-		go c.handleTunnelAck(*head.TunId, *head.TunSeqId)
+		c.workers.Schedule(func() { c.handleTunnelAck(*head.TunId, *head.TunSeqId) })
 	case opTunGrant:
-		go c.handleTunnelGrant(*head.TunId, *head.TunSeqId)
+		c.workers.Schedule(func() { c.handleTunnelGrant(*head.TunId, *head.TunSeqId) })
 	case opTunClose:
-		go c.handleTunnelClose(*head.TunId)
+		c.workers.Schedule(func() { c.handleTunnelClose(*head.TunId) })
 	default:
 		log.Printf("iris: invalid direct opcode: %v.", head.Op)
 	}
@@ -58,13 +58,13 @@ func (c *connection) HandlePublish(src *carrier.Address, topic string, msg *sess
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opBcast:
-		go c.handleBroadcast(msg.Data)
+		c.workers.Schedule(func() { c.handleBroadcast(msg.Data) })
 	case opReq:
-		go c.handleRequest(src, *head.ReqId, msg.Data, *head.ReqTime)
+		c.workers.Schedule(func() { c.handleRequest(src, *head.ReqId, msg.Data, *head.ReqTime) })
 	case opPub:
-		go c.handlePublish(topic, msg.Data)
+		c.workers.Schedule(func() { c.handlePublish(topic, msg.Data) })
 	case opTunReq:
-		go c.handleTunnelRequest(src, *head.TunRemId)
+		c.workers.Schedule(func() { c.handleTunnelRequest(src, *head.TunRemId) })
 	default:
 		log.Printf("iris: invalid publish opcode: %v.", head.Op)
 	}

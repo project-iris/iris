@@ -21,6 +21,8 @@ package iris
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/pool"
 	"github.com/karalabe/iris/proto/carrier"
 	"sync"
 	"time"
@@ -46,6 +48,9 @@ type connection struct {
 	tunLive map[uint64]*tunnel // Active tunnels
 	tunLock sync.RWMutex       // Mutex to protect the tunnel map
 
+	// Quality of service fields
+	workers *pool.ThreadPool // Concurrent threads handling the connection
+
 	// Bookkeeping fields
 	quit chan chan error // Quit channel to synchronize termination
 	term chan struct{}   // Channel to signal termination to blocked go-routines
@@ -61,12 +66,16 @@ func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Con
 		subLive: make(map[string]SubscriptionHandler),
 		tunLive: make(map[uint64]*tunnel),
 
+		// Quality of service
+		workers: pool.NewThreadPool(config.IrisHandlerThreads),
+
 		// Bookkeeping
 		quit: make(chan chan error),
 		term: make(chan struct{}),
 	}
 	c.conn = carrier.Connect(c)
 	c.conn.Subscribe(appPrefix + app)
+	c.workers.Start()
 
 	return c
 }
@@ -189,6 +198,10 @@ func (c *connection) Close() {
 	}
 	c.subLock.Unlock()
 
-	// Leave the app group
+	// Leave the app group and close the carrier connection
 	c.conn.Unsubscribe(appPrefix + c.app)
+	c.conn.Close()
+
+	// Terminate the worker pool
+	c.workers.Terminate()
 }

@@ -39,7 +39,7 @@ type Heart struct {
 	mems entitySlice   // List of entities monitored
 	tick int           // Current monitoring cycle tick
 	beat time.Duration // Time duration of a beat cycle
-	kill int
+	kill int           // Number of missed ticks before and entity is reported dead
 
 	call Callback // Application callback to notify of events
 
@@ -113,14 +113,16 @@ func (h *Heart) Ping(id *big.Int) {
 // Beater function meant to run as a separate go routine to keep pinging each
 // monitored entity and report when some fail to respond within alloted time.
 func (h *Heart) beater() {
-	beat := time.Tick(h.beat)
+	beat := time.NewTicker(h.beat)
+	defer beat.Stop()
+
 	dead := []*big.Int{}
 	for {
 		select {
 		case <-h.quit:
 			return
-		case <-beat:
-			// Beat cycle: update tick and collec dead entries
+		case <-beat.C:
+			// Beat cycle: update tick and collect dead entries
 			h.lock.Lock()
 			h.tick++
 			dead = dead[:0]

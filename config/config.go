@@ -201,6 +201,9 @@ var CarrierSpace = 32
 // Number of messages to buffer for application delivery before dropping.
 var CarrierAppBuffer = 128
 
+// Maximum number of handlers allowed concurrently per Iris application.
+var IrisHandlerThreads = 16
+
 // Send and receive window for tunnel ordering and throttling.
 var IrisTunnelWindow = 256
 
@@ -215,6 +218,9 @@ var AppLocalId = []byte("broker")
 
 // Use in case of federated applications.
 var AppParentId = []byte(nil)
+
+// Maximum number of handlers allowed concurrently per relay connection.
+var RelayHandlerThreads = 16
 
 // Number of messages to buffer per outbound tunnel.
 var RelayTunnelBuffer = 128

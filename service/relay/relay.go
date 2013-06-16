@@ -23,6 +23,8 @@ package relay
 
 import (
 	"bufio"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/pool"
 	"github.com/karalabe/iris/proto/iris"
 	"net"
 	"sync"
@@ -48,6 +50,9 @@ type relay struct {
 	sockBuf  *bufio.ReadWriter // Buffered access to the network socket
 	sockLock sync.Mutex        // Mutex to atomise message sending
 
+	// Quality of service fields
+	workers *pool.ThreadPool // Concurrent threads handling the connection
+
 	// Bookkeeping fields
 	done chan *relay     // Channel on which to signal termination
 	quit chan chan error // Quit channe to synchronize relay termination
@@ -67,6 +72,9 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 		sock:    sock,
 		sockBuf: bufio.NewReadWriter(bufio.NewReader(sock), bufio.NewWriter(sock)),
 
+		// Quality of service
+		workers: pool.NewThreadPool(config.RelayHandlerThreads),
+
 		// Misc
 		done: r.done,
 		quit: make(chan chan error),
@@ -85,6 +93,7 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	}
 	// Connect to the Iris network and start accepting messages
 	rel.iris = iris.Connect(r.carrier, app, rel)
+	rel.workers.Start()
 	go rel.process()
 	return rel, nil
 }

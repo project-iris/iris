@@ -77,6 +77,14 @@ func (c *carrier) Connect(cb ConnectionCallback) *Connection {
 	return conn
 }
 
+// Closes a carrier connection, removing it from the active list.
+func (c *Connection) Close() {
+	c.relay.lock.Lock()
+	defer c.relay.lock.Unlock()
+
+	delete(c.relay.conns, c.id.String())
+}
+
 // Subscribes to the specified topic and returns a new channel on which incoming
 // messages will arrive.
 func (c *Connection) Subscribe(topic string) error {

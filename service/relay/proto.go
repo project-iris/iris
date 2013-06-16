@@ -372,7 +372,7 @@ func (r *relay) procBroadcast() error {
 	if err != nil {
 		return err
 	}
-	go r.handleBroadcast(app, msg)
+	r.workers.Schedule(func() { r.handleBroadcast(app, msg) })
 	return nil
 }
 
@@ -394,7 +394,7 @@ func (r *relay) procRequest() error {
 	if err != nil {
 		return err
 	}
-	go r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond)
+	r.workers.Schedule(func() { r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond) })
 	return nil
 }
 
@@ -408,7 +408,7 @@ func (r *relay) procReply() error {
 	if err != nil {
 		return err
 	}
-	go r.handleReply(reqId, rep)
+	r.workers.Schedule(func() { r.handleReply(reqId, rep) })
 	return nil
 }
 
@@ -418,7 +418,7 @@ func (r *relay) procSubscribe() error {
 	if err != nil {
 		return err
 	}
-	go r.handleSubscribe(topic)
+	r.workers.Schedule(func() { r.handleSubscribe(topic) })
 	return nil
 }
 
@@ -432,7 +432,7 @@ func (r *relay) procPublish() error {
 	if err != nil {
 		return err
 	}
-	go r.handlePublish(topic, msg)
+	r.workers.Schedule(func() { r.handlePublish(topic, msg) })
 	return nil
 
 }
@@ -443,7 +443,7 @@ func (r *relay) procUnsubscribe() error {
 	if err != nil {
 		return err
 	}
-	go r.handleUnsubscribe(topic)
+	r.workers.Schedule(func() { r.handleUnsubscribe(topic) })
 	return nil
 }
 
@@ -465,7 +465,7 @@ func (r *relay) procTunnelRequest() error {
 	if err != nil {
 		return err
 	}
-	go r.handleTunnelRequest(tunId, app, int(buf), time.Duration(timeout)*time.Millisecond)
+	r.workers.Schedule(func() { r.handleTunnelRequest(tunId, app, int(buf), time.Duration(timeout)*time.Millisecond) })
 	return nil
 }
 
@@ -483,7 +483,7 @@ func (r *relay) procTunnelReply() error {
 	if err != nil {
 		return err
 	}
-	go r.handleTunnelReply(tmpId, tunId, int(buf))
+	r.workers.Schedule(func() { r.handleTunnelReply(tmpId, tunId, int(buf)) })
 	return nil
 }
 
@@ -497,7 +497,7 @@ func (r *relay) procTunnelData() error {
 	if err != nil {
 		return err
 	}
-	r.handleTunnelSend(tunId, msg) // Note, NOT separate go-routine
+	r.handleTunnelSend(tunId, msg) // Note, NOT separate go-routine, need to preserve order a bit longer
 	return nil
 }
 
@@ -507,7 +507,7 @@ func (r *relay) procTunnelAck() error {
 	if err != nil {
 		return err
 	}
-	go r.handleTunnelAck(tunId)
+	r.workers.Schedule(func() { r.handleTunnelAck(tunId) })
 	return nil
 }
 
@@ -517,7 +517,7 @@ func (r *relay) procTunnelClose() error {
 	if err != nil {
 		return err
 	}
-	go r.handleTunnelClose(tunId, true)
+	r.workers.Schedule(func() { r.handleTunnelClose(tunId, true) })
 	return nil
 }
 
@@ -564,6 +564,7 @@ func (r *relay) process() {
 	// Failure or deliberate close, clean up resources
 	r.sock.Close()
 	r.iris.Close()
+	r.workers.Terminate()
 
 	// Signal termination to all blocked threads
 	close(r.term)

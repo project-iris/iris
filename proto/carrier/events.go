@@ -133,11 +133,12 @@ func (c *carrier) handleUnsubscribe(entityId, topicId *big.Int, app bool) {
 		} else {
 			top.UnsubscribeNode(entityId)
 		}
-		// If topic became empty, send unsubscribe to parent and delete
+		// If topic became empty, send unsubscribe to parent, close and delete
 		if top.Empty() {
 			if parent := top.Parent(); parent != nil {
 				c.sendUnsubscribe(parent, top.Self())
 			}
+			top.Close()
 			delete(c.topics, sid)
 		}
 	}
