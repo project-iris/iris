@@ -124,19 +124,19 @@ var HkdfSalt = []byte("iris.proto.session.hkdf.salt")
 var HkdfInfo = []byte("iris.proto.session.hkdf.info")
 
 // Symmetric cipher to use for session encryption.
-var SesCipher = aes.NewCipher
+var SessionCipher = aes.NewCipher
 
 // Key size for the session symmetric cipher (bits).
-var SesCipherBits = 128
+var SessionCipherBits = 128
 
 // Hash creator for the session HMAC.
-var SesHash = md5.New
+var SessionHash = md5.New
 
 // Symmetric cipher for the temporary message encryption.
-var PackCipher = aes.NewCipher
+var PacketCipher = aes.NewCipher
 
 // Key size for the temporary cipher (bits).
-var PackCipherBits = 128
+var PacketCipherBits = 128
 
 // Bootstrapping ports to use.
 var BootPorts = []int{14142, 27182, 31415}

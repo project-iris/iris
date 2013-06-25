@@ -87,12 +87,12 @@ func newSession(strm *stream.Stream, secret []byte, initiator bool) *Session {
 // the stream cipher for encryption and the mac for authentication.
 func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 	// Extract the symmetric key and create the block cipher
-	key := make([]byte, config.SesCipherBits/8)
+	key := make([]byte, config.SessionCipherBits/8)
 	n, err := io.ReadFull(hkdf, key)
 	if n != len(key) || err != nil {
 		panic(fmt.Sprintf("Failed to extract session key: %v", err))
 	}
-	block, err := config.SesCipher(key)
+	block, err := config.SessionCipher(key)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create session cipher: %v", err))
 	}
@@ -105,12 +105,12 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 	stream := cipher.NewCTR(block, iv)
 
 	// Extract the HMAC key and create the session MACer
-	salt := make([]byte, config.SesHash().Size())
+	salt := make([]byte, config.SessionHash().Size())
 	n, err = io.ReadFull(hkdf, salt)
 	if n != len(salt) || err != nil {
 		panic(fmt.Sprintf("Failed to extract session mac salt: %v", err))
 	}
-	mac := hmac.New(config.SesHash, salt)
+	mac := hmac.New(config.SessionHash, salt)
 
 	return stream, mac
 }

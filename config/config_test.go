@@ -42,12 +42,10 @@ func TestSts(t *testing.T) {
 	}
 	// Ensure the cipher and key size combination is valid
 	key := make([]byte, StsCipherBits/8)
-	n, err := io.ReadFull(rand.Reader, key)
-	if n != len(key) || err != nil {
+	if n, err := io.ReadFull(rand.Reader, key); n != len(key) || err != nil {
 		t.Errorf("config (sts): failed to generate random key: %v.", err)
 	}
-	_, err = StsCipher(key)
-	if err != nil {
+	if _, err := StsCipher(key); err != nil {
 		t.Errorf("config (sts): failed to create requested cipher: %v.", err)
 	}
 	// Ensure the hash is linked to the binary
@@ -75,27 +73,27 @@ func TestHkdf(t *testing.T) {
 
 func TestSession(t *testing.T) {
 	// Ensure a valid symmetric cipher
-	key := make([]byte, SesCipherBits/8)
-	n, err := io.ReadFull(rand.Reader, key)
-	if n != len(key) || err != nil {
+	key := make([]byte, SessionCipherBits/8)
+	if n, err := io.ReadFull(rand.Reader, key); n != len(key) || err != nil {
 		t.Errorf("config (session): failed to generate random key: %v.", err)
 	}
-	_, err = SesCipher(key)
-	if err != nil {
+	if _, err := SessionCipher(key); err != nil {
 		t.Errorf("config (session): failed to create requested cipher: %v.", err)
+	}
+	// Ensure a valid MAC hash
+	if SessionHash() == nil {
+		t.Fatalf("config (session): failed to create requested hasher.")
 	}
 }
 
 func TestPack(t *testing.T) {
 	// Ensure a valid symmetric cipher
-	key := make([]byte, PackCipherBits/8)
-	n, err := io.ReadFull(rand.Reader, key)
-	if n != len(key) || err != nil {
-		t.Errorf("config (pack): failed to generate random key: %v.", err)
+	key := make([]byte, PacketCipherBits/8)
+	if n, err := io.ReadFull(rand.Reader, key); n != len(key) || err != nil {
+		t.Errorf("config (packet): failed to generate random key: %v.", err)
 	}
-	_, err = PackCipher(key)
-	if err != nil {
-		t.Errorf("config (pack): failed to create requested cipher: %v.", err)
+	if _, err := PacketCipher(key); err != nil {
+		t.Errorf("config (packet): failed to create requested cipher: %v.", err)
 	}
 }
 
