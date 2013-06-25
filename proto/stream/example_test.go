@@ -73,6 +73,11 @@ func server(quit chan struct{}) {
 			if err != nil {
 				fmt.Println("failed to send back a string object:", err)
 			}
+			strm.Flush()
+			if err != nil {
+				fmt.Println("Failed to flush the response:", err)
+				return
+			}
 		}
 		// Close the stream
 		strm.Close()
@@ -90,6 +95,11 @@ func client(msg string, ch chan string) {
 	err = strm.Send(msg)
 	if err != nil {
 		fmt.Println("Failed to send the message:", err)
+		return
+	}
+	err = strm.Flush()
+	if err != nil {
+		fmt.Println("Failed to flush the message:", err)
 		return
 	}
 	err = strm.Recv(&msg)

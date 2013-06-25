@@ -91,9 +91,13 @@ func TestSendRecv(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to send client -> server: %v", err)
 	}
+	err = c2s.Flush()
+	if err != nil {
+		t.Errorf("failed to flush client -> server: %v", err)
+	}
 	err = s2c.Recv(&recv1)
 	if err != nil {
-		t.Errorf("failed to recieve client -> server: %v", err)
+		t.Errorf("failed to recieve server -> client: %v", err)
 	}
 	if send1.A != recv1.A || send1.B != recv1.B {
 		t.Errorf("sent/received mismatch: have %v, want %v", recv1, send1)
@@ -104,7 +108,11 @@ func TestSendRecv(t *testing.T) {
 
 	err = s2c.Send(send2)
 	if err != nil {
-		t.Errorf("failed to send client -> server: %v", err)
+		t.Errorf("failed to send server -> client: %v", err)
+	}
+	err = s2c.Flush()
+	if err != nil {
+		t.Errorf("failed to flush server -> client: %v", err)
 	}
 	err = c2s.Recv(&recv2)
 	if err != nil {

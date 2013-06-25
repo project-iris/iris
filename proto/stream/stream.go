@@ -26,6 +26,7 @@
 package stream
 
 import (
+	"bufio"
 	"encoding/gob"
 	"fmt"
 	"net"
@@ -34,9 +35,11 @@ import (
 
 // TCP/IP based stream with a gob encoder on top.
 type Stream struct {
-	sock net.Conn
-	enc  *gob.Encoder
-	dec  *gob.Decoder
+	sock    net.Conn          // Network connection to the remote endpoint
+	sockBuf *bufio.ReadWriter // Buffered access to the network socket
+
+	enc *gob.Encoder // Gob encoder for data serialization
+	dec *gob.Decoder // Gob decoder for data deserialization
 }
 
 // Constants for the protocol TCP/IP layer
@@ -92,7 +95,8 @@ func accept(sock *net.TCPListener, sink chan *Stream, quit chan struct{}) {
 
 // Creates a new, gob backed network stream based on a live TCP/IP connection.
 func newStream(sock net.Conn) *Stream {
-	return &Stream{sock, gob.NewEncoder(sock), gob.NewDecoder(sock)}
+	sockBuf := bufio.NewReadWriter(bufio.NewReader(sock), bufio.NewWriter(sock))
+	return &Stream{sock, sockBuf, gob.NewEncoder(sockBuf), gob.NewDecoder(sockBuf)}
 }
 
 // Retrieves the raw connection object if special manipulations are needed.
@@ -103,11 +107,21 @@ func (s *Stream) Raw() *net.TCPConn {
 // Serializes a data an sends it over the wire. In case of an error, the network
 // stream is torn down.
 func (s *Stream) Send(data interface{}) error {
-	err := s.enc.Encode(data)
-	if err != nil {
+	if err := s.enc.Encode(data); err != nil {
 		s.sock.Close()
+		return err
 	}
-	return err
+	return nil
+}
+
+// Flushes the outbound socket. In case of an error, the  network stream is torn
+// down.
+func (s *Stream) Flush() error {
+	if err := s.sockBuf.Flush(); err != nil {
+		s.sock.Close()
+		return err
+	}
+	return nil
 }
 
 // Receives a gob of the given type and returns it. If an  error occurs, the

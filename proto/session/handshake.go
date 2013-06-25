@@ -124,6 +124,11 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 		log.Printf("failed to send auth request: %v\n", err)
 		return
 	}
+	err = strm.Flush()
+	if err != nil {
+		log.Printf("failed to flush auth request: %v\n", err)
+		return
+	}
 	// Receive the foreign exponential and auth token and if verifies, send own auth
 	chall := new(authChallenge)
 	err = strm.Recv(chall)
@@ -139,6 +144,11 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 	err = strm.Send(authResponse{token})
 	if err != nil {
 		log.Printf("failed to send auth response: %v\n", err)
+		return
+	}
+	err = strm.Flush()
+	if err != nil {
+		log.Printf("failed to flush auth response: %v\n", err)
 		return
 	}
 	// Protocol done, other side should finalize if all is correct
@@ -187,6 +197,11 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 	err = strm.Send(authChallenge{exp, token})
 	if err != nil {
 		log.Printf("failed to encode auth challenge: %v\n", err)
+		return
+	}
+	err = strm.Flush()
+	if err != nil {
+		log.Printf("failed to flush auth challenge: %v\n", err)
 		return
 	}
 	// Receive the foreign auth token and if verifies conclude session

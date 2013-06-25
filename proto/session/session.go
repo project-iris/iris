@@ -172,7 +172,7 @@ func (s *Session) send(msg *proto.Message) error {
 	if err := s.socket.Send(s.outMacer.Sum(nil)); err != nil {
 		return err
 	}
-	return nil
+	return s.socket.Flush()
 }
 
 // Transfers messages from the session to the upper layers decoding the headers.
