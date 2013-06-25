@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
 	"io"
 	"net"
@@ -29,7 +30,7 @@ import (
 	"time"
 )
 
-func TestForwarding(t *testing.T) {
+func TestForward(t *testing.T) {
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
 
 	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
@@ -110,43 +111,51 @@ func TestForwarding(t *testing.T) {
 	close(quit)
 }
 
-func BenchmarkForwarding1Byte(b *testing.B) {
-	benchmarkForwarding(b, 1)
+func BenchmarkLatency1Byte(b *testing.B) {
+	benchmarkLatency(b, 1)
 }
 
-func BenchmarkForwarding16Byte(b *testing.B) {
-	benchmarkForwarding(b, 16)
+func BenchmarkLatency4Byte(b *testing.B) {
+	benchmarkLatency(b, 4)
 }
 
-func BenchmarkForwarding256Byte(b *testing.B) {
-	benchmarkForwarding(b, 256)
+func BenchmarkLatency16Byte(b *testing.B) {
+	benchmarkLatency(b, 16)
 }
 
-func BenchmarkForwarding1KByte(b *testing.B) {
-	benchmarkForwarding(b, 1024)
+func BenchmarkLatency64Byte(b *testing.B) {
+	benchmarkLatency(b, 64)
 }
 
-func BenchmarkForwarding4KByte(b *testing.B) {
-	benchmarkForwarding(b, 4096)
+func BenchmarkLatency256Byte(b *testing.B) {
+	benchmarkLatency(b, 256)
 }
 
-func BenchmarkForwarding16KByte(b *testing.B) {
-	benchmarkForwarding(b, 16384)
+func BenchmarkLatency1KByte(b *testing.B) {
+	benchmarkLatency(b, 1024)
 }
 
-func BenchmarkForwarding64KByte(b *testing.B) {
-	benchmarkForwarding(b, 65536)
+func BenchmarkLatency4KByte(b *testing.B) {
+	benchmarkLatency(b, 4096)
 }
 
-func BenchmarkForwarding256KByte(b *testing.B) {
-	benchmarkForwarding(b, 262144)
+func BenchmarkLatency16KByte(b *testing.B) {
+	benchmarkLatency(b, 16384)
 }
 
-func BenchmarkForwarding1MByte(b *testing.B) {
-	benchmarkForwarding(b, 1048576)
+func BenchmarkLatency64KByte(b *testing.B) {
+	benchmarkLatency(b, 65536)
 }
 
-func benchmarkForwarding(b *testing.B, block int) {
+func BenchmarkLatency256KByte(b *testing.B) {
+	benchmarkLatency(b, 262144)
+}
+
+func BenchmarkLatency1MByte(b *testing.B) {
+	benchmarkLatency(b, 1048576)
+}
+
+func benchmarkLatency(b *testing.B, block int) {
 	// Setup the benchmark: public keys, stores and sessions
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
 
@@ -167,7 +176,132 @@ func benchmarkForwarding(b *testing.B, block int) {
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
 
-	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
+	// Create a header of the right size
+	key := make([]byte, config.PacketCipherBits/8)
+	io.ReadFull(rand.Reader, key)
+	cipher, _ := config.PacketCipher(key)
+
+	iv := make([]byte, cipher.BlockSize())
+	io.ReadFull(rand.Reader, iv)
+
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, key, iv}
+
+	// Generate a large batch of random data to forward
+	b.SetBytes(int64(block))
+	msgs := make([]proto.Message, b.N)
+	for i := 0; i < b.N; i++ {
+		msgs[i].Head = head
+		msgs[i].Data = make([]byte, block)
+		io.ReadFull(rand.Reader, msgs[i].Data)
+	}
+	// Create the client and server runner routines with a sync channel
+	sync := make(chan struct{})
+	done := make(chan struct{}, 2)
+
+	cliRun := func() {
+		for i := 0; i < b.N; i++ {
+			cliNet <- &msgs[i]
+			<-sync
+		}
+		done <- struct{}{}
+	}
+	srvRun := func() {
+		for i := 0; i < b.N; i++ {
+			<-srvApp
+			sync <- struct{}{}
+		}
+		done <- struct{}{}
+	}
+	// Send 1 message through to ensure internal caches are up
+	cliNet <- &msgs[0]
+	<-srvApp
+
+	// Execute the client and server runners, wait till termination and exit
+	b.ResetTimer()
+	go cliRun()
+	go srvRun()
+
+	<-done
+	<-done
+
+	b.StopTimer()
+	close(quit)
+}
+
+func BenchmarkThroughput1Byte(b *testing.B) {
+	benchmarkThroughput(b, 1)
+}
+
+func BenchmarkThroughput4Byte(b *testing.B) {
+	benchmarkThroughput(b, 4)
+}
+
+func BenchmarkThroughput16Byte(b *testing.B) {
+	benchmarkThroughput(b, 16)
+}
+
+func BenchmarkThroughput64Byte(b *testing.B) {
+	benchmarkThroughput(b, 64)
+}
+
+func BenchmarkThroughput256Byte(b *testing.B) {
+	benchmarkThroughput(b, 256)
+}
+
+func BenchmarkThroughput1KByte(b *testing.B) {
+	benchmarkThroughput(b, 1024)
+}
+
+func BenchmarkThroughput4KByte(b *testing.B) {
+	benchmarkThroughput(b, 4096)
+}
+
+func BenchmarkThroughput16KByte(b *testing.B) {
+	benchmarkThroughput(b, 16384)
+}
+
+func BenchmarkThroughput64KByte(b *testing.B) {
+	benchmarkThroughput(b, 65536)
+}
+
+func BenchmarkThroughput256KByte(b *testing.B) {
+	benchmarkThroughput(b, 262144)
+}
+
+func BenchmarkThroughput1MByte(b *testing.B) {
+	benchmarkThroughput(b, 1048576)
+}
+
+func benchmarkThroughput(b *testing.B, block int) {
+	// Setup the benchmark: public keys, stores and sessions
+	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+
+	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+
+	store := make(map[string]*rsa.PublicKey)
+	store["client"] = &clientKey.PublicKey
+
+	sink, quit, _ := Listen(addr, serverKey, store)
+	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
+	srvSes := <-sink
+
+	// Create the sender and receiver channels for both session sides
+	cliApp := make(chan *proto.Message, 64)
+	srvApp := make(chan *proto.Message, 64)
+
+	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+
+	// Create a header of the right size
+	key := make([]byte, config.PacketCipherBits/8)
+	io.ReadFull(rand.Reader, key)
+	cipher, _ := config.PacketCipher(key)
+
+	iv := make([]byte, cipher.BlockSize())
+	io.ReadFull(rand.Reader, iv)
+
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, key, iv}
 
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
@@ -178,20 +312,19 @@ func benchmarkForwarding(b *testing.B, block int) {
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
 	// Create the client and server runner routines
-	cliDone := make(chan bool)
-	srvDone := make(chan bool)
+	done := make(chan struct{}, 2)
 
 	cliRun := func() {
 		for i := 0; i < b.N; i++ {
 			cliNet <- &msgs[i]
 		}
-		cliDone <- true
+		done <- struct{}{}
 	}
 	srvRun := func() {
 		for i := 0; i < b.N; i++ {
 			<-srvApp
 		}
-		srvDone <- true
+		done <- struct{}{}
 	}
 	// Send 1 message through to ensure internal caches are up
 	cliNet <- &msgs[0]
@@ -201,8 +334,9 @@ func benchmarkForwarding(b *testing.B, block int) {
 	b.ResetTimer()
 	go cliRun()
 	go srvRun()
-	<-cliDone
-	<-srvDone
+
+	<-done
+	<-done
 
 	b.StopTimer()
 	close(quit)
