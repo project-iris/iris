@@ -21,7 +21,7 @@ package carrier
 
 import (
 	"encoding/gob"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"math/big"
 )
 
@@ -67,8 +67,8 @@ func init() {
 
 // Assembles a subscription message and sends it towards the topic root.
 func (c *carrier) sendSubscribe(topicId *big.Int) {
-	msg := &session.Message{
-		Head: session.Header{
+	msg := &proto.Message{
+		Head: proto.Header{
 			Meta: &header{
 				Op:      opSub,
 				SrcNode: c.transport.Self(),
@@ -80,8 +80,8 @@ func (c *carrier) sendSubscribe(topicId *big.Int) {
 
 // Assembles an unsubscription message and sends it to dest.
 func (c *carrier) sendUnsubscribe(dest, topic *big.Int) {
-	msg := &session.Message{
-		Head: session.Header{
+	msg := &proto.Message{
+		Head: proto.Header{
 			Meta: &header{
 				Op:      opUnsub,
 				SrcNode: c.transport.Self(),
@@ -93,7 +93,7 @@ func (c *carrier) sendUnsubscribe(dest, topic *big.Int) {
 }
 
 // Publishes a message into a topic.
-func (c *carrier) sendPublish(app, topic *big.Int, msg *session.Message) {
+func (c *carrier) sendPublish(app, topic *big.Int, msg *proto.Message) {
 	msg.Head.Meta = &header{
 		Meta:    msg.Head.Meta,
 		Op:      opPub,
@@ -105,13 +105,13 @@ func (c *carrier) sendPublish(app, topic *big.Int, msg *session.Message) {
 }
 
 // Forwards a published message inside the topic to dest.
-func (c *carrier) fwdPublish(dest *big.Int, msg *session.Message) {
+func (c *carrier) fwdPublish(dest *big.Int, msg *proto.Message) {
 	msg.Head.Meta.(*header).Prev = c.transport.Self()
 	c.transport.Send(dest, msg)
 }
 
 // Requests a message balancing in the topic identified by dest.
-func (c *carrier) sendBalance(src *big.Int, dest *big.Int, msg *session.Message) {
+func (c *carrier) sendBalance(src *big.Int, dest *big.Int, msg *proto.Message) {
 	msg.Head.Meta = &header{
 		Meta:    msg.Head.Meta,
 		Op:      opBal,
@@ -123,15 +123,15 @@ func (c *carrier) sendBalance(src *big.Int, dest *big.Int, msg *session.Message)
 }
 
 // Forwards a balanced message to dest for remote balancing.
-func (c *carrier) fwdBalance(dest *big.Int, msg *session.Message) {
+func (c *carrier) fwdBalance(dest *big.Int, msg *proto.Message) {
 	msg.Head.Meta.(*header).Prev = c.transport.Self()
 	c.transport.Send(dest, msg)
 }
 
 // Sends out a load report to a remote carrier node.
 func (c *carrier) sendReport(dest *big.Int, rep *report) {
-	msg := &session.Message{
-		Head: session.Header{
+	msg := &proto.Message{
+		Head: proto.Header{
 			Meta: &header{
 				Op:      opRep,
 				SrcNode: c.transport.Self(),
@@ -143,7 +143,7 @@ func (c *carrier) sendReport(dest *big.Int, rep *report) {
 }
 
 // Sends out a message directed to a specific node and app.
-func (c *carrier) sendDirect(src *big.Int, dest *Address, msg *session.Message) {
+func (c *carrier) sendDirect(src *big.Int, dest *Address, msg *proto.Message) {
 	msg.Head.Meta = &header{
 		Meta:    msg.Head.Meta,
 		Op:      opDir,

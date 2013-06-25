@@ -26,14 +26,14 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"log"
 	"math/big"
 	"net"
 )
 
 // Pastry routing algorithm.
-func (o *Overlay) route(src *peer, msg *session.Message) {
+func (o *Overlay) route(src *peer, msg *proto.Message) {
 	// Sync the routing table
 	o.lock.RLock()
 	defer o.lock.RUnlock()
@@ -96,7 +96,7 @@ func (o *Overlay) route(src *peer, msg *session.Message) {
 }
 
 // Delivers a message to the application layer or processes it if a system message.
-func (o *Overlay) deliver(src *peer, msg *session.Message) {
+func (o *Overlay) deliver(src *peer, msg *proto.Message) {
 	head := msg.Head.Meta.(*header)
 	if head.State != nil {
 		o.process(src, head.Dest, head.State)
@@ -111,7 +111,7 @@ func (o *Overlay) deliver(src *peer, msg *session.Message) {
 
 // Forwards a message to the node with the given id and also checks its contents
 // if it's a system message.
-func (o *Overlay) forward(src *peer, msg *session.Message, id *big.Int) {
+func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 	head := msg.Head.Meta.(*header)
 	if head.State != nil {
 		// Overlay system message, process and forward

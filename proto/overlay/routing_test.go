@@ -24,7 +24,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"io"
 	"math/big"
 	"testing"
@@ -32,14 +32,14 @@ import (
 )
 
 type collector struct {
-	delivs []*session.Message
+	delivs []*proto.Message
 }
 
-func (c *collector) Deliver(msg *session.Message, key *big.Int) {
+func (c *collector) Deliver(msg *proto.Message, key *big.Int) {
 	c.delivs = append(c.delivs, msg)
 }
 
-func (c *collector) Forward(msg *session.Message, key *big.Int) bool {
+func (c *collector) Forward(msg *proto.Message, key *big.Int) bool {
 	return true
 }
 
@@ -60,7 +60,7 @@ func TestRouting(t *testing.T) {
 	// Create the callbacks to listen on incoming messages
 	apps := []*collector{}
 	for i := 0; i < peers; i++ {
-		apps = append(apps, &collector{[]*session.Message{}})
+		apps = append(apps, &collector{[]*proto.Message{}})
 	}
 	// Start handful of nodes and ensure valid routing state
 	nodes := []*Overlay{}
@@ -76,12 +76,12 @@ func TestRouting(t *testing.T) {
 
 	// Create the messages to pass around
 	meta := []byte{0x99, 0x98, 0x97, 0x96}
-	head := session.Header{make([]byte, len(meta)), []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
+	head := proto.Header{make([]byte, len(meta)), []byte{0x00, 0x01}, []byte{0x02, 0x03}}
 	copy(head.Meta.([]byte), meta)
 
-	msgs := make([][]session.Message, peers)
+	msgs := make([][]proto.Message, peers)
 	for i := 0; i < peers; i++ {
-		msgs[i] = make([]session.Message, peers)
+		msgs[i] = make([]proto.Message, peers)
 		for j := 0; j < peers; j++ {
 			msgs[i][j].Head = head
 			msgs[i][j].Data = []byte(nodes[i].nodeId.String() + nodes[j].nodeId.String())
@@ -153,12 +153,12 @@ func BenchmarkPassing1MByte(b *testing.B) {
 type sequencer struct {
 	over *Overlay
 	dest *big.Int
-	msgs []session.Message
+	msgs []proto.Message
 	left int
 	quit chan struct{}
 }
 
-func (s *sequencer) Deliver(msg *session.Message, key *big.Int) {
+func (s *sequencer) Deliver(msg *proto.Message, key *big.Int) {
 	if s.left--; s.left < 0 {
 		close(s.quit)
 	} else {
@@ -166,7 +166,7 @@ func (s *sequencer) Deliver(msg *session.Message, key *big.Int) {
 	}
 }
 
-func (s *sequencer) Forward(msg *session.Message, key *big.Int) bool {
+func (s *sequencer) Forward(msg *proto.Message, key *big.Int) bool {
 	return true
 }
 
@@ -178,8 +178,8 @@ func benchmarkPassing(b *testing.B, block int) {
 	time.Sleep(time.Second)
 
 	// Generate a batch of messages to send around
-	head := session.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
-	msgs := make([]session.Message, b.N)
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
+	msgs := make([]proto.Message, b.N)
 	for i := 0; i < b.N; i++ {
 		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)
@@ -248,13 +248,13 @@ type waiter struct {
 	quit chan struct{}
 }
 
-func (w *waiter) Deliver(msg *session.Message, key *big.Int) {
+func (w *waiter) Deliver(msg *proto.Message, key *big.Int) {
 	if w.left--; w.left <= 0 {
 		close(w.quit)
 	}
 }
 
-func (w *waiter) Forward(msg *session.Message, key *big.Int) bool {
+func (w *waiter) Forward(msg *proto.Message, key *big.Int) bool {
 	return true
 }
 
@@ -266,8 +266,8 @@ func benchmarkThroughput(b *testing.B, block int) {
 	time.Sleep(time.Second)
 
 	// Generate a bach of messages to send around
-	head := session.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
-	msgs := make([]session.Message, b.N)
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
+	msgs := make([]proto.Message, b.N)
 	for i := 0; i < b.N; i++ {
 		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)

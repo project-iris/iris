@@ -27,6 +27,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/bootstrap"
 	"github.com/karalabe/iris/proto/session"
 	"log"
@@ -128,8 +129,8 @@ func (o *Overlay) shake(ses *session.Session) {
 	p.raddr = ses.Raw().RemoteAddr().String()
 
 	p.quit = make(chan struct{})
-	p.out = make(chan *session.Message, config.OverlayNetPreBuffer)
-	p.netIn = make(chan *session.Message, config.OverlayNetBuffer)
+	p.out = make(chan *proto.Message, config.OverlayNetPreBuffer)
+	p.netIn = make(chan *proto.Message, config.OverlayNetBuffer)
 	p.netOut = ses.Communicate(p.netIn, p.quit)
 
 	// Send an init packet to the remote peer
@@ -141,7 +142,7 @@ func (o *Overlay) shake(ses *session.Session) {
 	copy(pkt.Addrs, o.addrs)
 	o.lock.RUnlock()
 
-	msg := new(session.Message)
+	msg := new(proto.Message)
 	msg.Head.Meta = pkt
 	p.netOut <- msg
 

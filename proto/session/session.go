@@ -27,31 +27,13 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/crypto/hkdf"
+	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/stream"
 	"hash"
 	"io"
 	"log"
 	"net"
 )
-
-// Structure containing the message headers:
-//  - metadata or app specific headers
-//  - sender and recipient
-//  - symmetric key and ctr iv used to encrypt the payload
-//  - mac of the encrypted payload (internal)
-type Header struct {
-	Meta interface{}
-	Key  []byte
-	Iv   []byte
-	Mac  []byte
-}
-
-// Simple container for the header, data and metadata to be able to pass them
-// around together.
-type Message struct {
-	Head Header
-	Data []byte
-}
 
 // Accomplishes secure and authenticated full duplex communication.
 type Session struct {
@@ -68,6 +50,9 @@ type Session struct {
 
 	inCoder  *gob.Decoder
 	outCoder *gob.Encoder
+
+	inHeadBuf []byte
+	inMacBuf  []byte
 }
 
 // Creates a new, full-duplex session from the given data stream and negotiated
@@ -132,8 +117,8 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 
 // Starts the session data transfer from stream to app (sink) and app to stream
 // (returned channel).
-func (s *Session) Communicate(sink chan *Message, quit chan struct{}) chan *Message {
-	ch := make(chan *Message, cap(sink))
+func (s *Session) Communicate(sink chan *proto.Message, quit chan struct{}) chan *proto.Message {
+	ch := make(chan *proto.Message, cap(sink))
 	go s.sender(ch, quit)
 	go s.receiver(sink)
 	return ch
@@ -145,7 +130,7 @@ func (s *Session) Raw() *net.TCPConn {
 }
 
 // Sends messages from the upper layers into the session stream.
-func (s *Session) sender(net chan *Message, quit chan struct{}) {
+func (s *Session) sender(net chan *proto.Message, quit chan struct{}) {
 	defer s.socket.Close()
 	for {
 		select {
@@ -164,30 +149,35 @@ func (s *Session) sender(net chan *Message, quit chan struct{}) {
 
 // The actual message sending logic. Calculates the payload mac, encrypts the
 // headers and sends it down to the stream.
-func (s *Session) send(msg *Message) (err error) {
-	// Generate the MAC of the encrypted payload
-	s.outMacer.Write(msg.Data)
-	msg.Head.Mac = s.outMacer.Sum(nil)
-
+func (s *Session) send(msg *proto.Message) error {
 	// Flatten and encrypt the headers
-	if err = s.outCoder.Encode(msg.Head); err != nil {
+	if err := s.outCoder.Encode(msg.Head); err != nil {
 		log.Printf("failed to encode header %v: %v", msg.Head, err)
-		return
+		return err
 	}
 	s.outCipher.XORKeyStream(s.outBuffer.Bytes(), s.outBuffer.Bytes())
+	defer s.outBuffer.Reset()
 
-	// Send the multipart message (headers + payload)
-	err = s.socket.Send(s.outBuffer.Bytes())
-	if err != nil {
-		return
+	// Generate the MAC of the encrypted payload and headers
+	s.outMacer.Write(s.outBuffer.Bytes())
+	s.outMacer.Write(msg.Data)
+
+	// Send the multipart message (headers + payload + mac)
+	if err := s.socket.Send(s.outBuffer.Bytes()); err != nil {
+		return err
 	}
-	s.outBuffer.Reset()
-	return s.socket.Send(msg.Data)
+	if err := s.socket.Send(msg.Data); err != nil {
+		return err
+	}
+	if err := s.socket.Send(s.outMacer.Sum(nil)); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Transfers messages from the session to the upper layers decoding the headers.
 // The method will finish on either an error or a close (remote or sender func).
-func (s *Session) receiver(app chan *Message) {
+func (s *Session) receiver(app chan *proto.Message) {
 	defer close(app)
 	for {
 		msg, err := s.recv()
@@ -200,7 +190,7 @@ func (s *Session) receiver(app chan *Message) {
 
 // The actual message receiving logic. Reads a message from the stream, verifies
 // its mac, decodes the headers and send it upwards.
-func (s *Session) recv() (msg *Message, err error) {
+func (s *Session) recv() (msg *proto.Message, err error) {
 	// Close session on any error
 	defer func() {
 		if err != nil {
@@ -208,26 +198,29 @@ func (s *Session) recv() (msg *Message, err error) {
 			msg = nil
 		}
 	}()
-	msg = new(Message)
+	msg = new(proto.Message)
 
 	// Retrieve a new package
-	var input []byte
-	if err = s.socket.Recv(&input); err != nil {
+	if err = s.socket.Recv(&s.inHeadBuf); err != nil {
 		return
 	}
 	if err = s.socket.Recv(&msg.Data); err != nil {
 		return
 	}
-	// Extract the package contents
-	s.inCipher.XORKeyStream(input, input)
-	s.inBuffer.Write(input)
-	if err = s.inCoder.Decode(&msg.Head); err != nil {
+	if err = s.socket.Recv(&s.inMacBuf); err != nil {
 		return
 	}
-	// Verify the payload contents
+	// Verify the message contents (payload + header)
+	s.inMacer.Write(s.inHeadBuf)
 	s.inMacer.Write(msg.Data)
-	if !bytes.Equal(msg.Head.Mac, s.inMacer.Sum(nil)) {
-		err = errors.New(fmt.Sprintf("mac mismatch: have %v, want %v.", s.inMacer.Sum(nil), msg.Head.Mac))
+	if !bytes.Equal(s.inMacBuf, s.inMacer.Sum(nil)) {
+		err = errors.New(fmt.Sprintf("mac mismatch: have %v, want %v.", s.inMacer.Sum(nil), s.inMacBuf))
+		return
+	}
+	// Extract the package contents
+	s.inCipher.XORKeyStream(s.inHeadBuf, s.inHeadBuf)
+	s.inBuffer.Write(s.inHeadBuf)
+	if err = s.inCoder.Decode(&msg.Head); err != nil {
 		return
 	}
 	return msg, nil

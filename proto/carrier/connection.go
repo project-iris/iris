@@ -23,8 +23,8 @@ package carrier
 
 import (
 	"fmt"
+	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/overlay"
-	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"math/rand"
@@ -40,7 +40,7 @@ type Address struct {
 // A carrier adderss-tagged message.
 type Message struct {
 	Src *Address
-	Msg *session.Message
+	Msg *proto.Message
 }
 
 // A carrier connection through which to communicate.
@@ -56,8 +56,8 @@ type Connection struct {
 
 // Callback methods for the carrier connection events.
 type ConnectionCallback interface {
-	HandleDirect(src *Address, msg *session.Message)
-	HandlePublish(src *Address, topic string, msg *session.Message)
+	HandleDirect(src *Address, msg *proto.Message)
+	HandlePublish(src *Address, topic string, msg *proto.Message)
 }
 
 // Creates a new application through which to communicate with others.
@@ -125,22 +125,22 @@ func (c *Connection) Unsubscribe(topic string) {
 }
 
 // Publishes a message into topic to be broadcast to everyone.
-func (c *Connection) Publish(topic string, msg *session.Message) {
+func (c *Connection) Publish(topic string, msg *proto.Message) {
 	c.relay.sendPublish(c.id, overlay.Resolve(topic), msg)
 }
 
 // Delivers a message to a subscribed node, balancing amongst all subscriptions.
-func (c *Connection) Balance(topic string, msg *session.Message) {
+func (c *Connection) Balance(topic string, msg *proto.Message) {
 	c.relay.sendBalance(c.id, overlay.Resolve(topic), msg)
 }
 
 // Sends a direct message to a known app on a known node.
-func (c *Connection) Direct(dest *Address, msg *session.Message) {
+func (c *Connection) Direct(dest *Address, msg *proto.Message) {
 	c.relay.sendDirect(c.id, dest, msg)
 }
 
 // Delivers a topic subscription to the application.
-func (c *Connection) deliverPublish(src *Address, topic *big.Int, msg *session.Message) {
+func (c *Connection) deliverPublish(src *Address, topic *big.Int, msg *proto.Message) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -152,6 +152,6 @@ func (c *Connection) deliverPublish(src *Address, topic *big.Int, msg *session.M
 }
 
 // Delivers a direct message to the application.
-func (c *Connection) deliverDirect(src *Address, msg *session.Message) {
+func (c *Connection) deliverDirect(src *Address, msg *proto.Message) {
 	c.call.HandleDirect(src, msg)
 }

@@ -23,7 +23,7 @@ package iris
 
 import (
 	"encoding/gob"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"time"
 )
 
@@ -63,9 +63,9 @@ func init() {
 }
 
 // Envelopes an Iris header and payload into the generic packet container.
-func assemblePacket(head *header, data []byte) *session.Message {
-	return &session.Message{
-		Head: session.Header{
+func assemblePacket(head *header, data []byte) *proto.Message {
+	return &proto.Message{
+		Head: proto.Header{
 			Meta: head,
 		},
 		Data: data,
@@ -74,55 +74,55 @@ func assemblePacket(head *header, data []byte) *session.Message {
 
 // Assembles an application broadcast message. It consists of the bcast opcode
 // and the payload.
-func assembleBroadcast(msg []byte) *session.Message {
+func assembleBroadcast(msg []byte) *proto.Message {
 	return assemblePacket(&header{Op: opBcast}, msg)
 }
 
 // Assembles an application request message. It consists of the request opcode,
 // the locally unique request id and the payload.
-func assembleRequest(reqId uint64, req []byte, timeout time.Duration) *session.Message {
+func assembleRequest(reqId uint64, req []byte, timeout time.Duration) *proto.Message {
 	return assemblePacket(&header{Op: opReq, ReqId: &reqId, ReqTime: &timeout}, req)
 }
 
 // Assembles the reply message to an application request. It consists of the
 // reply opcode, the original request's id and the payload itself.
-func assembleReply(reqId uint64, rep []byte) *session.Message {
+func assembleReply(reqId uint64, rep []byte) *proto.Message {
 	return assemblePacket(&header{Op: opRep, ReqId: &reqId}, rep)
 }
 
 // Assembles an event message to be published in a topic. It consists of the
 // publish opcode and the payload.
-func assemblePublish(msg []byte) *session.Message {
+func assemblePublish(msg []byte) *proto.Message {
 	return assemblePacket(&header{Op: opPub}, msg)
 }
 
 // Assembles a tunneling request message, consisting of the tunneling opcode and
 // the local tunnel id.
-func assembleTunnelRequest(tunId uint64) *session.Message {
+func assembleTunnelRequest(tunId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunReq, TunRemId: &tunId}, nil)
 }
 
 // Assembles a tunneling reply message, consisting of the tunnel reply opcode
 // and the two tunnel endpoint ids.
-func assembleTunnelReply(tunId, repTunId uint64) *session.Message {
+func assembleTunnelReply(tunId, repTunId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunRep, TunId: &tunId, TunRemId: &repTunId}, nil)
 }
 
 // Assembles a tunneling reply packet.
-func assembleTunnelData(tunId uint64, seqId uint64, msg []byte) *session.Message {
+func assembleTunnelData(tunId uint64, seqId uint64, msg []byte) *proto.Message {
 	return assemblePacket(&header{Op: opTunData, TunId: &tunId, TunSeqId: &seqId}, msg)
 }
 
-func assembleTunnelAck(tunId uint64, seqId uint64) *session.Message {
+func assembleTunnelAck(tunId uint64, seqId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunAck, TunId: &tunId, TunSeqId: &seqId}, nil)
 }
 
-func assembleTunnelGrant(tunId uint64, seqId uint64) *session.Message {
+func assembleTunnelGrant(tunId uint64, seqId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunGrant, TunId: &tunId, TunSeqId: &seqId}, nil)
 }
 
 // Assembles a tunnel closure message, consisting of the opcode and the target
 // tunnel id.
-func assembleTunnelClose(tunId uint64) *session.Message {
+func assembleTunnelClose(tunId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunClose, TunId: &tunId}, nil)
 }

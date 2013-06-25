@@ -22,8 +22,8 @@
 package iris
 
 import (
+	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/carrier"
-	"github.com/karalabe/iris/proto/session"
 	"log"
 	"time"
 )
@@ -31,7 +31,7 @@ import (
 // Implements proto.carrier.ConnectionCallback.HandleDirect. Extracts the data
 // from the Iris envelope and calls the appropriate handler. All handlers should
 // be invoked in a new go-routine.
-func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
+func (c *connection) HandleDirect(src *carrier.Address, msg *proto.Message) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opRep:
@@ -54,7 +54,7 @@ func (c *connection) HandleDirect(src *carrier.Address, msg *session.Message) {
 // Implements proto.carrier.ConnectionCallback.HandlePublish. Extracts the data
 // from the Iris envelope and calls the appropriate handler. All handlers should
 // be invoked in a new go-routine.
-func (c *connection) HandlePublish(src *carrier.Address, topic string, msg *session.Message) {
+func (c *connection) HandlePublish(src *carrier.Address, topic string, msg *proto.Message) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opBcast:

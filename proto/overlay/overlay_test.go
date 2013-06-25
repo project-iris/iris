@@ -19,7 +19,7 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"math/big"
 )
 
@@ -74,9 +74,9 @@ var appId = "overlay.test"
 type nopCallback struct {
 }
 
-func (cb *nopCallback) Deliver(msg *session.Message, key *big.Int) {
+func (cb *nopCallback) Deliver(msg *proto.Message, key *big.Int) {
 }
 
-func (cb *nopCallback) Forward(msg *session.Message, key *big.Int) bool {
+func (cb *nopCallback) Forward(msg *proto.Message, key *big.Int) bool {
 	return true
 }

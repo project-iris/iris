@@ -23,15 +23,15 @@ package carrier
 
 import (
 	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/carrier/topic"
-	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"time"
 )
 
 // Implements the overlay.Callback.Deliver method.
-func (c *carrier) Deliver(msg *session.Message, key *big.Int) {
+func (c *carrier) Deliver(msg *proto.Message, key *big.Int) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
 	case opSub:
@@ -66,7 +66,7 @@ func (c *carrier) Deliver(msg *session.Message, key *big.Int) {
 }
 
 // Implements the overlay.Callback.Forward method.
-func (c *carrier) Forward(msg *session.Message, key *big.Int) bool {
+func (c *carrier) Forward(msg *proto.Message, key *big.Int) bool {
 	head := msg.Head.Meta.(*header)
 
 	// If subscription event, process locally and reinitiate
@@ -145,7 +145,7 @@ func (c *carrier) handleUnsubscribe(entityId, topicId *big.Int, app bool) {
 }
 
 // Handles the publish event of a topic.
-func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop *big.Int) bool {
+func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *big.Int) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -157,7 +157,7 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 		for _, id := range nodes {
 			if prevHop == nil || id.Cmp(prevHop) != 0 {
 				// Create a copy since overlay will modify headers
-				cpy := new(session.Message)
+				cpy := new(proto.Message)
 				*cpy = *msg
 				cpy.Head.Meta = msg.Head.Meta.(*header).copy()
 
@@ -168,7 +168,7 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 		head := msg.Head.Meta.(*header)
 		for _, id := range apps {
 			// Copy and remove all carrier messages
-			cpy := new(session.Message)
+			cpy := new(proto.Message)
 			*cpy = *msg
 			cpy.Head.Meta = head.Meta
 
@@ -185,7 +185,7 @@ func (c *carrier) handlePublish(msg *session.Message, topicId *big.Int, prevHop 
 }
 
 // Handles the load balancing event of a topic.
-func (c *carrier) handleBalance(msg *session.Message, topicId *big.Int, prevHop *big.Int) bool {
+func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *big.Int) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -237,7 +237,7 @@ func (c *carrier) handleReport(src *big.Int, rep *report) {
 }
 
 // Handles the receiving of a direct message.
-func (c *carrier) handleDirect(msg *session.Message, appId *big.Int) {
+func (c *carrier) handleDirect(msg *proto.Message, appId *big.Int) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 

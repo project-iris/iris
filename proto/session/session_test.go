@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"github.com/karalabe/iris/proto"
 	"io"
 	"net"
 	"testing"
@@ -42,14 +43,14 @@ func TestForwarding(t *testing.T) {
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *Message, 2)
-	srvApp := make(chan *Message, 2)
+	cliApp := make(chan *proto.Message, 2)
+	srvApp := make(chan *proto.Message, 2)
 
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvNet := srvSes.Communicate(srvApp, quit) // Hack: reuse prev live quit channel
 
 	// Generate the messages to transmit
-	msgs := make([]Message, 10)
+	msgs := make([]proto.Message, 10)
 	for i := 0; i < len(msgs); i++ {
 		key := make([]byte, 20)
 		iv := make([]byte, 20)
@@ -58,7 +59,7 @@ func TestForwarding(t *testing.T) {
 		io.ReadFull(rand.Reader, key)
 		io.ReadFull(rand.Reader, iv)
 		io.ReadFull(rand.Reader, data)
-		msgs[i] = Message{Header{[]byte("meta"), key, iv, nil}, data}
+		msgs[i] = proto.Message{proto.Header{[]byte("meta"), key, iv}, data}
 	}
 	// Send from client to server
 	go func() {
@@ -66,7 +67,7 @@ func TestForwarding(t *testing.T) {
 			cliNet <- &msgs[i]
 		}
 	}()
-	recvs := make([]Message, 10)
+	recvs := make([]proto.Message, 10)
 	for i := 0; i < len(msgs); i++ {
 		timeout := time.Tick(250 * time.Millisecond)
 		select {
@@ -79,8 +80,7 @@ func TestForwarding(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
-			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
+			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
@@ -90,7 +90,7 @@ func TestForwarding(t *testing.T) {
 			srvNet <- &msgs[i]
 		}
 	}()
-	recvs = make([]Message, 10)
+	recvs = make([]proto.Message, 10)
 	for i := 0; i < len(msgs); i++ {
 		timeout := time.Tick(250 * time.Millisecond)
 		select {
@@ -103,8 +103,7 @@ func TestForwarding(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
-			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Mac, recvs[i].Head.Mac) != 0 ||
-			bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
+			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
@@ -162,17 +161,17 @@ func benchmarkForwarding(b *testing.B, block int) {
 	srvSes := <-sink
 
 	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *Message, 64)
-	srvApp := make(chan *Message, 64)
+	cliApp := make(chan *proto.Message, 64)
+	srvApp := make(chan *proto.Message, 64)
 
 	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
 	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
 
-	head := Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}, nil}
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
 
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
-	msgs := make([]Message, b.N)
+	msgs := make([]proto.Message, b.N)
 	for i := 0; i < b.N; i++ {
 		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)

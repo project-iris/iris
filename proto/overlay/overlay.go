@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"io"
 	"math/big"
 	"net"
@@ -46,8 +46,8 @@ const (
 
 // Callback for events leaving the overlay network.
 type Callback interface {
-	Deliver(msg *session.Message, key *big.Int)
-	Forward(msg *session.Message, key *big.Int) bool
+	Deliver(msg *proto.Message, key *big.Int)
+	Forward(msg *proto.Message, key *big.Int) bool
 }
 
 // Internal structure for the overlay state information.
@@ -94,9 +94,9 @@ type peer struct {
 	raddr string
 
 	// In/out-bound transport channels and quit channel
-	out    chan *session.Message
-	netIn  chan *session.Message
-	netOut chan *session.Message
+	out    chan *proto.Message
+	netIn  chan *proto.Message
+	netOut chan *proto.Message
 	quit   chan struct{}
 
 	// Overlay state infos
@@ -174,7 +174,7 @@ func (o *Overlay) Self() *big.Int {
 }
 
 // Sends a message to the closest node to the given destination.
-func (o *Overlay) Send(dest *big.Int, msg *session.Message) {
+func (o *Overlay) Send(dest *big.Int, msg *proto.Message) {
 	// Package into overlay envelope
 	head := &header{
 		Meta: msg.Head.Meta,

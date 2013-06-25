@@ -28,7 +28,7 @@ package overlay
 import (
 	"encoding/gob"
 	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/karalabe/iris/proto"
 	"math/big"
 	"time"
 )
@@ -107,7 +107,7 @@ func (o *Overlay) sender(p *peer) {
 // Sends an already assembled message m to peer p. To prevent the system from
 // locking up due to a slow peer, p is dropped if a timeout is reached. Quit
 // events are also checked to ensure a close immediately notifies all senders.
-func (o *Overlay) send(m *session.Message, p *peer) {
+func (o *Overlay) send(m *proto.Message, p *peer) {
 	timeout := time.Tick(time.Duration(config.OverlaySendTimeout) * time.Millisecond)
 	select {
 	case <-o.quit:
@@ -125,8 +125,8 @@ func (o *Overlay) send(m *session.Message, p *peer) {
 // Simple utility function to wrap the contents of a system message into the
 // wire format.
 func (o *Overlay) sendWrap(s *state, dest *big.Int, p *peer) {
-	msg := &session.Message{
-		Head: session.Header{
+	msg := &proto.Message{
+		Head: proto.Header{
 			Meta: &header{
 				Dest:  o.nodeId,
 				State: s,
