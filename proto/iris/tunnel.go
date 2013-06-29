@@ -233,7 +233,6 @@ func (t *tunnel) handleData(seqId uint64, msg []byte) {
 		t.inSlots <- struct{}{}
 		t.inReady++
 	}
-	// Release lock
 	t.inLock.Unlock()
 
 	// Always ack a message (in case a previous got lost)

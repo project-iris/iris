@@ -182,7 +182,15 @@ func (c *connection) Unsubscribe(topic string) error {
 
 // Implements iris.Connection.Tunnel.
 func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
-	return c.initiateTunnel(app, timeout)
+	c.tunLock.RLock()
+	select {
+	case <-c.term:
+		c.tunLock.RUnlock()
+		return nil, permError(fmt.Errorf("connection terminating"))
+	default:
+		c.tunLock.RUnlock()
+		return c.initiateTunnel(app, timeout)
+	}
 }
 
 // Implements iris.Connection.Close. Removes all topic subscriptions, closes all
@@ -190,6 +198,13 @@ func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
 func (c *connection) Close() {
 	// Signal the connection as terminating
 	close(c.term)
+
+	// Close all open tunnels
+	c.tunLock.Lock()
+	for _, tun := range c.tunLive {
+		go tun.Close()
+	}
+	c.tunLock.Unlock()
 
 	// Remove all topic subscriptions
 	c.subLock.Lock()
