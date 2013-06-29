@@ -27,19 +27,19 @@ import (
 )
 
 const (
-	opInit byte = iota
-	opBcast
-	opReq
-	opRep
-	opSub
-	opPub
-	opUnsub
-	opClose
-	opTunReq
-	opTunRep
-	opTunData
-	opTunAck
-	opTunClose
+	opInit     byte = iota // Connection initialization
+	opBcast                // Application broadcast
+	opReq                  // Application request
+	opRep                  // Application reply
+	opSub                  // Topic subscription
+	opPub                  // Topic publish
+	opUnsub                // Topic subscription removal
+	opClose                // Connection closing
+	opTunReq               // Tunnel building request
+	opTunRep               // Tunnel building reply
+	opTunData              // Tunnel data transfer
+	opTunAck               // Tunnel data acknowledgement
+	opTunClose             // Tunnel closing
 )
 
 // Relay protocol version
@@ -282,15 +282,6 @@ func (r *relay) recvByte() (byte, error) {
 		return 0, err
 	}
 	return b, nil
-}
-
-// Retrieves a boolean from the relay.
-func (r *relay) recvBool() (bool, error) {
-	b, err := r.recvByte()
-	if err != nil {
-		return false, err
-	}
-	return b == 1, nil
 }
 
 // Retrieves a variable int from the relay.

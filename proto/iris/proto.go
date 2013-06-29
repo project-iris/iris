@@ -31,16 +31,16 @@ import (
 type opcode uint8
 
 const (
-	opBcast opcode = iota
-	opReq
-	opRep
-	opPub
-	opTunReq
-	opTunRep
-	opTunData
-	opTunAck
-	opTunGrant
-	opTunClose
+	opBcast    opcode = iota // Application broadcast
+	opReq                    // Application request
+	opRep                    // Application reply
+	opPub                    // Topic publish
+	opTunReq                 // Tunnel building request
+	opTunRep                 // Tunnel building reply
+	opTunData                // Tunnel data transfer
+	opTunAck                 // Tunnel data acknowledgement
+	opTunGrant               // Tunnel data flow allowance
+	opTunClose               // Tunnel closing
 )
 
 // Extra headers for the Iris layer.
@@ -108,15 +108,20 @@ func assembleTunnelReply(tunId, repTunId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunRep, TunId: &tunId, TunRemId: &repTunId}, nil)
 }
 
-// Assembles a tunneling reply packet.
+// Assembles a tunnel data packet, consisting of the data opcode, the tunnel id,
+// the message sequence number and the payload itself.
 func assembleTunnelData(tunId uint64, seqId uint64, msg []byte) *proto.Message {
 	return assemblePacket(&header{Op: opTunData, TunId: &tunId, TunSeqId: &seqId}, msg)
 }
 
+// Assembles a tunnel ack packet, consisting of the ack opcode, the tunnel id
+// and the message sequence number.
 func assembleTunnelAck(tunId uint64, seqId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunAck, TunId: &tunId, TunSeqId: &seqId}, nil)
 }
 
+// Assembles a tunnel data allowance packet, consisting of the grant opcode, the
+// tunnel id and the sequence number.
 func assembleTunnelGrant(tunId uint64, seqId uint64) *proto.Message {
 	return assemblePacket(&header{Op: opTunGrant, TunId: &tunId, TunSeqId: &seqId}, nil)
 }

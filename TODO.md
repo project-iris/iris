@@ -12,7 +12,6 @@ Stuff that need implementing, fixing or testing.
         - Replace the custom hacked protocol with gobber
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
-        - Hide Header.Mac into Header.Meta
     - System
         - CPU usage measurements for darwin and windows
 - Bugs
