@@ -80,19 +80,25 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 		quit: make(chan chan error),
 		term: make(chan struct{}),
 	}
+	// Lock the socket to ensure no writes pass during init
+	rel.sockLock.Lock()
+	defer rel.sockLock.Unlock()
+
 	// Initialize the relay
 	app, err := rel.procInit()
 	if err != nil {
 		rel.drop()
 		return nil, err
 	}
+	// Connect to the Iris network
+	rel.iris = iris.Connect(r.carrier, app, rel)
+
 	// Report the connection accepted
 	if err := rel.sendInit(); err != nil {
 		rel.drop()
 		return nil, err
 	}
-	// Connect to the Iris network and start accepting messages
-	rel.iris = iris.Connect(r.carrier, app, rel)
+	// Start accepting messages and return
 	rel.workers.Start()
 	go rel.process()
 	return rel, nil
