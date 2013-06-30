@@ -42,7 +42,7 @@ type Carrier interface {
 // The real carrier implementation, receiving the overlay events and processing
 // them according to the protocol.
 type carrier struct {
-	transport *overlay.Overlay // Overlay network to route the mess
+	transport *overlay.Overlay // Overlay network to route the messages
 	heart     *heart.Heart     // Heartbeat mechanism
 
 	topics map[string]*topic.Topic // Locally active topics
@@ -60,7 +60,7 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 	}
 	c.transport = overlay.New(overId, key, c)
 	c.heart = heart.New(time.Duration(config.CarrierBeatPeriod)*time.Millisecond, config.CarrierKillCount, c)
-	return Carrier(c)
+	return c
 }
 
 // Boots the message carrier.

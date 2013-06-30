@@ -64,7 +64,7 @@ func New(id *big.Int, beat time.Duration, kill int) *Topic {
 	return top
 }
 
-// Closes down a topic, releasing teh internal heartbeat mechanism.
+// Closes down a topic, releasing the internal heartbeat mechanism.
 func (t *Topic) Close() {
 	t.heart.Terminate()
 }

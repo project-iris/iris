@@ -19,6 +19,8 @@ Stuff that need implementing, fixing or testing.
         - Terminate does not wait for threads to finish
     - Relay
         - Race condition if reply and immediate close (needs close sync with finishing ops)
+    - Iris
+        - Detect dead tunnel (heartbeat or topic-style node monitoring?)
 - Misc
     - Overlay
         - Benchmark and tune the handshakes

@@ -47,12 +47,14 @@ func (c *carrier) Deliver(msg *proto.Message, key *big.Int) {
 	case opPub:
 		// Topic root, broadcast must be handled
 		if !c.handlePublish(msg, head.Topic, head.Prev) {
-			log.Printf("couldn't handle delivered publish event: %v.", msg)
+			// Simple race condition between unsubscribe and publish, left if for debug
+			// log.Printf("carrier: couldn't handle delivered publish event: %v.", msg)
 		}
 	case opBal:
 		// Topic root, balance must be handled
 		if !c.handleBalance(msg, head.Topic, head.Prev) {
-			log.Printf("couldn't handle delivered balance event: %v.", msg)
+			// Simple race condition between unsubscribe and balance, left if for debug
+			// log.Printf("carrier: couldn't handle delivered balance event: %v.", msg)
 		}
 	case opRep:
 		// Load report, integrate into topics
@@ -92,10 +94,8 @@ func (c *carrier) Forward(msg *proto.Message, key *big.Int) bool {
 
 // Handles the subscription event to a topic.
 func (c *carrier) handleSubscribe(entityId, topicId *big.Int, app bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
 	// Make sure the requested topic exists, then subscribe
+	c.lock.Lock()
 	sid := topicId.String()
 	top, ok := c.topics[sid]
 	if !ok {
@@ -105,6 +105,8 @@ func (c *carrier) handleSubscribe(entityId, topicId *big.Int, app bool) {
 		top = topic.New(topicId, beat, kill)
 		c.topics[sid] = top
 	}
+	c.lock.Unlock()
+
 	// Subscribe as a child (local or remote)
 	if app {
 		top.SubscribeApp(entityId)
@@ -136,7 +138,7 @@ func (c *carrier) handleUnsubscribe(entityId, topicId *big.Int, app bool) {
 		// If topic became empty, send unsubscribe to parent, close and delete
 		if top.Empty() {
 			if parent := top.Parent(); parent != nil {
-				c.sendUnsubscribe(parent, top.Self())
+				go c.sendUnsubscribe(parent, top.Self())
 			}
 			top.Close()
 			delete(c.topics, sid)
@@ -147,11 +149,11 @@ func (c *carrier) handleUnsubscribe(entityId, topicId *big.Int, app bool) {
 // Handles the publish event of a topic.
 func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *big.Int) bool {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	top, ok := c.topics[topicId.String()]
+	c.lock.RUnlock()
 
 	// Fetch the topic to operate on
-	sid := topicId.String()
-	if top, ok := c.topics[sid]; ok {
+	if ok {
 		// Send to all nodes in the topic (except the previous hop)
 		nodes, apps := top.Broadcast()
 		for _, id := range nodes {
@@ -173,10 +175,15 @@ func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 			cpy.Head.Meta = head.Meta
 
 			// Deliver to the application on the specific topic
-			if app, ok := c.conns[id.String()]; ok {
+			c.lock.RLock()
+			app, ok := c.conns[id.String()]
+			c.lock.RUnlock()
+
+			if ok {
 				app.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, cpy)
 			} else {
-				log.Printf("unknown application %v, discarding message.", app)
+				// Simple race condition between unsubscribe and publish, left if for debug
+				// log.Printf("carrier: unknown application %v, discarding publish: %v.", app, cpy)
 			}
 		}
 		return true
@@ -187,15 +194,19 @@ func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 // Handles the load balancing event of a topic.
 func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *big.Int) bool {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	top, ok := c.topics[topicId.String()]
+	c.lock.RUnlock()
 
-	if top, ok := c.topics[topicId.String()]; ok {
+	if ok {
 		// Fetch the recipient and either forward or deliver
 		node, app := top.Balance(prevHop)
 		if node != nil {
 			c.fwdBalance(node, msg)
 		} else {
-			if a, ok := c.conns[app.String()]; ok {
+			c.lock.RLock()
+			a, ok := c.conns[app.String()]
+			c.lock.RUnlock()
+			if ok {
 				// Remove all carrier headers
 				head := msg.Head.Meta.(*header)
 				msg.Head.Meta = head.Meta
@@ -203,7 +214,8 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 				// Deliver to the application on the specific topic
 				a.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
 			} else {
-				log.Printf("unknown application %v, discarding message.", app)
+				// Simple race condition between unsubscribe and publish, left if for debug
+				// log.Printf("carrier: unknown application %v, discarding balance: %v.", app, msg)
 			}
 		}
 		return true
@@ -213,25 +225,27 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 
 // Handles a remote member report, possibly assigning a new parent to the topic.
 func (c *carrier) handleReport(src *big.Int, rep *report) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
 	// Update local topics with the remote reports
 	for i, id := range rep.Tops {
-		if top, ok := c.topics[id.String()]; ok {
+		c.lock.RLock()
+		top, ok := c.topics[id.String()]
+		c.lock.RUnlock()
+
+		if ok {
 			// Insert the report into the topic and assign parent if needed
 			if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
 				if top.Parent() == nil {
 					top.Reown(src)
 					if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
-						log.Printf("topic failed to process new parent report: %v.", err)
+						log.Printf("carrier: topic failed to process new parent report %v: %v.", rep.Caps[i], err)
 					}
 				} else {
-					log.Printf("topic failed to process report: %v.", err)
+					log.Printf("carrier: topic failed to process report %v: %v.", rep.Caps[i], err)
 				}
 			}
 		} else {
-			log.Printf("unknown topic %v, discarding load report %v.", id, rep.Caps[i])
+			// Simple race condition between unsubscribe and report, left if for debug
+			// log.Printf("carrier: unknown topic %v, discarding load report %v.", id, rep.Caps[i])
 		}
 	}
 }
@@ -239,9 +253,10 @@ func (c *carrier) handleReport(src *big.Int, rep *report) {
 // Handles the receiving of a direct message.
 func (c *carrier) handleDirect(msg *proto.Message, appId *big.Int) {
 	c.lock.RLock()
-	defer c.lock.RUnlock()
+	app, ok := c.conns[appId.String()]
+	c.lock.RUnlock()
 
-	if app, ok := c.conns[appId.String()]; ok {
+	if ok {
 		// Remove all carrier headers
 		head := msg.Head.Meta.(*header)
 		msg.Head.Meta = head.Meta
@@ -249,6 +264,7 @@ func (c *carrier) handleDirect(msg *proto.Message, appId *big.Int) {
 		// Deliver the source-tagged message
 		app.deliverDirect(&Address{head.SrcNode, head.SrcApp}, msg)
 	} else {
-		log.Printf("unknown application %v, discarding direct message %v.", appId, msg)
+		// Simple race condition between a direct send and close (e.g. tunnel ack and close), left if for debug
+		// log.Printf("carrier: unknown application %v, discarding direct: %v.", appId, msg)
 	}
 }

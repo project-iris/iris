@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/overlay"
-	"log"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -33,25 +32,18 @@ import (
 
 // A remote application address.
 type Address struct {
-	nodeId *big.Int
-	appId  *big.Int
-}
-
-// A carrier adderss-tagged message.
-type Message struct {
-	Src *Address
-	Msg *proto.Message
+	nodeId *big.Int // Overlay node id
+	appId  *big.Int // Carrier app id
 }
 
 // A carrier connection through which to communicate.
 type Connection struct {
-	id    *big.Int           // The id of the application
-	relay *carrier           // The carrier through which to communicate
-	call  ConnectionCallback // The callback to notify of incoming messages
+	id      *big.Int           // The id of the application
+	carrier *carrier           // The carrier through which to communicate
+	call    ConnectionCallback // The callback to notify of incoming messages
 
-	subs map[string]string // Mapping from ids to original names
-
-	lock sync.RWMutex
+	subLive map[string]string // Active subscriptions, mapped from id to original name
+	subLock sync.RWMutex      // Mutex to protect the subscription map
 }
 
 // Callback methods for the carrier connection events.
@@ -61,49 +53,65 @@ type ConnectionCallback interface {
 }
 
 // Creates a new application through which to communicate with others.
-func (c *carrier) Connect(cb ConnectionCallback) *Connection {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	// Create the new application interface and store
+func (c *carrier) Connect(callback ConnectionCallback) *Connection {
+	// Create the new application interface
 	conn := &Connection{
-		id:    big.NewInt(rand.Int63()),
-		relay: c,
-		call:  cb,
-		subs:  make(map[string]string),
+		id:      big.NewInt(rand.Int63()),
+		carrier: c,
+		call:    callback,
+		subLive: make(map[string]string),
 	}
+
+	// Store the application into the carrier pool
+	c.lock.Lock()
 	c.conns[conn.id.String()] = conn
+	c.lock.Unlock()
 
 	return conn
 }
 
+// Disconnects an application with a given id by simply dropping it from the
+// pool of active connections.
+func (c *carrier) disconnect(id *big.Int) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	delete(c.conns, id.String())
+}
+
 // Closes a carrier connection, removing it from the active list.
 func (c *Connection) Close() {
-	c.relay.lock.Lock()
-	defer c.relay.lock.Unlock()
+	// Unsubscribe all active subscriptions
+	c.subLock.RLock()
+	for _, topic := range c.subLive {
+		c.carrier.handleUnsubscribe(c.id, overlay.Resolve(topic), true)
+	}
+	c.subLive = nil
+	c.subLock.RUnlock()
 
-	delete(c.relay.conns, c.id.String())
+	// Drop the connection
+	c.carrier.disconnect(c.id)
 }
 
 // Subscribes to the specified topic and returns a new channel on which incoming
 // messages will arrive.
 func (c *Connection) Subscribe(topic string) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
 	// Resolve the topic id and its string form
 	key := overlay.Resolve(topic)
 	skey := key.String()
 
-	// Create c subscription mapping if new
-	if _, ok := c.subs[skey]; ok {
+	// Create a subscription mapping if new
+	c.subLock.Lock()
+	if _, ok := c.subLive[skey]; ok {
+		c.subLock.Unlock()
 		return fmt.Errorf("already subscribed")
 	}
-	c.subs[skey] = topic
+	c.subLive[skey] = topic
+	c.subLock.Unlock()
 
 	// Subscribe the app to the topic and initiate a subscription message
-	c.relay.handleSubscribe(c.id, key, true)
-	c.relay.sendSubscribe(key)
+	c.carrier.handleSubscribe(c.id, key, true)
+	c.carrier.sendSubscribe(key)
 
 	return nil
 }
@@ -112,42 +120,43 @@ func (c *Connection) Subscribe(topic string) error {
 func (c *Connection) Unsubscribe(topic string) {
 	// Remove the carrier subscription
 	key := overlay.Resolve(topic)
-	c.relay.handleUnsubscribe(c.id, key, true)
+	c.carrier.handleUnsubscribe(c.id, key, true)
 
 	// Clean up the application
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
+	c.subLock.Lock()
 	skey := key.String()
-	if _, ok := c.subs[skey]; ok {
-		delete(c.subs, key.String())
+	if _, ok := c.subLive[skey]; ok {
+		delete(c.subLive, skey)
 	}
+	c.subLock.Unlock()
 }
 
 // Publishes a message into topic to be broadcast to everyone.
 func (c *Connection) Publish(topic string, msg *proto.Message) {
-	c.relay.sendPublish(c.id, overlay.Resolve(topic), msg)
+	c.carrier.sendPublish(c.id, overlay.Resolve(topic), msg)
 }
 
 // Delivers a message to a subscribed node, balancing amongst all subscriptions.
 func (c *Connection) Balance(topic string, msg *proto.Message) {
-	c.relay.sendBalance(c.id, overlay.Resolve(topic), msg)
+	c.carrier.sendBalance(c.id, overlay.Resolve(topic), msg)
 }
 
 // Sends a direct message to a known app on a known node.
 func (c *Connection) Direct(dest *Address, msg *proto.Message) {
-	c.relay.sendDirect(c.id, dest, msg)
+	c.carrier.sendDirect(c.id, dest, msg)
 }
 
 // Delivers a topic subscription to the application.
 func (c *Connection) deliverPublish(src *Address, topic *big.Int, msg *proto.Message) {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	c.subLock.RLock()
+	top, ok := c.subLive[topic.String()]
+	c.subLock.RUnlock()
 
-	if top, ok := c.subs[topic.String()]; ok {
+	if ok {
 		c.call.HandlePublish(src, top, msg)
 	} else {
-		log.Printf("publish on a non-subscribed topic: %v.", topic)
+		// Simple race condition between unsubscribe and publish, left if for debug
+		// log.Printf("carrier: publish on a non-subscribed topic %v: %v.", topic, msg)
 	}
 }
 

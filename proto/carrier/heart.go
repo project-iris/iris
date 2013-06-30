@@ -58,7 +58,7 @@ func (c *carrier) Beat() {
 	// Distribute the load reports to the remote carriers
 	for sid, rep := range reports {
 		if id, ok := new(big.Int).SetString(sid, 10); ok {
-			c.sendReport(id, rep)
+			go c.sendReport(id, rep)
 		} else {
 			panic("failed to extract node id.")
 		}
@@ -66,7 +66,7 @@ func (c *carrier) Beat() {
 	// Subscribe all root topics
 	for _, top := range c.topics {
 		if top.Parent() == nil {
-			c.sendSubscribe(top.Self())
+			go c.sendSubscribe(top.Self())
 		}
 	}
 }
