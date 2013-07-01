@@ -26,3 +26,9 @@ Stuff that need implementing, fixing or testing.
         - Benchmark and tune the handshakes
         - Benchmark and tune the state maintenance and updates
         - Benchmark and tune the routing performance
+- Upstream Go bugs:
+    - Slice corruption with 64 bit indices on 386
+        - Link: https://code.google.com/p/go/issues/detail?id=5820
+        - Hack: slice[int(index_64)] = nil
+        - Used: proto/iris/tunnel.go x2
+        

@@ -166,7 +166,8 @@ func (t *tunnel) handleAck(seqId uint64) {
 
 	// Acknowledge a message if inside the window and not yet marked as ready for reuse
 	if t.outAcked <= seqId {
-		t.outWindow[seqId%t.outSize] = nil
+		// TODO: remove int() cast if fixed: https://code.google.com/p/go/issues/detail?id=5820
+		t.outWindow[int(seqId%t.outSize)] = nil
 	}
 	// Grant send window slots if any became available
 	for t.outWindow[t.outAcked%t.outSize] == nil && t.outAcked < t.outNext {
@@ -208,7 +209,8 @@ func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
 
 		// Retrieve the message from the window
 		msg := t.inWindow[t.inNext%t.inSize]
-		t.inWindow[t.inNext%t.inSize] = nil
+		// TODO: remove int() cast if fixed: https://code.google.com/p/go/issues/detail?id=5820
+		t.inWindow[int(t.inNext%t.inSize)] = nil
 		t.inNext++
 
 		// Signal a window shift to the remote endpoint
