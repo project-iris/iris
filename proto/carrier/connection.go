@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/overlay"
+	"log"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -133,16 +134,25 @@ func (c *Connection) Unsubscribe(topic string) {
 
 // Publishes a message into topic to be broadcast to everyone.
 func (c *Connection) Publish(topic string, msg *proto.Message) {
+	if err := msg.Encrypt(); err != nil {
+		log.Printf("carrier: failed to encrypt publish message: %v.\n", err)
+	}
 	c.carrier.sendPublish(c.id, overlay.Resolve(topic), msg)
 }
 
 // Delivers a message to a subscribed node, balancing amongst all subscriptions.
 func (c *Connection) Balance(topic string, msg *proto.Message) {
+	if err := msg.Encrypt(); err != nil {
+		log.Printf("carrier: failed to encrypt balance message: %v.\n", err)
+	}
 	c.carrier.sendBalance(c.id, overlay.Resolve(topic), msg)
 }
 
 // Sends a direct message to a known app on a known node.
 func (c *Connection) Direct(dest *Address, msg *proto.Message) {
+	if err := msg.Encrypt(); err != nil {
+		log.Printf("carrier: failed to encrypt direct message: %v.\n", err)
+	}
 	c.carrier.sendDirect(c.id, dest, msg)
 }
 

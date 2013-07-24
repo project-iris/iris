@@ -154,6 +154,9 @@ func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 
 	// Fetch the topic to operate on
 	if ok {
+		// Extract the message headers
+		head := msg.Head.Meta.(*header)
+
 		// Send to all nodes in the topic (except the previous hop)
 		nodes, apps := top.Broadcast()
 		for _, id := range nodes {
@@ -161,26 +164,31 @@ func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 				// Create a copy since overlay will modify headers
 				cpy := new(proto.Message)
 				*cpy = *msg
-				cpy.Head.Meta = msg.Head.Meta.(*header).copy()
+				cpy.Head.Meta = head.copy()
 
 				c.fwdPublish(id, cpy)
 			}
 		}
+		// Decrypt the network message
+		plain := new(proto.Message)
+		plain.Head = msg.Head
+		plain.Head.Meta = msg.Head.Meta.(*header).Meta
+		plain.Data = make([]byte, len(msg.Data))
+		copy(plain.Data, msg.Data)
+		if err := plain.Decrypt(); err != nil {
+			// Log, discard and report processed
+			log.Printf("carrier: failed to decrypt publish message: %v.\n", err)
+			return true
+		}
 		// Deliver to all local apps
-		head := msg.Head.Meta.(*header)
 		for _, id := range apps {
-			// Copy and remove all carrier messages
-			cpy := new(proto.Message)
-			*cpy = *msg
-			cpy.Head.Meta = head.Meta
-
 			// Deliver to the application on the specific topic
 			c.lock.RLock()
 			app, ok := c.conns[id.String()]
 			c.lock.RUnlock()
 
 			if ok {
-				app.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, cpy)
+				app.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, plain)
 			} else {
 				// Simple race condition between unsubscribe and publish, left if for debug
 				// log.Printf("carrier: unknown application %v, discarding publish: %v.", app, cpy)
@@ -207,10 +215,13 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 			a, ok := c.conns[app.String()]
 			c.lock.RUnlock()
 			if ok {
-				// Remove all carrier headers
+				// Remove all carrier headers and decrypt
 				head := msg.Head.Meta.(*header)
 				msg.Head.Meta = head.Meta
-
+				if err := msg.Decrypt(); err != nil {
+					log.Printf("carrier: failed to decrypt balance message: %v.\n", err)
+					return true
+				}
 				// Deliver to the application on the specific topic
 				a.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
 			} else {
@@ -260,7 +271,10 @@ func (c *carrier) handleDirect(msg *proto.Message, appId *big.Int) {
 		// Remove all carrier headers
 		head := msg.Head.Meta.(*header)
 		msg.Head.Meta = head.Meta
-
+		if err := msg.Decrypt(); err != nil {
+			log.Printf("carrier: failed to decrypt direct message: %v.\n", err)
+			return
+		}
 		// Deliver the source-tagged message
 		app.deliverDirect(&Address{head.SrcNode, head.SrcApp}, msg)
 	} else {

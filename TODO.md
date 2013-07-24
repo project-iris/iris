@@ -12,8 +12,6 @@ Stuff that need implementing, fixing or testing.
         - Replace the custom hacked protocol with gobber
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
-    - System
-        - CPU usage measurements for darwin and windows
 - Bugs
     - Thread pool
         - Terminate does not wait for threads to finish
@@ -31,4 +29,4 @@ Stuff that need implementing, fixing or testing.
         - Link: https://code.google.com/p/go/issues/detail?id=5820
         - Hack: slice[int(index_64)] = nil
         - Used: proto/iris/tunnel.go x2
-        
+
