@@ -385,7 +385,7 @@ func (r *relay) procRequest() error {
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond) })
+	go r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond)
 	return nil
 }
 

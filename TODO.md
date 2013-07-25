@@ -4,6 +4,8 @@
 Stuff that need implementing, fixing or testing.
 
 - Features
+    - Relay + Iris
+        - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry
