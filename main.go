@@ -32,7 +32,7 @@ func parseFlags() (int, string, *rsa.PrivateKey) {
 
 	// Check the relay port range
 	if *relayPort <= 0 || *relayPort >= 65536 {
-		fmt.Fprintf(os.Stderr, "Invalid relay port: have %v, want [1-65535]\n.", *relayPort)
+		fmt.Fprintf(os.Stderr, "Invalid relay port: have %v, want [1-65535].\n", *relayPort)
 		os.Exit(-1)
 	}
 	// User random cluster id and RSA key in developer mode
