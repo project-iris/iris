@@ -48,13 +48,13 @@ type header struct {
 	Op opcode // Operation code of the message
 
 	// Optional fields for requests and replies
-	ReqId   *uint64        // Request/response identifier
-	ReqTime *time.Duration // Maximum amount of time spendable on the request
+	ReqId   uint64        // Request/response identifier
+	ReqTime time.Duration // Maximum amount of time spendable on the request
 
 	// Optional fields for tunnels
-	TunId    *uint64 // Destination tunnel
-	TunRemId *uint64 // Remote tunnel endpoint, used during initiation
-	TunSeqId *uint64 // Sequence number of the message during data transfer
+	TunId    uint64 // Destination tunnel
+	TunRemId uint64 // Remote tunnel endpoint, used during initiation
+	TunSeqId uint64 // Sequence number of the message during data transfer
 }
 
 // Make sure the header struct is registered with gob.
@@ -81,13 +81,13 @@ func assembleBroadcast(msg []byte) *proto.Message {
 // Assembles an application request message. It consists of the request opcode,
 // the locally unique request id and the payload.
 func assembleRequest(reqId uint64, req []byte, timeout time.Duration) *proto.Message {
-	return assemblePacket(&header{Op: opReq, ReqId: &reqId, ReqTime: &timeout}, req)
+	return assemblePacket(&header{Op: opReq, ReqId: reqId, ReqTime: timeout}, req)
 }
 
 // Assembles the reply message to an application request. It consists of the
 // reply opcode, the original request's id and the payload itself.
 func assembleReply(reqId uint64, rep []byte) *proto.Message {
-	return assemblePacket(&header{Op: opRep, ReqId: &reqId}, rep)
+	return assemblePacket(&header{Op: opRep, ReqId: reqId}, rep)
 }
 
 // Assembles an event message to be published in a topic. It consists of the
@@ -99,35 +99,35 @@ func assemblePublish(msg []byte) *proto.Message {
 // Assembles a tunneling request message, consisting of the tunneling opcode and
 // the local tunnel id.
 func assembleTunnelRequest(tunId uint64) *proto.Message {
-	return assemblePacket(&header{Op: opTunReq, TunRemId: &tunId}, nil)
+	return assemblePacket(&header{Op: opTunReq, TunRemId: tunId}, nil)
 }
 
 // Assembles a tunneling reply message, consisting of the tunnel reply opcode
 // and the two tunnel endpoint ids.
 func assembleTunnelReply(tunId, repTunId uint64) *proto.Message {
-	return assemblePacket(&header{Op: opTunRep, TunId: &tunId, TunRemId: &repTunId}, nil)
+	return assemblePacket(&header{Op: opTunRep, TunId: tunId, TunRemId: repTunId}, nil)
 }
 
 // Assembles a tunnel data packet, consisting of the data opcode, the tunnel id,
 // the message sequence number and the payload itself.
 func assembleTunnelData(tunId uint64, seqId uint64, msg []byte) *proto.Message {
-	return assemblePacket(&header{Op: opTunData, TunId: &tunId, TunSeqId: &seqId}, msg)
+	return assemblePacket(&header{Op: opTunData, TunId: tunId, TunSeqId: seqId}, msg)
 }
 
 // Assembles a tunnel ack packet, consisting of the ack opcode, the tunnel id
 // and the message sequence number.
 func assembleTunnelAck(tunId uint64, seqId uint64) *proto.Message {
-	return assemblePacket(&header{Op: opTunAck, TunId: &tunId, TunSeqId: &seqId}, nil)
+	return assemblePacket(&header{Op: opTunAck, TunId: tunId, TunSeqId: seqId}, nil)
 }
 
 // Assembles a tunnel data allowance packet, consisting of the grant opcode, the
 // tunnel id and the sequence number.
 func assembleTunnelGrant(tunId uint64, seqId uint64) *proto.Message {
-	return assemblePacket(&header{Op: opTunGrant, TunId: &tunId, TunSeqId: &seqId}, nil)
+	return assemblePacket(&header{Op: opTunGrant, TunId: tunId, TunSeqId: seqId}, nil)
 }
 
 // Assembles a tunnel closure message, consisting of the opcode and the target
 // tunnel id.
 func assembleTunnelClose(tunId uint64) *proto.Message {
-	return assemblePacket(&header{Op: opTunClose, TunId: &tunId}, nil)
+	return assemblePacket(&header{Op: opTunClose, TunId: tunId}, nil)
 }
