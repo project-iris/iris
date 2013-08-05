@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"time"
 )
 
@@ -25,14 +26,39 @@ var relayPort = flag.Int("port", 55555, "relay endpoint for locally connecting c
 var clusterName = flag.String("net", "", "name of the cluster to join or create")
 var rsaKeyPath = flag.String("rsa", "", "path to the RSA private key to use for data security")
 
-var cpuProfile = flag.String("cpuprof", "", "execute cpu profiling and save results here")
-var blockProfile = flag.String("blockprof", "", "execute contention profiling and save results here")
+var cpuProfile = flag.String("cpuprof", "", "path to CPU profiling results")
+var blockProfile = flag.String("blockprof", "", "path to lock contention profiling results")
+
+func usage() {
+	fmt.Printf("Server node of the Iris decentralized messaging framework.\n\n")
+	fmt.Printf("Usage:\n\n")
+	fmt.Printf("\t%s [options]\n\n", os.Args[0])
+	fmt.Printf("The options are:\n\n")
+	flag.VisitAll(func(f *flag.Flag) {
+		if !strings.HasSuffix(f.Name, "prof") {
+			if f.DefValue != "" {
+				fmt.Printf("\t-%-8s%-12s%s\n", f.Name, "[="+f.DefValue+"]", f.Usage)
+			} else {
+				fmt.Printf("\t-%-20s%s\n", f.Name, f.Usage)
+			}
+		}
+	})
+	fmt.Printf("\n")
+	fmt.Printf("Profiling options:\n\n")
+	flag.VisitAll(func(f *flag.Flag) {
+		if strings.HasSuffix(f.Name, "prof") {
+			fmt.Printf("\t-%-20s%s\n", f.Name, f.Usage)
+		}
+	})
+	fmt.Printf("\n")
+}
 
 // Parses the command line flags and checks their validity
 func parseFlags() (int, string, *rsa.PrivateKey) {
 	var rsaKey *rsa.PrivateKey
 
 	// Read the command line arguments
+	flag.Usage = usage
 	flag.Parse()
 
 	// Check the relay port range
