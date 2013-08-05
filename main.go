@@ -29,10 +29,12 @@ var rsaKeyPath = flag.String("rsa", "", "path to the RSA private key to use for 
 var cpuProfile = flag.String("cpuprof", "", "path to CPU profiling results")
 var blockProfile = flag.String("blockprof", "", "path to lock contention profiling results")
 
+// Prints the usage of the Iris command and its options.
 func usage() {
 	fmt.Printf("Server node of the Iris decentralized messaging framework.\n\n")
 	fmt.Printf("Usage:\n\n")
 	fmt.Printf("\t%s [options]\n\n", os.Args[0])
+
 	fmt.Printf("The options are:\n\n")
 	flag.VisitAll(func(f *flag.Flag) {
 		if !strings.HasSuffix(f.Name, "prof") {
@@ -44,6 +46,7 @@ func usage() {
 		}
 	})
 	fmt.Printf("\n")
+
 	fmt.Printf("Profiling options:\n\n")
 	flag.VisitAll(func(f *flag.Flag) {
 		if strings.HasSuffix(f.Name, "prof") {
