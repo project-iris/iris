@@ -6,9 +6,11 @@ Stuff that need implementing, fixing or testing.
 - Features
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
+    - Carrier
+        - Exchange topic load report only for app groups, not topics
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
-        - Proximity features for Pastry
+        - Proximity features for Pastry?
         - Convergence check to remove annoying sleeps from tests
     - Bootstrapper
         - Replace the custom hacked protocol with gobber

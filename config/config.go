@@ -139,7 +139,7 @@ var PacketCipher = aes.NewCipher
 var PacketCipherBits = 128
 
 // Bootstrapping ports to use.
-var BootPorts = []int{14142, 27182, 31415}
+var BootPorts = []int{14142, 27182, 31415, 45654, 22222, 33333}
 
 // Number of heartbeats to queue before blocking.
 var BootBeatsBuffer = 32
@@ -202,19 +202,13 @@ var CarrierSpace = 32
 var CarrierAppBuffer = 128
 
 // Maximum number of handlers allowed concurrently per Iris application.
-var IrisHandlerThreads = 16
+var IrisHandlerThreads = 32
 
 // Send and receive window for tunnel ordering and throttling.
 var IrisTunnelWindow = 256
 
 // Timeout value for receiving a new acknowledgement.
 var IrisTunnelTimeout = 3000
-
-// Distributed application identifier.
-var AppGlobalId = []byte("iris")
-
-// Node type identifier within the distributed application.
-var AppLocalId = []byte("broker")
 
 // Use in case of federated applications.
 var AppParentId = []byte(nil)

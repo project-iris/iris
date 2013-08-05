@@ -14,6 +14,8 @@ import (
 	rng "math/rand"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"time"
 )
 
@@ -22,6 +24,9 @@ var devMode = flag.Bool("dev", false, "start in local developer mode (random clu
 var relayPort = flag.Int("port", 55555, "relay endpoint for locally connecting clients")
 var clusterName = flag.String("net", "", "name of the cluster to join or create")
 var rsaKeyPath = flag.String("rsa", "", "path to the RSA private key to use for data security")
+
+var cpuProfile = flag.String("cpuprof", "", "execute cpu profiling and save results here")
+var blockProfile = flag.String("blockprof", "", "execute contention profiling and save results here")
 
 // Parses the command line flags and checks their validity
 func parseFlags() (int, string, *rsa.PrivateKey) {
@@ -91,6 +96,25 @@ func parseFlags() (int, string, *rsa.PrivateKey) {
 func main() {
 	// Extract the command line arguments
 	relayPort, clusterId, rsaKey := parseFlags()
+
+	// Check for CPU profiling
+	if *cpuProfile != "" {
+		prof, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(prof)
+		defer pprof.StopCPUProfile()
+	}
+	// Check for lock contention profiling
+	if *blockProfile != "" {
+		prof, err := os.Create(*blockProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		runtime.SetBlockProfileRate(1)
+		defer pprof.Lookup("block").WriteTo(prof, 0)
+	}
 
 	// Create and boot a new carrier
 	log.Printf("main: booting carrier...")
