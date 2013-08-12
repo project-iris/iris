@@ -21,6 +21,7 @@
 package system
 
 import (
+	"github.com/karalabe/iris/config"
 	"sync"
 	"time"
 )
@@ -51,7 +52,7 @@ func init() {
 
 	// Measure till program is terminated
 	go func() {
-		tick := time.Tick(3 * time.Second)
+		tick := time.Tick(time.Duration(config.CarrierBeatPeriod) * time.Millisecond)
 		for {
 			<-tick
 			gatherCpuInfo()
