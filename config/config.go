@@ -154,16 +154,16 @@ var BootSlowProbe = 1000
 var BootScan = 250
 
 // Virtual address space (bits).
-var OverlaySpace = 128
+var OverlaySpace = 40
 
 // Number of matching bits for the next hop.
 var OverlayBase = 4
 
 // Number of closest nodes to track in the virtual network.
-var OverlayLeaves = 16
+var OverlayLeaves = 8
 
 // Number of closes nodes to track in the real network.
-var OverlayNeighbors = 16
+var OverlayNeighbors = 8
 
 // Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
@@ -200,6 +200,9 @@ var CarrierSpace = 32
 
 // Number of messages to buffer for application delivery before dropping.
 var CarrierAppBuffer = 128
+
+// Number of sub-clusters an app cluster or topic is split into.
+var IrisClusterSplits = 5
 
 // Maximum number of handlers allowed concurrently per Iris application.
 var IrisHandlerThreads = 32

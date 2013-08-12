@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto/carrier"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -82,7 +83,7 @@ func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, 
 	c.tunLock.Unlock()
 
 	// Send the tunneling request
-	c.conn.Balance(appPrefix+app, assembleTunnelRequest(tunId))
+	c.conn.Balance(appPrefixes[rand.Intn(len(appPrefixes))]+app, assembleTunnelRequest(tunId))
 
 	// Retrieve the results, time out or terminate
 	var err error

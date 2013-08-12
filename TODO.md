@@ -3,6 +3,8 @@
 
 Stuff that need implementing, fixing or testing.
 
+- Planned
+    - Gather and display statistics (small web server + stats publish)
 - Features
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)

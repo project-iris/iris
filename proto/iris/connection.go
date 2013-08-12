@@ -25,11 +25,24 @@ import (
 	"github.com/karalabe/iris/pool"
 	"github.com/karalabe/iris/proto/carrier"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var appPrefix = "app:"
-var topPrefix = "top:"
+var appPrefixes []string
+var topPrefixes []string
+
+// Creates the cluster split prefix tags
+func init() {
+	appPrefixes = make([]string, config.IrisClusterSplits)
+	for i := 0; i < len(appPrefixes); i++ {
+		appPrefixes[i] = fmt.Sprintf("app-#%d:", i)
+	}
+	topPrefixes = make([]string, config.IrisClusterSplits)
+	for i := 0; i < len(topPrefixes); i++ {
+		topPrefixes[i] = fmt.Sprintf("top-#%d:", i)
+	}
+}
 
 type connection struct {
 	// Application layer fields
@@ -50,6 +63,7 @@ type connection struct {
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
+	splitId uint32           // Id of the next prefix for split cluster round-robin
 
 	// Bookkeeping fields
 	quit chan chan error // Quit channel to synchronize termination
@@ -74,7 +88,9 @@ func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Con
 		term: make(chan struct{}),
 	}
 	c.conn = carrier.Connect(c)
-	c.conn.Subscribe(appPrefix + app)
+	for _, prefix := range appPrefixes {
+		c.conn.Subscribe(prefix + app)
+	}
 	c.workers.Start()
 
 	return c
@@ -84,7 +100,8 @@ func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Con
 // prefix to ensure apps and topics can overlap, bundles the payload into a
 // protocol packet and publishes it.
 func (c *connection) Broadcast(app string, msg []byte) error {
-	c.conn.Publish(appPrefix+app, assembleBroadcast(msg))
+	prefixIdx := int(atomic.AddUint32(&c.splitId, uint32(1))) % config.IrisClusterSplits
+	c.conn.Publish(appPrefixes[prefixIdx]+app, assembleBroadcast(msg))
 	return nil
 }
 
@@ -109,7 +126,7 @@ func (c *connection) Request(app string, req []byte, timeout time.Duration) ([]b
 		close(reqCh)
 	}()
 	// Send the request
-	c.conn.Balance(appPrefix+app, assembleRequest(reqId, req, timeout))
+	c.conn.Balance(appPrefixes[int(reqId)%config.IrisClusterSplits]+app, assembleRequest(reqId, req, timeout))
 
 	// Retrieve the results, time out or fail if terminating
 	select {
@@ -125,9 +142,6 @@ func (c *connection) Request(app string, req []byte, timeout time.Duration) ([]b
 // Implements iris.Connection.Subscribe. Tags the target with the topic prefix,
 // assigns a handler for incoming events and executes a carrier subscription.
 func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error {
-	// Add the topic prefix to simplify code
-	topic = topPrefix + topic
-
 	// Make sure there are no double subscriptions and not closing
 	c.subLock.Lock()
 	select {
@@ -135,31 +149,36 @@ func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error 
 		c.subLock.Unlock()
 		return permError(fmt.Errorf("connection terminating"))
 	default:
-		if _, ok := c.subLive[topic]; ok {
+		if _, ok := c.subLive[topPrefixes[0]+topic]; ok {
 			c.subLock.Unlock()
 			return permError(fmt.Errorf("already subscribed"))
 		}
-		c.subLive[topic] = handler
+		for _, prefix := range topPrefixes {
+			c.subLive[prefix+topic] = handler
+		}
 	}
 	c.subLock.Unlock()
 
 	// Subscribe through the carrier
-	return c.conn.Subscribe(topic)
+	for _, prefix := range topPrefixes {
+		if err := c.conn.Subscribe(prefix + topic); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Implements iris.Connection.Publish. Tags the target with the topic prefix,
 // bundles the message and requests the carrier to publish it.
 func (c *connection) Publish(topic string, msg []byte) error {
-	c.conn.Publish(topPrefix+topic, assemblePublish(msg))
+	prefixIdx := int(atomic.AddUint32(&c.splitId, uint32(1))) % config.IrisClusterSplits
+	c.conn.Publish(topPrefixes[prefixIdx]+topic, assemblePublish(msg))
 	return nil
 }
 
 // Implements iris.Connection.Unsubscribe. Removes an active subscription from
 // the local list and notifies the carrier of the request.
 func (c *connection) Unsubscribe(topic string) error {
-	// Add the topic prefix to simplify code
-	topic = topPrefix + topic
-
 	// Remove subscription if present
 	c.subLock.Lock()
 	select {
@@ -167,16 +186,20 @@ func (c *connection) Unsubscribe(topic string) error {
 		c.subLock.Unlock()
 		return permError(fmt.Errorf("connection terminating"))
 	default:
-		if _, ok := c.subLive[topic]; !ok {
+		if _, ok := c.subLive[topPrefixes[0]+topic]; !ok {
 			c.subLock.Unlock()
 			return permError(fmt.Errorf("not subscribed"))
 		}
 	}
-	delete(c.subLive, topic)
+	for _, prefix := range topPrefixes {
+		delete(c.subLive, prefix+topic)
+	}
 	c.subLock.Unlock()
 
 	// Notify the carrier of the removal
-	c.conn.Unsubscribe(topic)
+	for _, prefix := range topPrefixes {
+		c.conn.Unsubscribe(prefix + topic)
+	}
 	return nil
 }
 
@@ -214,7 +237,9 @@ func (c *connection) Close() {
 	c.subLock.Unlock()
 
 	// Leave the app group and close the carrier connection
-	c.conn.Unsubscribe(appPrefix + c.app)
+	for _, prefix := range appPrefixes {
+		c.conn.Unsubscribe(prefix + c.app)
+	}
 	c.conn.Close()
 
 	// Terminate the worker pool
