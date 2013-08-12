@@ -168,8 +168,8 @@ var OverlayNeighbors = 8
 // Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
 
-// Heartbeat period to ensure connections are alive and tear down unusde ones (ms).
-var OverlayBeatPeriod = 3000
+// Heartbeat period to ensure connections are alive and tear down unused ones (ms).
+var OverlayBeatPeriod = 10000
 
 // Time to wait after session setup for the init packet (ms).
 var OverlayInitTimeout = 5000
@@ -205,7 +205,7 @@ var CarrierAppBuffer = 128
 var IrisClusterSplits = 5
 
 // Maximum number of handlers allowed concurrently per Iris application.
-var IrisHandlerThreads = 32
+var IrisHandlerThreads = 16
 
 // Send and receive window for tunnel ordering and throttling.
 var IrisTunnelWindow = 256
@@ -216,8 +216,11 @@ var IrisTunnelTimeout = 3000
 // Use in case of federated applications.
 var AppParentId = []byte(nil)
 
+// Protocol version to ensure compatible connections.
+var ProtocolVersion = "v0.1-pre"
+
 // Maximum number of handlers allowed concurrently per relay connection.
-var RelayHandlerThreads = 16
+var RelayHandlerThreads = 8
 
 // Number of messages to buffer per outbound tunnel.
 var RelayTunnelBuffer = 128

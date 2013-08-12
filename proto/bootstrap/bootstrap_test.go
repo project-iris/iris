@@ -26,19 +26,20 @@ import (
 )
 
 func TestPortSelection(t *testing.T) {
-	defer time.Sleep(time.Second)
-
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
-		if _, quit, err := Boot(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err != nil {
-			t.Errorf("failed to start a bootstrapper for each allowed port: %v.", err)
+		if bs, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err != nil {
+			t.Fatalf("failed to create bootstrapper: %v.", err)
 		} else {
-			defer close(quit)
+			if err := bs.Boot(); err != nil {
+				t.Fatalf("failed to boot bootstrapper: %v.", err)
+			}
+			defer bs.Terminate()
 		}
 	}
 	// Ensure failure after all ports are used
-	if _, _, err := Boot(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err == nil {
-		t.Errorf("bootstrapper started even though no ports were available.")
+	if _, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err == nil {
+		t.Errorf("bootstrapper created even though no ports were available.")
 	}
 }
 
@@ -50,34 +51,40 @@ func TestScan(t *testing.T) {
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	evs1, quit, err := Boot(over1.IP, []byte("magic"), over1.Port)
+	bs1, evs1, err := New(over1.IP, []byte("magic"), over1.Port)
 	if err != nil {
-		t.Errorf("failed to start first booter: %v.", err)
+		t.Fatalf("failed to create first booter: %v.", err)
 	}
-	defer close(quit)
+	if err := bs1.Boot(); err != nil {
+		t.Fatalf("failed to boot first booter: %v.", err)
+	}
+	defer bs1.Terminate()
 
-	evs2, quit, err := Boot(over2.IP, []byte("magic"), over2.Port)
+	bs2, evs2, err := New(over2.IP, []byte("magic"), over2.Port)
 	if err != nil {
-		t.Errorf("failed to start second booter: %v.", err)
+		t.Fatalf("failed to create second booter: %v.", err)
 	}
-	defer close(quit)
+	if err := bs2.Boot(); err != nil {
+		t.Fatalf("failed to boot second booter: %v.", err)
+	}
+	defer bs2.Terminate()
 
 	// Wait and make sure they found each other and not themselves
 	e1, e2 := <-evs1, <-evs2
 	if !e1.Addr.IP.Equal(over2.IP) || e1.Addr.Port != over2.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
+		t.Fatalf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
 	}
 	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", e2.Addr, over1)
+		t.Fatalf("invalid address on second booter: have %v, want %v.", e2.Addr, over1)
 	}
 
 	// Each should report twice (foreign request + foreign response to local request)
 	e1, e2 = <-evs1, <-evs2
 	if !e1.Addr.IP.Equal(over2.IP) || e1.Addr.Port != over2.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
+		t.Fatalf("invalid address on first booter: have %v, want %v.", e1.Addr, over2)
 	}
 	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
-		t.Errorf("invalid address on first booter: have %v, want %v.", e2.Addr, over1)
+		t.Fatalf("invalid address on second booter: have %v, want %v.", e2.Addr, over1)
 	}
 
 	// Further beats shouldn't arrive (unless the probing catches us, should be rare)
@@ -86,9 +93,9 @@ func TestScan(t *testing.T) {
 	case <-timeout:
 		// Do nothing
 	case a := <-evs1:
-		t.Errorf("extra address on first booter: %v.", a)
+		t.Fatalf("extra address on first booter: %v.", a)
 	case a := <-evs2:
-		t.Errorf("extra address on second booter: %v.", a)
+		t.Fatalf("extra address on second booter: %v.", a)
 	}
 }
 
@@ -100,17 +107,23 @@ func TestMagic(t *testing.T) {
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	evs1, quit, err := Boot(over1.IP, []byte("magic1"), over1.Port)
+	bs1, evs1, err := New(over1.IP, []byte("magic1"), over1.Port)
 	if err != nil {
-		t.Errorf("failed to start first booter: %v.", err)
+		t.Fatalf("failed to create first booter: %v.", err)
 	}
-	defer close(quit)
+	if err := bs1.Boot(); err != nil {
+		t.Fatalf("failed to boot first booter: %v.", err)
+	}
+	defer bs1.Terminate()
 
-	evs2, quit, err := Boot(over2.IP, []byte("magic2"), over2.Port)
+	bs2, evs2, err := New(over2.IP, []byte("magic2"), over2.Port)
 	if err != nil {
-		t.Errorf("failed to start second booter: %v.", err)
+		t.Fatalf("failed to create second booter: %v.", err)
 	}
-	defer close(quit)
+	if err := bs2.Boot(); err != nil {
+		t.Fatalf("failed to boot second booter: %v.", err)
+	}
+	defer bs2.Terminate()
 
 	// No beats should arrive since magic does not match
 	timeout := time.Tick(500 * time.Millisecond)
@@ -118,9 +131,9 @@ func TestMagic(t *testing.T) {
 	case <-timeout:
 		// Do nothing
 	case a := <-evs1:
-		t.Errorf("extra address on first booter: %v.", a)
+		t.Fatalf("extra address on first booter: %v.", a)
 	case a := <-evs2:
-		t.Errorf("extra address on second booter: %v.", a)
+		t.Fatalf("extra address on second booter: %v.", a)
 	}
 }
 

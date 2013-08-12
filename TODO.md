@@ -14,8 +14,6 @@ Stuff that need implementing, fixing or testing.
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Proximity features for Pastry?
         - Convergence check to remove annoying sleeps from tests
-    - Bootstrapper
-        - Replace the custom hacked protocol with gobber
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
 - Bugs

@@ -24,14 +24,14 @@
 // slowdowns due to large config space).
 //
 // Since the heartbeats are on UDP, each one is flagged as a beat request or
-// responce (i.e. reply to requests, but don't loop infinitely).
+// response (i.e. reply to requests, but don't loop indefinitely).
 package bootstrap
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/gobber"
 	"math/rand"
 	"net"
 	"strconv"
@@ -39,7 +39,7 @@ import (
 )
 
 // Constants for the protocol UDP layer
-var acceptTimeout = time.Second
+var acceptTimeout = 250 * time.Millisecond
 
 // A direction tagged (req/resp) bootstrap event.
 type Event struct {
@@ -47,30 +47,41 @@ type Event struct {
 	Resp bool
 }
 
+// Bootstrap state message.
+type Message struct {
+	Version string
+	Magic   []byte
+	Overlay int
+	Request bool
+}
+
 // Bootstrapper state for a single network interface.
-type bootstrapper struct {
+type Bootstrapper struct {
 	addr *net.UDPAddr
 	sock *net.UDPConn
 
-	beatMagic []byte
-	beatReq   []byte
-	beatRes   []byte
+	magic    []byte // Filters side-by-side Iris networks
+	request  []byte // Pre-generated request packet
+	response []byte // Pre-generated response packet
 
-	beats chan *Event
-	quit  chan struct{}
+	gob *gobber.Gobber // Datagram gobber to decode the network messages
+
+	beats chan *Event     // Channel on which to report bootstrap events
+	quit  chan chan error // Quit channel to synchronize bootstrapper termination
 
 	fast bool
 }
 
-// Starts up the bootstrapping module. Bootstrapping will listen on the given
-// interface and available port (out of the allowed ones) for incomming requests,
-// and will scan that specific interface for other peers. The overlay argument
-// is used to advertize the overlay TCP listener whilst the magic is used to
-// filter multiple apps in the same network from each other.
-func Boot(ip net.IP, magic []byte, overlay int) (chan *Event, chan struct{}, error) {
-	bs := new(bootstrapper)
-	bs.fast = true
-
+// Creates a new bootstrapper, configuring to listen on the given interface for
+// for incoming requests and scan the same interface for other peers. The magic
+// is used to filter multiple Iris networks in the same physical network, while
+// the overlay is the TCP listener port of the DHT.
+func New(ip net.IP, magic []byte, overlay int) (*Bootstrapper, chan *Event, error) {
+	bs := &Bootstrapper{
+		magic: magic,
+		beats: make(chan *Event, config.BootBeatsBuffer),
+		fast:  true,
+	}
 	// Open the server socket
 	var err error
 	for _, port := range config.BootPorts {
@@ -87,91 +98,135 @@ func Boot(ip net.IP, magic []byte, overlay int) (chan *Event, chan struct{}, err
 		}
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to listen on all configured ports: %v.", err)
+		return nil, nil, fmt.Errorf("no available ports")
+	}
+	// Generate the local heartbeat messages (request and response)
+	bs.magic = magic
+	bs.gob = gobber.New()
+	bs.gob.Init(new(Message))
+
+	msg := Message{
+		Version: config.ProtocolVersion,
+		Magic:   magic,
+		Overlay: overlay,
+		Request: true,
+	}
+	if buf, err := bs.gob.Encode(msg); err != nil {
+		return nil, nil, fmt.Errorf("request encode failed: %v.", err)
+	} else {
+		bs.request = make([]byte, len(buf))
+		copy(bs.request, buf)
 	}
 
-	// Save the magic number and generate the local heartbeat messages (request and response)
-	bs.beatMagic = magic
+	msg.Request = false
+	if buf, err := bs.gob.Encode(msg); err != nil {
+		return nil, nil, fmt.Errorf("response encode failed: %v.", err)
+	} else {
+		bs.response = make([]byte, len(buf))
+		copy(bs.response, buf)
+	}
+	// Return the ready-to-boot bootstrapper
+	return bs, bs.beats, nil
+}
 
-	bs.beatReq = make([]byte, len(magic)+3)
-	n := binary.PutUvarint(bs.beatReq, uint64(overlay))
-	copy(bs.beatReq[n:], magic)
+// Starts accepting bootstrap events and initiates peer discovery.
+func (bs *Bootstrapper) Boot() error {
+	bs.quit = make(chan chan error, 3)
 
-	bs.beatRes = make([]byte, len(magic)+3)
-	n = binary.PutUvarint(bs.beatRes, uint64(overlay)+uint64(1<<17))
-	copy(bs.beatRes[n:], magic)
-
-	// Create the channels for the communicating threads
-	bs.beats = make(chan *Event, config.BootBeatsBuffer)
-	bs.quit = make(chan struct{})
-
-	// Create the two channels, start the packet acceptor and return
 	go bs.accept()
 	go bs.probe()
 	go bs.scan()
 
-	return bs.beats, bs.quit, nil
+	return nil
+}
+
+// Closes the bootstrap listener and terminates all probing procedures.
+func (bs *Bootstrapper) Terminate() error {
+	// Make sure the bootstrapper was actually started
+	if bs.quit == nil {
+		return fmt.Errorf("non-booted bootstrapper")
+	}
+	// Retrieve three errors for the acceptor, prober and scanner routines
+	errc := make([]chan error, 3)
+	errs := []error{}
+	for i := 0; i < len(errc); i++ {
+		errc[i] = make(chan error, 1)
+		bs.quit <- errc[i]
+	}
+	for i := 0; i < len(errc); i++ {
+		if err := <-errc[i]; err != nil {
+			errs = append(errs, err)
+		}
+	}
+	// Report the errors and return
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return fmt.Errorf("%v", errs)
+	}
 }
 
 // Switches between startup (fast) and maintenance (slow) sampling speeds.
-func (bs *bootstrapper) SetMode(startup bool) {
+func (bs *Bootstrapper) SetMode(startup bool) {
 	bs.fast = startup
 }
 
-// Heartbeat and connect packet acceptor routine. It listens for incomming UDP
-// packets, and for each one verifies that the bootstrap magic number matches
-// the local one. If the verifications passed, the TCP port within is extracted
-// an is sent to the maintenance thread to sort out.
-func (bs *bootstrapper) accept() {
-	defer close(bs.beats)
-	defer bs.sock.Close()
-
+// Heartbeat and connect packet acceptor routine. It listens for incoming UDP
+// packets, and for each one verifies that the protocol version and bootstrap
+// magic number match the local one. If the verifications passes, the remote
+// overlay's id and listener port is sent to the maintenance thread to sort out.
+func (bs *Bootstrapper) accept() {
 	buf := make([]byte, 1500) // UDP MTU
-	for {
+	var errc chan error
+
+	// Repeat the packet processing until termination is requested
+	for errc == nil {
 		select {
-		case <-bs.quit:
-			return
+		case errc = <-bs.quit:
+			break
 		default:
 			// Wait for a UDP packet (with a reasonable timeout)
 			bs.sock.SetReadDeadline(time.Now().Add(acceptTimeout))
 			if size, from, err := bs.sock.ReadFromUDP(buf); err == nil {
-				reader := bytes.NewBuffer(buf[:size])
-				if port, err := binary.ReadUvarint(reader); err == nil {
-					if bytes.Compare(bs.beatMagic, reader.Bytes()) == 0 {
-						// If it's a beat request, respond to it otherwise clear the response bit
-						resp := false
-						if port&(1<<17) == 0 {
-							bs.sock.WriteToUDP(bs.beatRes, from)
-						} else {
-							port &= ^(uint64(1) << 17)
-							resp = true
+				msg := new(Message)
+				if err := bs.gob.Decode(buf[:size], msg); err == nil {
+					if config.ProtocolVersion == msg.Version && msg.Magic != nil && bytes.Compare(bs.magic, msg.Magic) == 0 {
+						// If it's a beat request, respond to it
+						if msg.Request {
+							bs.sock.WriteToUDP(bs.response, from)
 						}
 						// Notify the maintenance routine
-						host := net.JoinHostPort(from.IP.String(), strconv.Itoa(int(port)))
+						host := net.JoinHostPort(from.IP.String(), strconv.Itoa(msg.Overlay))
 						if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
-							bs.beats <- &Event{addr, resp}
-						} else {
-							panic(err)
+							bs.beats <- &Event{addr, !msg.Request}
 						}
 					}
 				}
 			}
 		}
 	}
+	// Clean up resources and report results
+	close(bs.beats)
+	errc <- bs.sock.Close()
 }
 
 // Sends heartbeat messages to random hosts on the listener-local address. The
 // IP addresses are generated uniformly inside the subnet and all ports in the
 // config array are tried simultaneously. Self connection is disabled.
-func (bs *bootstrapper) probe() {
+func (bs *Bootstrapper) probe() {
 	// Set up some initial parameters
 	mask := bs.addr.IP.DefaultMask()
 	ones, bits := mask.Size()
 
-	for {
+	// Probe random addresses until termination is requested
+	var errc chan error
+	for errc == nil {
 		select {
-		case <-bs.quit:
-			return
+		case errc = <-bs.quit:
+			break
 		default:
 			// Generate a random IP address within the subnet (ignore net and bcast)
 			host := bs.addr.IP
@@ -192,21 +247,28 @@ func (bs *bootstrapper) probe() {
 				if err != nil {
 					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
 				}
-				bs.sock.WriteToUDP(bs.beatReq, raddr)
-				// Wait for the next cycle
-				if bs.fast {
-					time.Sleep(time.Duration(config.BootFastProbe) * time.Millisecond)
-				} else {
-					time.Sleep(time.Duration(config.BootSlowProbe) * time.Millisecond)
-				}
+				bs.sock.WriteToUDP(bs.request, raddr)
+			}
+			// Wait for the next cycle
+			var wake <-chan time.Time
+			if bs.fast {
+				wake = time.After(time.Duration(config.BootFastProbe) * time.Millisecond)
+			} else {
+				wake = time.After(time.Duration(config.BootSlowProbe) * time.Millisecond)
+			}
+			select {
+			case errc = <-bs.quit:
+			case <-wake:
 			}
 		}
 	}
+	// Report termination
+	errc <- nil
 }
 
 // Scans the network linearly from the current address, sending heartbeat
 // messages. Self connection is disabled.
-func (bs *bootstrapper) scan() {
+func (bs *Bootstrapper) scan() {
 	// Set up some initial parameters
 	size := len(bs.addr.IP)
 	mask := bs.addr.IP.DefaultMask()
@@ -218,14 +280,19 @@ func (bs *bootstrapper) scan() {
 
 	offset := 0
 	downDone, upDone := false, false
-	for {
+
+	// Scan until either the whole space is covered or termination is requested
+	var errc chan error
+	var done bool
+	for done == false && errc == nil {
 		select {
-		case <-bs.quit:
-			return
+		case errc = <-bs.quit:
+			break
 		default:
 			// Quit if both directions have been scanned
 			if downDone && upDone {
-				return
+				done = true
+				break
 			}
 			// Generate the next neighboring IP address
 			scanip := subip + offset
@@ -261,10 +328,18 @@ func (bs *bootstrapper) scan() {
 				if err != nil {
 					panic(fmt.Sprintf("failed to resolve remote bootstrapper (%v): %v.", dest, err))
 				}
-				bs.sock.WriteToUDP(bs.beatReq, raddr)
+				bs.sock.WriteToUDP(bs.request, raddr)
 			}
 			// Wait for the next cycle
-			time.Sleep(time.Duration(config.BootScan) * time.Millisecond)
+			select {
+			case errc = <-bs.quit:
+			case <-time.After(time.Duration(config.BootScan) * time.Millisecond):
+			}
 		}
 	}
+	// Wait for the termination request if needed and report
+	if errc == nil {
+		errc = <-bs.quit
+	}
+	errc <- nil
 }

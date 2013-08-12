@@ -69,11 +69,14 @@ func (o *Overlay) acceptor(ip net.IP) {
 	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
-	bootSink, quit, err := bootstrap.Boot(ip, []byte(o.overId), addr.Port)
+	booter, bootSink, err := bootstrap.New(ip, []byte(o.overId), addr.Port)
 	if err != nil {
-		panic(fmt.Sprintf("failed to start bootstrapper: %v.", err))
+		panic(fmt.Sprintf("failed to create bootstrapper: %v.", err))
 	}
-	defer close(quit)
+	if err := booter.Boot(); err != nil {
+		panic(fmt.Sprintf("failed to boot bootstrapper: %v.", err))
+	}
+	defer booter.Terminate()
 
 	// Processes the incoming connections
 	for {
@@ -129,7 +132,6 @@ func (o *Overlay) shake(ses *session.Session) {
 	p.raddr = ses.Raw().RemoteAddr().String()
 
 	p.quit = make(chan struct{})
-	p.out = make(chan *proto.Message, config.OverlayNetPreBuffer)
 	p.netIn = make(chan *proto.Message, config.OverlayNetBuffer)
 	p.netOut = ses.Communicate(p.netIn, p.quit)
 
@@ -208,8 +210,8 @@ func (o *Overlay) filter(p *peer) {
 	for _, addr := range p.addrs {
 		o.trans[addr] = p.nodeId
 	}
-	go o.sender(p)
 	go o.receiver(p)
+	log.Println("New connection initiated:", p.nodeId)
 
 	// If we swapped, terminate the old directly
 	if old != nil {
