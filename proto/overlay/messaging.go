@@ -124,7 +124,7 @@ func (o *Overlay) sendWrap(s *state, dest *big.Int, p *peer) {
 	msg := &proto.Message{
 		Head: proto.Header{
 			Meta: &header{
-				Dest:  o.nodeId,
+				Dest:  dest,
 				State: s,
 			},
 		},
@@ -192,5 +192,5 @@ func (o *Overlay) sendBeat(p *peer, passive bool) {
 	s.Updated = o.time
 	o.lock.RUnlock()
 
-	o.sendWrap(s, o.nodeId, p)
+	o.sendWrap(s, p.nodeId, p)
 }

@@ -22,6 +22,9 @@ Stuff that need implementing, fixing or testing.
         - Race condition if reply and immediate close (needs close sync with finishing ops)
     - Iris
         - Detect dead tunnel (heartbeat or topic-style node monitoring?)
+    - Overlay + Session + Stream
+        - Race condition on peer send/close
+        - Proper closing and termination (i.e. try and minimize lost messages when closing)
 - Misc
     - Overlay
         - Benchmark and tune the handshakes

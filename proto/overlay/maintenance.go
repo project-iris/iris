@@ -30,7 +30,6 @@
 package overlay
 
 import (
-	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"github.com/karalabe/iris/config"
@@ -152,7 +151,6 @@ func (o *Overlay) drop(d *peer) {
 	id := d.nodeId.String()
 	if p, ok := o.pool[id]; ok && p == d {
 		delete(o.pool, id)
-		fmt.Println(o.nodeId, "DELETE", p.nodeId)
 	}
 	for _, addr := range d.addrs {
 		delete(o.trans, addr)
