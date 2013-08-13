@@ -22,8 +22,6 @@ Stuff that need implementing, fixing or testing.
         - Race condition if reply and immediate close (needs close sync with finishing ops)
     - Iris
         - Detect dead tunnel (heartbeat or topic-style node monitoring?)
-    - Overlay
-        - Dials all interfaces of a new peer (check own networks and dial only one)
 - Misc
     - Overlay
         - Benchmark and tune the handshakes
@@ -34,4 +32,3 @@ Stuff that need implementing, fixing or testing.
         - Link: https://code.google.com/p/go/issues/detail?id=5820
         - Hack: slice[int(index_64)] = nil
         - Used: proto/iris/tunnel.go x2
-

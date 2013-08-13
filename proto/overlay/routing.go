@@ -137,17 +137,22 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 // heartbeat messages are checked and two-way idle connections dropped.
 func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 	if s.Updated == 0 {
-		// Join request, discard self joins (rare race condition suring update)
+		// Join request, discard self joins (rare race condition during update)
 		if o.nodeId.Cmp(dst) == 0 {
 			return
 		}
+		// Node joining into current's responsability list
 		if p, ok := o.pool[dst.String()]; !ok {
 			// Connect new peers and let the handshake do the state exchange
-			if addr, err := net.ResolveTCPAddr("tcp", s.Addrs[dst.String()][0]); err != nil {
-				log.Printf("failed to resolve address %v: %v.", s.Addrs[dst.String()][0], err)
-			} else {
-				o.auther.Schedule(func() { o.dial(addr) })
+			peerAddrs := make([]*net.TCPAddr, 0, len(s.Addrs[dst.String()]))
+			for _, a := range s.Addrs[dst.String()] {
+				if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
+					log.Printf("failed to resolve address %v: %v.", a, err)
+				} else {
+					peerAddrs = append(peerAddrs, addr)
+				}
 			}
+			o.auther.Schedule(func() { o.dial(peerAddrs) })
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either
 			if o.stat != done {

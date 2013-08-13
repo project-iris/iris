@@ -90,7 +90,7 @@ func (o *Overlay) acceptor(ip net.IP) {
 			}
 			// If the peer id is desirable, dial and authenticate
 			if !o.filter(boot.Peer) {
-				o.auther.Schedule(func() { o.dial(boot.Addr) })
+				o.auther.Schedule(func() { o.dial([]*net.TCPAddr{boot.Addr}) })
 			}
 		case ses := <-sesSink:
 			// Agree upon overlay states
@@ -102,13 +102,14 @@ func (o *Overlay) acceptor(ip net.IP) {
 // Checks whether a bootstrap-located peer fits into the local routing table or
 // will be just discarded anyway.
 func (o *Overlay) filter(id *big.Int) bool {
+	o.lock.RLock()
+	defer o.lock.RUnlock()
+
 	// Discard already connected nodes
 	if _, ok := o.pool[id.String()]; ok {
 		return true
 	}
-	// Access the routing table
-	o.lock.RLock()
-	defer o.lock.RUnlock()
+
 	table := o.routes
 
 	// Check for empty slot in leaf set
@@ -136,21 +137,25 @@ func (o *Overlay) filter(id *big.Int) bool {
 	return true
 }
 
-// Asynchronously connects to a remote overlay peer and executes handshake. In
-// the mean time, the overlay waitgroup is marked to signal pending connections.
-func (o *Overlay) dial(addr *net.TCPAddr) {
+// Asynchronously connects to a remote overlay peer and executes handshake.
+func (o *Overlay) dial(addrs []*net.TCPAddr) {
 	// Sanity check to make sure self connections are not possible (i.e. malicious bootstrapper)
-	for _, a := range o.addrs {
-		if addr.String() == a {
-			log.Printf("self connection not allowed: %v.", o.nodeId)
-			return
+	for _, ownAddr := range o.addrs {
+		for _, peerAddr := range addrs {
+			if peerAddr.String() == ownAddr {
+				log.Printf("self connection not allowed: %v.", o.nodeId)
+				return
+			}
 		}
 	}
-	// Dial away
-	if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err != nil {
-		log.Printf("failed to dial remote peer: %v.", err)
-	} else {
-		o.shake(ses)
+	// Dial away, trying interfaces one after the other until connection succeeds
+	for _, addr := range addrs {
+		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err == nil {
+			o.shake(ses)
+			return
+		} else {
+			log.Printf("failed to dial remote peer %v, at %v: %v.", o.overId, addr, err)
+		}
 	}
 }
 
@@ -216,8 +221,8 @@ func (o *Overlay) dedup(p *peer) {
 	o.lock.Lock()
 
 	// Keep only one active connection
-	var old *peer
-	if old, ok := o.pool[p.nodeId.String()]; ok {
+	old, ok := o.pool[p.nodeId.String()]
+	if ok {
 		keep := true
 		switch {
 		case old.laddr == p.laddr:
@@ -233,9 +238,10 @@ func (o *Overlay) dedup(p *peer) {
 			}
 		}
 		if keep {
-			fmt.Println("New connection deduped", p.nodeId)
-			close(p.quit)
 			o.lock.Unlock() // There's one more release point!
+			if err := p.Close(); err != nil {
+				log.Printf("overlay: failed to close peer connection: %v.", err)
+			}
 			return
 		}
 	}
@@ -245,11 +251,12 @@ func (o *Overlay) dedup(p *peer) {
 		o.trans[addr] = p.nodeId
 	}
 	go o.receiver(p)
-	log.Println("New connection initiated:", p.nodeId)
 
 	// If we swapped, terminate the old directly
 	if old != nil {
-		close(old.quit)
+		if err := old.Close(); err != nil {
+			log.Printf("overlay: failed to close peer connection: %v.", err)
+		}
 	}
 	// Decide whether to send a join request or a state exchange
 	status := o.stat

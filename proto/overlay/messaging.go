@@ -79,8 +79,8 @@ func (o *Overlay) receiver(p *peer) {
 		select {
 		case <-o.quit:
 			return
-		//case <-p.quit:
-		//	return
+		case <-p.quit:
+			return
 		case msg, ok := <-p.netIn:
 			if !ok {
 				o.dropSink <- p

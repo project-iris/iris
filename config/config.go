@@ -172,10 +172,7 @@ var OverlayBeatPeriod = 3000
 var OverlayInitTimeout = 5000
 
 // Time limit for sending a message before the connection is dropped (ms).
-var OverlaySendTimeout = 10000
-
-// Messages to buffer inside the overlay going out to one peer.
-var OverlayNetPreBuffer = 64
+var OverlaySendTimeout = 3000
 
 // Messages to buffer to and from the network.
 var OverlayNetBuffer = 64

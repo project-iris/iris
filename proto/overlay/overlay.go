@@ -101,7 +101,21 @@ type peer struct {
 	// Overlay state infos
 	time    uint64
 	passive bool
-	killed  bool
+
+	killFlag bool
+	killLock sync.Mutex
+}
+
+// Terminates a peer connection (hack, needs proper error channel stuff)
+func (p *peer) Close() error {
+	p.killLock.Lock()
+	defer p.killLock.Unlock()
+
+	if !p.killFlag {
+		p.killFlag = true
+		close(p.quit)
+	}
+	return nil
 }
 
 // Creates a new overlay structure with all internal state initialized, ready to

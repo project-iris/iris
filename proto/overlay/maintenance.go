@@ -30,6 +30,7 @@
 package overlay
 
 import (
+	"fmt"
 	"github.com/karalabe/cookiejar/exts/mathext"
 	"github.com/karalabe/cookiejar/exts/sortext"
 	"github.com/karalabe/iris/config"
@@ -90,20 +91,24 @@ func (o *Overlay) manager() {
 					idle = true
 				}
 			}
-			// Check the new table for discovered peers and dial each (all interfaces for now)
+			// Check the new table for discovered peers and dial each
 			if peers := o.discover(routes); len(peers) != 0 {
 				for _, id := range peers {
+					// Collect all the network interfaces
+					peerAddrs := make([]*net.TCPAddr, 0, len(addrs[id.String()]))
 					for _, a := range addrs[id.String()] {
 						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
 							log.Printf("failed to resolve address %v: %v.", a, err)
 						} else {
-							pending.Add(1)
-							o.auther.Schedule(func() {
-								defer pending.Done()
-								o.dial(addr)
-							})
+							peerAddrs = append(peerAddrs, addr)
 						}
 					}
+					// Initiate a connection to the remote peer
+					pending.Add(1)
+					o.auther.Schedule(func() {
+						defer pending.Done()
+						o.dial(peerAddrs)
+					})
 				}
 				// Wait till all outbound connections either complete or timeout
 				pending.Wait()
@@ -136,26 +141,21 @@ func (o *Overlay) manager() {
 
 // Drops an active peer connection due to either a failure or uselessness.
 func (o *Overlay) drop(d *peer) {
-	// Make sure we kill it only once
-	if !d.killed {
-		d.killed = true
-		log.Println("Dropping:", d.nodeId)
-		close(d.quit)
+	// Close the peer connection
+	if err := d.Close(); err != nil {
+		log.Printf("overlay: failed to close peer connection: %v.", err)
+	}
+	// Remove it from the overlay state
+	o.lock.Lock()
+	defer o.lock.Unlock()
 
-		// Remove it from the overlay state
-		o.lock.Lock()
-		defer o.lock.Unlock()
-
-		// Clear up leftovers
-		for id, p := range o.pool {
-			if d == p {
-				delete(o.pool, id)
-				break
-			}
-		}
-		for _, addr := range d.addrs {
-			delete(o.trans, addr)
-		}
+	id := d.nodeId.String()
+	if p, ok := o.pool[id]; ok && p == d {
+		delete(o.pool, id)
+		fmt.Println(o.nodeId, "DELETE", p.nodeId)
+	}
+	for _, addr := range d.addrs {
+		delete(o.trans, addr)
 	}
 }
 
