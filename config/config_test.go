@@ -98,9 +98,9 @@ func TestPack(t *testing.T) {
 }
 
 func TestOverlay(t *testing.T) {
-	// Ensure pastry space is default size (at least issue a warning)
-	if OverlaySpace != 128 {
-		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", OverlaySpace, 128)
+	// Ensure pastry space is reduced size (at least issue a warning)
+	if OverlaySpace != 40 {
+		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", OverlaySpace, 40)
 	}
 	if size := OverlayResolver().Size() * 8; size < OverlaySpace {
 		t.Errorf("config (overlay): resolver does not output enough bits for space: have %v, want %v.", size, OverlaySpace)
@@ -112,16 +112,10 @@ func TestOverlay(t *testing.T) {
 	if OverlaySpace%OverlayBase != 0 {
 		t.Errorf("config (overlay): address space is not divisible into bases: %v %% %v != 0", OverlaySpace, OverlayBase)
 	}
-	if OverlayLeaves != 1<<uint(OverlayBase) && OverlayLeaves != 1<<uint(OverlayBase+1) {
-		t.Errorf("config (overlay): invalid leave set size: have %v, want %v or %v.", OverlayLeaves, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
-	}
-	if OverlayNeighbors != 1<<uint(OverlayBase) && OverlayNeighbors != 1<<uint(OverlayBase+1) {
-		t.Errorf("config (overlay): invalid neghborhood size: have %v, want %v or %v.", OverlayNeighbors, 1<<uint(OverlayBase), 1<<uint(OverlayBase+1))
+	if OverlayLeaves != 1<<uint(OverlayBase-1) && OverlayLeaves != 1<<uint(OverlayBase) {
+		t.Errorf("config (overlay): invalid leave set size: have %v, want %v or %v.", OverlayLeaves, 1<<uint(OverlayBase-1), 1<<uint(OverlayBase))
 	}
 	// Make some trivial checks for the tuning parameters
-	if OverlayNetPreBuffer < 16 || OverlayNetPreBuffer > 128 {
-		t.Errorf("config (overlay): strange network pre-buffer size: have %v, want from [16..128].", OverlayNetPreBuffer)
-	}
 	if OverlayNetBuffer < 16 || OverlayNetBuffer > 128 {
 		t.Errorf("config (overlay): strange network buffer size: have %v, want from [16..128].", OverlayNetBuffer)
 	}

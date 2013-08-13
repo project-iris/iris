@@ -12,7 +12,6 @@ Stuff that need implementing, fixing or testing.
         - Exchange topic load report only for app groups, not topics
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
-        - Proximity features for Pastry?
         - Convergence check to remove annoying sleeps from tests
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
@@ -23,6 +22,8 @@ Stuff that need implementing, fixing or testing.
         - Race condition if reply and immediate close (needs close sync with finishing ops)
     - Iris
         - Detect dead tunnel (heartbeat or topic-style node monitoring?)
+    - Overlay
+        - Dials all interfaces of a new peer (check own networks and dial only one)
 - Misc
     - Overlay
         - Benchmark and tune the handshakes

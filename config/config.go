@@ -162,14 +162,11 @@ var OverlayBase = 4
 // Number of closest nodes to track in the virtual network.
 var OverlayLeaves = 8
 
-// Number of closes nodes to track in the real network.
-var OverlayNeighbors = 8
-
 // Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
 
 // Heartbeat period to ensure connections are alive and tear down unused ones (ms).
-var OverlayBeatPeriod = 10000
+var OverlayBeatPeriod = 3000
 
 // Time to wait after session setup for the init packet (ms).
 var OverlayInitTimeout = 5000

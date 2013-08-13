@@ -94,7 +94,6 @@ type peer struct {
 	raddr string
 
 	// In/out-bound transport channels and quit channel
-	out    chan *proto.Message
 	netIn  chan *proto.Message
 	netOut chan *proto.Message
 	quit   chan struct{}

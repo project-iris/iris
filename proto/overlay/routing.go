@@ -85,12 +85,6 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 			}
 		}
 	}
-	for _, peer := range tab.nears {
-		if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
-			o.forward(src, msg, peer)
-			return
-		}
-	}
 	// Well, shit. Deliver locally and hope for the best.
 	o.deliver(src, msg)
 }

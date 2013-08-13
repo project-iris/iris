@@ -47,14 +47,14 @@ func (c *carrier) Deliver(msg *proto.Message, key *big.Int) {
 	case opPub:
 		// Topic root, broadcast must be handled
 		if !c.handlePublish(msg, head.Topic, head.Prev) {
-			// Simple race condition between unsubscribe and publish, left if for debug
-			// log.Printf("carrier: couldn't handle delivered publish event: %v.", msg)
+			// Simple race condition between unsubscribe and publish, left in for debug
+			log.Printf("carrier: couldn't handle delivered publish event: %v.", msg)
 		}
 	case opBal:
 		// Topic root, balance must be handled
 		if !c.handleBalance(msg, head.Topic, head.Prev) {
-			// Simple race condition between unsubscribe and balance, left if for debug
-			// log.Printf("carrier: couldn't handle delivered balance event: %v.", msg)
+			// Simple race condition between unsubscribe and balance, left in for debug
+			log.Printf("carrier: couldn't handle delivered balance event: %v.", msg)
 		}
 	case opRep:
 		// Load report, integrate into topics
@@ -190,8 +190,8 @@ func (c *carrier) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 			if ok {
 				app.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, plain)
 			} else {
-				// Simple race condition between unsubscribe and publish, left if for debug
-				// log.Printf("carrier: unknown application %v, discarding publish: %v.", app, cpy)
+				// Simple race condition between unsubscribe and publish, left in for debug
+				log.Printf("carrier: unknown application %v, discarding publish: %v.", app, plain)
 			}
 		}
 		return true
@@ -225,8 +225,8 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 				// Deliver to the application on the specific topic
 				a.deliverPublish(&Address{head.SrcNode, head.SrcApp}, topicId, msg)
 			} else {
-				// Simple race condition between unsubscribe and publish, left if for debug
-				// log.Printf("carrier: unknown application %v, discarding balance: %v.", app, msg)
+				// Simple race condition between unsubscribe and publish, left in for debug
+				log.Printf("carrier: unknown application %v, discarding balance: %v.", app, msg)
 			}
 		}
 		return true
@@ -255,8 +255,8 @@ func (c *carrier) handleReport(src *big.Int, rep *report) {
 				}
 			}
 		} else {
-			// Simple race condition between unsubscribe and report, left if for debug
-			// log.Printf("carrier: unknown topic %v, discarding load report %v.", id, rep.Caps[i])
+			// Simple race condition between unsubscribe and report, left in for debug
+			log.Printf("carrier: unknown topic %v, discarding load report %v.", id, rep.Caps[i])
 		}
 	}
 }
@@ -279,6 +279,6 @@ func (c *carrier) handleDirect(msg *proto.Message, appId *big.Int) {
 		app.deliverDirect(&Address{head.SrcNode, head.SrcApp}, msg)
 	} else {
 		// Simple race condition between a direct send and close (e.g. tunnel ack and close), left if for debug
-		// log.Printf("carrier: unknown application %v, discarding direct: %v.", appId, msg)
+		log.Printf("carrier: unknown application %v, discarding direct: %v.", appId, msg)
 	}
 }

@@ -26,11 +26,10 @@ import (
 	"math/big"
 )
 
-// Routing table.
+// Simplified Pastry routing table.
 type table struct {
 	leaves []*big.Int
 	routes [][]*big.Int
-	nears  []*big.Int
 }
 
 // Creates a new empty routing table
@@ -46,10 +45,6 @@ func newTable(origin *big.Int) *table {
 	for i := 0; i < len(res.routes); i++ {
 		res.routes[i] = make([]*big.Int, 1<<uint(config.OverlayBase))
 	}
-
-	// Create the empty leaf set
-	res.nears = make([]*big.Int, 0, config.OverlayNeighbors)
-
 	return res
 }
 
@@ -67,9 +62,5 @@ func (t *table) Copy() *table {
 		res.routes[i] = make([]*big.Int, len(t.routes[i]))
 		copy(res.routes[i], t.routes[i])
 	}
-	// Copy the neighborhood
-	res.nears = make([]*big.Int, len(t.nears), config.OverlayLeaves)
-	copy(res.nears, t.nears)
-
 	return res
 }

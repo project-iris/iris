@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/gobber"
+	"math/big"
 	"math/rand"
 	"net"
 	"strconv"
@@ -43,14 +44,16 @@ var acceptTimeout = 250 * time.Millisecond
 
 // A direction tagged (req/resp) bootstrap event.
 type Event struct {
-	Addr *net.TCPAddr
-	Resp bool
+	Peer *big.Int     // Overlay node id of the peer
+	Addr *net.TCPAddr // TCP address of the peer
+	Resp bool         // Flag specifying bootstrap event type
 }
 
 // Bootstrap state message.
 type Message struct {
 	Version string
 	Magic   []byte
+	NodeId  *big.Int
 	Overlay int
 	Request bool
 }
@@ -76,7 +79,7 @@ type Bootstrapper struct {
 // for incoming requests and scan the same interface for other peers. The magic
 // is used to filter multiple Iris networks in the same physical network, while
 // the overlay is the TCP listener port of the DHT.
-func New(ip net.IP, magic []byte, overlay int) (*Bootstrapper, chan *Event, error) {
+func New(ip net.IP, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
 	bs := &Bootstrapper{
 		magic: magic,
 		beats: make(chan *Event, config.BootBeatsBuffer),
@@ -108,6 +111,7 @@ func New(ip net.IP, magic []byte, overlay int) (*Bootstrapper, chan *Event, erro
 	msg := Message{
 		Version: config.ProtocolVersion,
 		Magic:   magic,
+		NodeId:  node,
 		Overlay: overlay,
 		Request: true,
 	}
@@ -201,7 +205,11 @@ func (bs *Bootstrapper) accept() {
 						// Notify the maintenance routine
 						host := net.JoinHostPort(from.IP.String(), strconv.Itoa(msg.Overlay))
 						if addr, err := net.ResolveTCPAddr("tcp", host); err == nil {
-							bs.beats <- &Event{addr, !msg.Request}
+							bs.beats <- &Event{
+								Peer: msg.NodeId,
+								Addr: addr,
+								Resp: !msg.Request,
+							}
 						}
 					}
 				}

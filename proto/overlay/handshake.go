@@ -69,7 +69,7 @@ func (o *Overlay) acceptor(ip net.IP) {
 	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
-	booter, bootSink, err := bootstrap.New(ip, []byte(o.overId), addr.Port)
+	booter, bootSink, err := bootstrap.New(ip, []byte(o.overId), o.nodeId, addr.Port)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create bootstrapper: %v.", err))
 	}
@@ -84,16 +84,12 @@ func (o *Overlay) acceptor(ip net.IP) {
 		case <-o.quit:
 			return
 		case boot := <-bootSink:
-			// Discard bootstrap requests (prevent double connecting)
+			// Discard bootstrap requests (prevent simultaneous double connecting)
 			if !boot.Resp {
 				break
 			}
-			// Discard already connected nodes
-			o.lock.RLock()
-			_, ok := o.trans[boot.Addr.String()]
-			o.lock.RUnlock()
-			if !ok {
-				// Dial the remote node and authenticate it
+			// If the peer id is desirable, dial and authenticate
+			if !o.filter(boot.Peer) {
 				o.auther.Schedule(func() { o.dial(boot.Addr) })
 			}
 		case ses := <-sesSink:
@@ -101,6 +97,43 @@ func (o *Overlay) acceptor(ip net.IP) {
 			go o.shake(ses)
 		}
 	}
+}
+
+// Checks whether a bootstrap-located peer fits into the local routing table or
+// will be just discarded anyway.
+func (o *Overlay) filter(id *big.Int) bool {
+	// Discard already connected nodes
+	if _, ok := o.pool[id.String()]; ok {
+		return true
+	}
+	// Access the routing table
+	o.lock.RLock()
+	defer o.lock.RUnlock()
+	table := o.routes
+
+	// Check for empty slot in leaf set
+	for i, leaf := range table.leaves {
+		if leaf.Cmp(o.nodeId) == 0 {
+			if delta(id, leaf).Sign() >= 0 && i < config.OverlayLeaves/2 {
+				return false
+			}
+			if delta(leaf, id).Sign() >= 0 && len(table.leaves)-i < config.OverlayLeaves/2 {
+				return false
+			}
+			break
+		}
+	}
+	// Check for better leaf set
+	if delta(table.leaves[0], id).Sign() >= 0 && delta(id, table.leaves[len(table.leaves)-1]).Sign() >= 0 {
+		return false
+	}
+	// Check place in routing table
+	pre, col := prefix(o.nodeId, id)
+	if prev := table.routes[pre][col]; prev == nil {
+		return false
+	}
+	// Nowhere to insert, bin it
+	return true
 }
 
 // Asynchronously connects to a remote overlay peer and executes handshake. In
@@ -167,7 +200,7 @@ func (o *Overlay) shake(ses *session.Session) {
 		p.addrs = pkt.Addrs
 
 		// Everything ok, accept connection
-		o.filter(p)
+		o.dedup(p)
 	}
 	// Make sure we release anything associated with a failed connection
 	if !success {
@@ -179,7 +212,7 @@ func (o *Overlay) shake(ses *session.Session) {
 // already exists, either the old or the new is dropped:
 //  - If old and new have the same direction (race), keep the lower client
 //  - Otherwise server (host:port) should be smaller (covers multi-instance too)
-func (o *Overlay) filter(p *peer) {
+func (o *Overlay) dedup(p *peer) {
 	o.lock.Lock()
 
 	// Keep only one active connection
@@ -200,6 +233,7 @@ func (o *Overlay) filter(p *peer) {
 			}
 		}
 		if keep {
+			fmt.Println("New connection deduped", p.nodeId)
 			close(p.quit)
 			o.lock.Unlock() // There's one more release point!
 			return

@@ -16,10 +16,12 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package bootstrap
 
 import (
 	"github.com/karalabe/iris/config"
+	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -28,7 +30,7 @@ import (
 func TestPortSelection(t *testing.T) {
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
-		if bs, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err != nil {
+		if bs, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), big.NewInt(int64(i)), 11111); err != nil {
 			t.Fatalf("failed to create bootstrapper: %v.", err)
 		} else {
 			if err := bs.Boot(); err != nil {
@@ -38,20 +40,18 @@ func TestPortSelection(t *testing.T) {
 		}
 	}
 	// Ensure failure after all ports are used
-	if _, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), 11111); err == nil {
+	if _, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), big.NewInt(333), 11111); err == nil {
 		t.Errorf("bootstrapper created even though no ports were available.")
 	}
 }
 
 func TestScan(t *testing.T) {
-	defer time.Sleep(time.Second)
-
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	bs1, evs1, err := New(over1.IP, []byte("magic"), over1.Port)
+	bs1, evs1, err := New(over1.IP, []byte("magic"), big.NewInt(1), over1.Port)
 	if err != nil {
 		t.Fatalf("failed to create first booter: %v.", err)
 	}
@@ -60,7 +60,7 @@ func TestScan(t *testing.T) {
 	}
 	defer bs1.Terminate()
 
-	bs2, evs2, err := New(over2.IP, []byte("magic"), over2.Port)
+	bs2, evs2, err := New(over2.IP, []byte("magic"), big.NewInt(2), over2.Port)
 	if err != nil {
 		t.Fatalf("failed to create second booter: %v.", err)
 	}
@@ -100,14 +100,12 @@ func TestScan(t *testing.T) {
 }
 
 func TestMagic(t *testing.T) {
-	defer time.Sleep(time.Second)
-
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
 
 	// Start up two bootstrappers
-	bs1, evs1, err := New(over1.IP, []byte("magic1"), over1.Port)
+	bs1, evs1, err := New(over1.IP, []byte("magic1"), big.NewInt(1), over1.Port)
 	if err != nil {
 		t.Fatalf("failed to create first booter: %v.", err)
 	}
@@ -116,7 +114,7 @@ func TestMagic(t *testing.T) {
 	}
 	defer bs1.Terminate()
 
-	bs2, evs2, err := New(over2.IP, []byte("magic2"), over2.Port)
+	bs2, evs2, err := New(over2.IP, []byte("magic2"), big.NewInt(2), over2.Port)
 	if err != nil {
 		t.Fatalf("failed to create second booter: %v.", err)
 	}

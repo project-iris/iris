@@ -19,8 +19,8 @@
 
 // Contains the overlay and routing table management functionality: one manager
 // go-routine which processes state updates from all connected peers, merging
-// them into the local state and connecting nodes discovered. It is also the one
-// responsible for dropping failed and passive connections, whilse ensuring a
+// them into the local state and connecting discovered nodes. It is also the one
+// responsible for dropping failed and passive connections, while ensuring a
 // valid routing table.
 //
 // The overlay heartbeat mechanism is also implemented here: a beater thread
@@ -139,6 +139,7 @@ func (o *Overlay) drop(d *peer) {
 	// Make sure we kill it only once
 	if !d.killed {
 		d.killed = true
+		log.Println("Dropping:", d.nodeId)
 		close(d.quit)
 
 		// Remove it from the overlay state
@@ -186,10 +187,9 @@ func (o *Overlay) merge(t *table, a map[string][]string, s *state) {
 		case old == nil:
 			t.routes[row][col] = id
 		case old.Cmp(id) != 0:
-			// TODO: Proximity magic
+			// Discard new entry (less disruptive)
 		}
 	}
-	// Merge the neighborhood set (TODO)
 }
 
 // Merges two leafsets and returns the result.
@@ -230,11 +230,6 @@ func (o *Overlay) discover(t *table) []*big.Int {
 					ids = append(ids, id)
 				}
 			}
-		}
-	}
-	for _, id := range t.nears {
-		if _, ok := o.pool[id.String()]; !ok {
-			ids = append(ids, id)
 		}
 	}
 	sortext.BigInts(ids)
@@ -286,7 +281,6 @@ func (o *Overlay) revoke(t *table, downs []*big.Int) {
 			}
 		}
 	}
-	// Clean up the neighborhood set (TODO)
 }
 
 // Checks whether the routing table changed and if yes, whether it needs repairs.
@@ -315,17 +309,6 @@ func (o *Overlay) changed(t *table) (ch bool, rep bool) {
 				// Do nothing
 			case newId.Cmp(oldId) != 0:
 				ch = true
-			}
-		}
-	}
-	// Check the neighbor set
-	if len(t.nears) != len(o.routes.nears) {
-		ch = true
-	} else {
-		for i := 0; i < len(t.nears); i++ {
-			if t.nears[i].Cmp(o.routes.nears[i]) != 0 {
-				ch = true
-				break
 			}
 		}
 	}
@@ -364,11 +347,6 @@ func (o *Overlay) active(p *big.Int) bool {
 					return true
 				}
 			}
-		}
-	}
-	for _, id := range o.routes.nears {
-		if p.Cmp(id) == 0 {
-			return true
 		}
 	}
 	return false
