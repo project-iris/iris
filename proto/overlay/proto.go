@@ -27,11 +27,8 @@ package overlay
 
 import (
 	"encoding/gob"
-	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
-	"log"
 	"math/big"
-	"time"
 )
 
 // Overlay connection operation code type.
@@ -64,57 +61,10 @@ func init() {
 	gob.Register(&header{})
 }
 
-// Listens on one particular session, extracts the overlay headers out of each
-// inbound message and invokes the router to finish the job. The thread stops at
-// either overlay termination, connection termination, network error or packet
-// format error.
-func (o *Overlay) receiver(p *peer) {
-	defer func() {
-		netOut := p.netOut
-		p.netOut = nil
-		close(netOut)
-	}()
-
-	for closed := false; !closed; {
-		select {
-		case <-o.quit:
-			return
-		case <-p.quit:
-			return
-		case msg, ok := <-p.netIn:
-			if !ok {
-				o.dropSink <- p
-				return
-			}
-			// Check whether it's a close request
-			if msg.Head.Meta.(*header).Op == opClose {
-				closed = true
-			} else {
-				o.route(p, msg)
-			}
-		}
-	}
-	// Wait for the
-}
-
-// Sends an already assembled message m to peer p. To prevent the system from
-// locking up due to a slow peer, p is dropped if a timeout is reached. Quit
-// events are also checked to ensure a close immediately notifies all senders.
-func (o *Overlay) send(m *proto.Message, p *peer) {
-	timeout := time.Tick(time.Duration(config.OverlaySendTimeout) * time.Millisecond)
-	select {
-	case <-o.quit:
-		log.Println("Overlay quit, discarding message")
-		return
-	case <-p.quit:
-		log.Println("Peer connection quit, discarding message")
-		return
-	case <-timeout:
-		log.Println("Timeout, discarding message")
-		o.dropSink <- p
-		return
-	case p.netOut <- m:
-		// Ok, we're happy
+// Simple wrapper around the peer send method, to handle errors by dropping.
+func (o *Overlay) send(msg *proto.Message, p *peer) {
+	if err := p.send(msg); err != nil {
+		go func() { o.dropSink <- p }()
 	}
 }
 

@@ -83,41 +83,6 @@ type Overlay struct {
 	lock sync.RWMutex
 }
 
-// Peer state information.
-type peer struct {
-	// Virtual id and reachable addresses
-	nodeId *big.Int
-	addrs  []string
-
-	// Connection details
-	laddr string
-	raddr string
-
-	// In/out-bound transport channels and quit channel
-	netIn  chan *proto.Message
-	netOut chan *proto.Message
-	quit   chan struct{}
-
-	// Overlay state infos
-	time    uint64
-	passive bool
-
-	killFlag bool
-	killLock sync.Mutex
-}
-
-// Terminates a peer connection (hack, needs proper error channel stuff)
-func (p *peer) Close() error {
-	p.killLock.Lock()
-	defer p.killLock.Unlock()
-
-	if !p.killFlag {
-		p.killFlag = true
-		close(p.quit)
-	}
-	return nil
-}
-
 // Creates a new overlay structure with all internal state initialized, ready to
 // be booted. Self is used as the id used for discovering similar peers, and key
 // for the security.

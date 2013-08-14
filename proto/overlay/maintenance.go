@@ -63,6 +63,7 @@ func (o *Overlay) manager() {
 			o.lock.RUnlock()
 		}
 		addrs := make(map[string][]string)
+		drops := make(map[*peer]struct{})
 
 		// Block till an update or drop arrives
 		select {
@@ -71,7 +72,7 @@ func (o *Overlay) manager() {
 		case s := <-o.upSink:
 			o.merge(routes, addrs, s)
 		case d := <-o.dropSink:
-			o.drop(d)
+			drops[d] = struct{}{}
 		}
 		// Cascade merges, drops and new connections until nobody else wants in or out
 		for cascade := true; cascade; {
@@ -84,12 +85,15 @@ func (o *Overlay) manager() {
 					o.merge(routes, addrs, s)
 					cascade = true
 				case d := <-o.dropSink:
-					o.drop(d)
+					drops[d] = struct{}{}
 					cascade = true
 				default:
 					idle = true
 				}
 			}
+			// Drop all uneeded nodes
+			o.drop(drops)
+
 			// Check the new table for discovered peers and dial each
 			if peers := o.discover(routes); len(peers) != 0 {
 				for _, id := range peers {
@@ -139,21 +143,42 @@ func (o *Overlay) manager() {
 }
 
 // Drops an active peer connection due to either a failure or uselessness.
-func (o *Overlay) drop(d *peer) {
-	// Close the peer connection
-	if err := d.Close(); err != nil {
-		log.Printf("overlay: failed to close peer connection: %v.", err)
+func (o *Overlay) drop(peers map[*peer]struct{}) {
+	// Make sure there's actually something to remove
+	if len(peers) == 0 {
+		return
 	}
-	// Remove it from the overlay state
-	o.lock.Lock()
-	defer o.lock.Unlock()
+	// Close the peer connections
+	for d, _ := range peers {
+		if err := d.Close(); err != nil {
+			log.Printf("overlay: failed to close peer connection: %v.", err)
+		}
+	}
+	// Fast track expensive write lock is possible
+	change := false
+	o.lock.RLock()
+	for d, _ := range peers {
+		if p, ok := o.pool[d.nodeId.String()]; ok && p == d {
+			change = true
+			break
+		}
+	}
+	o.lock.RUnlock()
 
-	id := d.nodeId.String()
-	if p, ok := o.pool[id]; ok && p == d {
-		delete(o.pool, id)
-	}
-	for _, addr := range d.addrs {
-		delete(o.trans, addr)
+	// Remove the peers from the overlay state if needed
+	if change {
+		o.lock.Lock()
+		defer o.lock.Unlock()
+
+		for d, _ := range peers {
+			id := d.nodeId.String()
+			if p, ok := o.pool[id]; ok && p == d {
+				delete(o.pool, id)
+				for _, addr := range d.addrs {
+					delete(o.trans, addr)
+				}
+			}
+		}
 	}
 }
 

@@ -164,15 +164,11 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 // connections. To prevent resource exhaustion, a timeout is attached to the
 // handshake, the violation of which results in a dropped connection.
 func (o *Overlay) shake(ses *session.Session) {
-	p := new(peer)
-
-	p.laddr = ses.Raw().LocalAddr().String()
-	p.raddr = ses.Raw().RemoteAddr().String()
-
-	p.quit = make(chan struct{})
-	p.netIn = make(chan *proto.Message, config.OverlayNetBuffer)
-	p.netOut = ses.Communicate(p.netIn, p.quit)
-
+	p, err := o.newPeer(ses)
+	if err != nil {
+		log.Printf("overlay: failed to create peer: %v.", err)
+		return
+	}
 	// Send an init packet to the remote peer
 	pkt := new(initPacket)
 	pkt.Id = new(big.Int).Set(o.nodeId)
@@ -184,39 +180,43 @@ func (o *Overlay) shake(ses *session.Session) {
 
 	msg := new(proto.Message)
 	msg.Head.Meta = pkt
-	p.netOut <- msg
-
-	// Wait for an incoming init packet
-	timeout := time.Tick(time.Duration(config.OverlayInitTimeout) * time.Millisecond)
-	success := true
-	select {
-	case <-timeout:
-		log.Printf("session initialization timed out.")
-		success = false
-		break
-	case msg, ok := <-p.netIn:
-		if !ok {
-			// Remote closed connection before init packet
-			success = false
-			break
+	if err := p.send(msg); err != nil {
+		log.Printf("overlay: failed to send init packet: %v.", err)
+		if err := p.Close(); err != nil {
+			log.Printf("overlay: failed to close peer connection: %v.", err)
 		}
-		pkt = msg.Head.Meta.(*initPacket)
-		p.nodeId = pkt.Id
-		p.addrs = pkt.Addrs
+		return
+	}
+	// Wait for an incoming init packet
+	success := false
+	select {
+	case <-time.After(time.Duration(config.OverlayInitTimeout) * time.Millisecond):
+		log.Printf("overlay: session initialization timed out.")
+	case msg, ok := <-p.netIn:
+		if ok {
+			success = true
 
-		// Everything ok, accept connection
-		o.dedup(p)
+			pkt = msg.Head.Meta.(*initPacket)
+			p.nodeId = pkt.Id
+			p.addrs = pkt.Addrs
+
+			// Everything ok, accept connection
+			o.dedup(p)
+		}
 	}
 	// Make sure we release anything associated with a failed connection
 	if !success {
-		close(p.quit)
+		if err := p.Close(); err != nil {
+			log.Printf("overlay: failed to close peer connection: %v.", err)
+		}
 	}
 }
 
 // Filters a new peer connection to ensure there are no duplicates. In case one
 // already exists, either the old or the new is dropped:
-//  - If old and new have the same direction (race), keep the lower client
-//  - Otherwise server (host:port) should be smaller (covers multi-instance too)
+//  - Same network, same direction: keep the lower client
+//  - Same network, diff direction: keep the lower server
+//  - Diff network:                 keep the lower network
 func (o *Overlay) dedup(p *peer) {
 	o.lock.Lock()
 
@@ -225,17 +225,23 @@ func (o *Overlay) dedup(p *peer) {
 	if ok {
 		keep := true
 		switch {
+		// Same network, same direction
 		case old.laddr == p.laddr:
 			keep = old.raddr < p.raddr
 		case old.raddr == p.raddr:
 			keep = old.laddr < p.laddr
-		default:
-			// If we're the server
+
+		// Same network, different direction
+		case old.lhost == p.lhost:
 			if i := sort.SearchStrings(o.addrs, p.laddr); i < len(o.addrs) && o.addrs[i] == p.laddr {
-				keep = o.addrs[0] < p.addrs[0]
+				// We're the server in 'p', remote is the server in 'old'
+				keep = old.raddr < p.laddr
 			} else {
-				keep = o.addrs[0] > p.addrs[0]
+				keep = old.laddr < p.raddr
 			}
+		// Different network
+		default:
+			keep = old.lhost < p.lhost
 		}
 		if keep {
 			o.lock.Unlock() // There's one more release point!
@@ -250,8 +256,9 @@ func (o *Overlay) dedup(p *peer) {
 	for _, addr := range p.addrs {
 		o.trans[addr] = p.nodeId
 	}
-	go o.receiver(p)
-
+	if err := p.Start(); err != nil {
+		log.Printf("overlay: failed to start peer receiver: %v.", err)
+	}
 	// If we swapped, terminate the old directly
 	if old != nil {
 		if err := old.Close(); err != nil {

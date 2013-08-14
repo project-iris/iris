@@ -166,7 +166,7 @@ var OverlayLeaves = 8
 var OverlayResolver = md5.New
 
 // Heartbeat period to ensure connections are alive and tear down unused ones (ms).
-var OverlayBeatPeriod = 3000
+var OverlayBeatPeriod = 10000
 
 // Time to wait after session setup for the init packet (ms).
 var OverlayInitTimeout = 5000

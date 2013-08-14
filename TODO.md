@@ -13,8 +13,10 @@ Stuff that need implementing, fixing or testing.
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
         - Convergence check to remove annoying sleeps from tests
+        - Send peer close messages (dropSink) without spawning new goroutines
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
+        - Compeltely rewrite quit mechanism to chan chan error
 - Bugs
     - Thread pool
         - Terminate does not wait for threads to finish
@@ -23,7 +25,6 @@ Stuff that need implementing, fixing or testing.
     - Iris
         - Detect dead tunnel (heartbeat or topic-style node monitoring?)
     - Overlay + Session + Stream
-        - Race condition on peer send/close
         - Proper closing and termination (i.e. try and minimize lost messages when closing)
 - Misc
     - Overlay
