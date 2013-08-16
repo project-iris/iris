@@ -6,6 +6,8 @@ Stuff that need implementing, fixing or testing.
 - Planned
     - Gather and display statistics (small web server + stats publish)
 - Features
+    - Iris + Carrier + Overlay
+        - Prioritised system messages (otherwise under load they may time out)
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Carrier

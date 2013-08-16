@@ -152,7 +152,7 @@ func main() {
 		panic(err)
 	}
 	// Wait for boot to complete
-	time.Sleep(60 * time.Second)
+	time.Sleep(15 * time.Second)
 
 	// Create and boot a new relay
 	log.Printf("main: booting relay service...")

@@ -184,7 +184,7 @@ var OverlayAuthThreads = 8
 var OverlayExchThreads = 128
 
 // Heartbeat period to distribute current cpu load and also check liveliness (ms).
-var CarrierBeatPeriod = 500
+var CarrierBeatPeriod = 750
 
 // Number of missed heartbeats after which to consider a node down.
 var CarrierKillCount = 3
