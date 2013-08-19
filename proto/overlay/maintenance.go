@@ -30,9 +30,9 @@
 package overlay
 
 import (
-	"github.com/karalabe/cookiejar/exts/mathext"
-	"github.com/karalabe/cookiejar/exts/sortext"
 	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/ext/mathext"
+	"github.com/karalabe/iris/ext/sortext"
 	"github.com/karalabe/iris/pool"
 	"log"
 	"math/big"

@@ -25,7 +25,7 @@ package pool
 
 import (
 	"fmt"
-	"github.com/karalabe/cookiejar/queue"
+	"github.com/karalabe/iris/container/queue"
 	"sync"
 )
 

@@ -20,7 +20,7 @@
 package topic
 
 import (
-	"github.com/karalabe/cookiejar/exts/sortext"
+	"github.com/karalabe/iris/ext/sortext"
 	"math/big"
 	"testing"
 	"time"

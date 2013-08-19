@@ -22,8 +22,8 @@
 package topic
 
 import (
-	"github.com/karalabe/cookiejar/exts/sortext"
 	"github.com/karalabe/iris/balancer"
+	"github.com/karalabe/iris/ext/sortext"
 	"github.com/karalabe/iris/heart"
 	"math/big"
 	"math/rand"

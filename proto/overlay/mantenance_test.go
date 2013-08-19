@@ -21,8 +21,8 @@ package overlay
 
 import (
 	"crypto/x509"
-	"github.com/karalabe/cookiejar/exts/mathext"
 	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/ext/mathext"
 	"math/big"
 	"sort"
 	"testing"
