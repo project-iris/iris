@@ -110,51 +110,51 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
 		config.StsCipher, config.StsCipherBits, config.StsSigHash)
 	if err != nil {
-		log.Printf("failed to create new session: %v\n", err)
+		log.Printf("session: failed to create new session: %v\n", err)
 		return
 	}
 	// Initiate a key exchange, send the exponential
 	exp, err := session.Initiate()
 	if err != nil {
-		log.Printf("failed to initiate key exchange: %v\n", err)
+		log.Printf("session: failed to initiate key exchange: %v\n", err)
 		return
 	}
 	err = strm.Send(authRequest{self, exp})
 	if err != nil {
-		log.Printf("failed to send auth request: %v\n", err)
+		log.Printf("session: failed to send auth request: %v\n", err)
 		return
 	}
 	err = strm.Flush()
 	if err != nil {
-		log.Printf("failed to flush auth request: %v\n", err)
+		log.Printf("session: failed to flush auth request: %v\n", err)
 		return
 	}
 	// Receive the foreign exponential and auth token and if verifies, send own auth
 	chall := new(authChallenge)
 	err = strm.Recv(chall)
 	if err != nil {
-		log.Printf("failed to receive auth challenge: %v\n", err)
+		log.Printf("session: failed to receive auth challenge: %v\n", err)
 		return
 	}
 	token, err := session.Verify(rand.Reader, skey, pkey, chall.Exp, chall.Token)
 	if err != nil {
-		log.Printf("failed to verify acceptor auth token: %v\n", err)
+		log.Printf("session: failed to verify acceptor auth token: %v\n", err)
 		return
 	}
 	err = strm.Send(authResponse{token})
 	if err != nil {
-		log.Printf("failed to send auth response: %v\n", err)
+		log.Printf("session: failed to send auth response: %v\n", err)
 		return
 	}
 	err = strm.Flush()
 	if err != nil {
-		log.Printf("failed to flush auth response: %v\n", err)
+		log.Printf("session: failed to flush auth response: %v\n", err)
 		return
 	}
 	// Protocol done, other side should finalize if all is correct
 	secret, err := session.Secret()
 	if err != nil {
-		log.Printf("failed to retrieve exchanged secret: %v\n", err)
+		log.Printf("session: failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
 	return newSession(strm, secret, true), nil
@@ -173,53 +173,53 @@ func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rs
 	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
 		config.StsCipher, config.StsCipherBits, config.StsSigHash)
 	if err != nil {
-		log.Printf("failed to create new session: %v\n", err)
+		log.Printf("session: failed to create new session: %v\n", err)
 		return
 	}
 	// Receive foreign exponential, accept the incoming key exchange request and send back own exp + auth token
 	req := new(authRequest)
 	err = strm.Recv(req)
 	if err != nil {
-		log.Printf("failed to decode auth request: %v\n", err)
+		log.Printf("session: failed to decode auth request: %v\n", err)
 		return
 	}
 	_, ok := store[req.Id]
 	if !ok {
-		log.Printf("unknown connecting client: %v\n", req.Id)
+		log.Printf("session: unknown connecting client: %v\n", req.Id)
 		err = errors.New("unknown client")
 		return
 	}
 	exp, token, err := session.Accept(rand.Reader, key, req.Exp)
 	if err != nil {
-		log.Printf("failed to accept incoming exchange: %v\n", err)
+		log.Printf("session: failed to accept incoming exchange: %v\n", err)
 		return
 	}
 	err = strm.Send(authChallenge{exp, token})
 	if err != nil {
-		log.Printf("failed to encode auth challenge: %v\n", err)
+		log.Printf("session: failed to encode auth challenge: %v\n", err)
 		return
 	}
 	err = strm.Flush()
 	if err != nil {
-		log.Printf("failed to flush auth challenge: %v\n", err)
+		log.Printf("session: failed to flush auth challenge: %v\n", err)
 		return
 	}
 	// Receive the foreign auth token and if verifies conclude session
 	resp := new(authResponse)
 	err = strm.Recv(resp)
 	if err != nil {
-		log.Printf("failed to decode auth response: %v\n", err)
+		log.Printf("session: failed to decode auth response: %v\n", err)
 		return
 	}
 	err = session.Finalize(store[req.Id], resp.Token)
 	if err != nil {
-		log.Printf("failed to finalize exchange: %v\n", err)
+		log.Printf("session: failed to finalize exchange: %v\n", err)
 		return
 	}
 	// Protocol done
 	secret, err := session.Secret()
 	if err != nil {
-		log.Printf("failed to retrieve exchanged secret: %v\n", err)
+		log.Printf("session: failed to retrieve exchanged secret: %v\n", err)
 		return
 	}
 	sink <- newSession(strm, secret, false)

@@ -152,7 +152,7 @@ func (s *Session) sender(net chan *proto.Message, quit chan struct{}) {
 func (s *Session) send(msg *proto.Message) error {
 	// Flatten and encrypt the headers
 	if err := s.outCoder.Encode(msg.Head); err != nil {
-		log.Printf("failed to encode header %v: %v", msg.Head, err)
+		log.Printf("session: failed to encode header %v: %v", msg.Head, err)
 		return err
 	}
 	s.outCipher.XORKeyStream(s.outBuffer.Bytes(), s.outBuffer.Bytes())

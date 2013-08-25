@@ -143,7 +143,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 	for _, ownAddr := range o.addrs {
 		for _, peerAddr := range addrs {
 			if peerAddr.String() == ownAddr {
-				log.Printf("self connection not allowed: %v.", o.nodeId)
+				log.Printf("overlay: self connection not allowed: %v.", o.nodeId)
 				return
 			}
 		}
@@ -154,7 +154,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 			o.shake(ses)
 			return
 		} else {
-			log.Printf("failed to dial remote peer %v, at %v: %v.", o.overId, addr, err)
+			log.Printf("overlay: failed to dial remote peer %v, at %v: %v.", o.overId, addr, err)
 		}
 	}
 }
