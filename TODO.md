@@ -7,7 +7,7 @@ Stuff that need implementing, fixing or testing.
     - Gather and display statistics (small web server + stats publish)
 - Features
     - Iris + Carrier + Overlay
-        - Prioritised system messages (otherwise under load they may time out)
+        - Prioritized system messages (otherwise under load they may time out)
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Carrier
@@ -18,7 +18,7 @@ Stuff that need implementing, fixing or testing.
         - Send peer close messages (dropSink) without spawning new goroutines
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
-        - Compeltely rewrite quit mechanism to chan chan error
+        - Completely rewrite quit mechanism to chan chan error
 - Bugs
     - Thread pool
         - Terminate does not wait for threads to finish
