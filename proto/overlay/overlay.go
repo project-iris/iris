@@ -76,11 +76,10 @@ type Overlay struct {
 	dropSink chan *peer
 	quit     chan struct{}
 
-	// Thread pool to limit thread proliferation
-	auther *pool.ThreadPool
-
-	// Syncer for state mods after booting
-	lock sync.RWMutex
+	// Miscellaneous fields
+	auther *pool.ThreadPool // Limits thread proliferation
+	stable sync.WaitGroup   // Syncer for reaching convergence
+	lock   sync.RWMutex     // Syncer for state mods after booting
 }
 
 // Creates a new overlay structure with all internal state initialized, ready to
@@ -119,11 +118,12 @@ func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
 
 // Boots the overlay network: it starts up boostrappers and connection acceptors
 // on all local IPv4 interfaces, after which the overlay management is booted.
-func (o *Overlay) Boot() error {
+// The method returns the number of remote peers after convergence is reached.
+func (o *Overlay) Boot() (int, error) {
 	// Start the individual acceptors
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok {
@@ -133,11 +133,24 @@ func (o *Overlay) Boot() error {
 		}
 	}
 	// Start the overlay processes
+	o.stable.Add(1)
 	go o.manager()
 	go o.beater()
-
 	o.auther.Start()
-	return nil
+
+	// Wait for convergence and report remote connections
+	o.stable.Wait()
+
+	o.lock.RLock()
+	defer o.lock.RUnlock()
+
+	peers := 0
+	for _, p := range o.pool {
+		if o.active(p.nodeId) {
+			peers++
+		}
+	}
+	return peers, nil
 }
 
 // Sends a termination signal to all the go routines part of the overlay.

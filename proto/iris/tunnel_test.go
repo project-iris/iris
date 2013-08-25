@@ -36,12 +36,9 @@ func startCarrier() (carrier.Carrier, error) {
 
 	// Create and boot a new carrier
 	car := carrier.New("iris", key)
-	if err := car.Boot(); err != nil {
+	if _, err := car.Boot(); err != nil {
 		return nil, err
 	}
-	// Wait for boot to complete
-	time.Sleep(time.Second)
-
 	return car, nil
 }
 

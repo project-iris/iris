@@ -112,27 +112,21 @@ func TestMaintenance(t *testing.T) {
 	nodes := []*Overlay{}
 	for i := 0; i < originals; i++ {
 		nodes = append(nodes, New(appId, key, new(nopCallback)))
-		if err := nodes[i].Boot(); err != nil {
+		if _, err := nodes[i].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}
 		defer nodes[i].Shutdown()
 	}
-	// Wait a while for the handshakes to complete
-	time.Sleep(5 * time.Second)
-
 	// Check the routing tables
 	checkRoutes(t, nodes)
 
 	// Start some additional nodes and ensure still valid routing state
 	for i := 0; i < additions; i++ {
 		nodes = append(nodes, New(appId, key, new(nopCallback)))
-		if err := nodes[len(nodes)-1].Boot(); err != nil {
+		if _, err := nodes[len(nodes)-1].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}
 	}
-	// Wait a while for the handshakes to complete
-	time.Sleep(5 * time.Second)
-
 	// Check the routing tables
 	checkRoutes(t, nodes)
 

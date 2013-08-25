@@ -55,6 +55,10 @@ func (o *Overlay) manager() {
 	exchPool.Start()
 	defer exchPool.Terminate()
 
+	// Mark the overlay as unstable
+	stable := false
+	stableTime := time.Duration(config.OverlayBootTimeout)
+
 	for {
 		// Copy the existing routing table if required
 		if routes == nil {
@@ -66,14 +70,31 @@ func (o *Overlay) manager() {
 		drops := make(map[*peer]struct{})
 
 		// Block till an update or drop arrives
-		select {
-		case <-o.quit:
-			return
-		case s := <-o.upSink:
-			o.merge(routes, addrs, s)
-		case d := <-o.dropSink:
-			drops[d] = struct{}{}
+		for idle := true; idle; {
+			idle = false
+			select {
+			case <-o.quit:
+				return
+			case s := <-o.upSink:
+				o.merge(routes, addrs, s)
+			case d := <-o.dropSink:
+				drops[d] = struct{}{}
+			case <-time.After(stableTime * time.Millisecond):
+				// No update arrived for a while, consider stable
+				idle = true
+				if !stable {
+					stable = true
+					o.stable.Done()
+				}
+			}
 		}
+		// Mark overlay as unstable again and set a reduced convergence timeout
+		if stable {
+			stable = false
+			o.stable.Add(1)
+		}
+		stableTime = time.Duration(config.OverlayConvTimeout)
+
 		// Cascade merges, drops and new connections until nobody else wants in or out
 		for cascade := true; cascade; {
 			cascade = false

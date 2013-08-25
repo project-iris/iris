@@ -66,13 +66,11 @@ func TestRouting(t *testing.T) {
 	nodes := []*Overlay{}
 	for i := 0; i < peers; i++ {
 		nodes = append(nodes, New(appId, key, apps[i]))
-		if err := nodes[i].Boot(); err != nil {
+		if _, err := nodes[i].Boot(); err != nil {
 			t.Errorf("failed to boot nodes: %v.", err)
 		}
 		defer nodes[i].Shutdown()
 	}
-	// Wait a while for the handshakes to complete
-	time.Sleep(3 * time.Second)
 
 	// Create the messages to pass around
 	meta := []byte{0x99, 0x98, 0x97, 0x96}
@@ -197,9 +195,6 @@ func benchmarkPassing(b *testing.B, block int) {
 	recv.Boot()
 	defer recv.Shutdown()
 
-	// Wait a while for booting to finish
-	time.Sleep(3 * time.Second)
-
 	// Reset timer and start message passing
 	b.ResetTimer()
 	recvApp.Deliver(nil, nil)
@@ -289,8 +284,6 @@ func benchmarkThroughput(b *testing.B, block int) {
 			send.Send(recv.nodeId, &msgs[i])
 		}
 	}
-	// Wait a while for booting to finish
-	time.Sleep(3 * time.Second)
 
 	// Reset timer and start message passing
 	b.ResetTimer()

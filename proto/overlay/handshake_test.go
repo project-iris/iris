@@ -81,20 +81,17 @@ func TestHandshake(t *testing.T) {
 
 	// Start first overlay node
 	alice := New(appId, key, new(nopCallback))
-	if err := alice.Boot(); err != nil {
+	if _, err := alice.Boot(); err != nil {
 		t.Errorf("failed to boot alice: %v.", err)
 	}
 	defer alice.Shutdown()
 
 	// Start second overlay node
 	bob := New(appId, key, new(nopCallback))
-	if err := bob.Boot(); err != nil {
+	if _, err := bob.Boot(); err != nil {
 		t.Errorf("failed to boot bob: %v.", err)
 	}
 	defer bob.Shutdown()
-
-	// Wait a while for the handshakes to complete
-	time.Sleep(time.Second)
 
 	// Verify that they found each other
 	if size := len(alice.pool); size != 1 {
@@ -110,12 +107,9 @@ func TestHandshake(t *testing.T) {
 
 	// Start a second application
 	eve := New(appIdBad, key, new(nopCallback))
-	if err := eve.Boot(); err != nil {
+	if _, err := eve.Boot(); err != nil {
 		t.Errorf("failed to boot eve: %v.", err)
 	}
-
-	// Wait a while for any handshakes to complete
-	time.Sleep(time.Second)
 
 	// Ensure that eve hasn't been added (app filtering)
 	if len(eve.pool) != 0 {
@@ -134,13 +128,10 @@ func TestHandshake(t *testing.T) {
 
 	// Start a malicious node impersonating the app but invalid key
 	mallory := New(appId, bad, new(nopCallback))
-	if err := mallory.Boot(); err != nil {
+	if _, err := mallory.Boot(); err != nil {
 		t.Errorf("failed to boot mallory: %v.", err)
 	}
 	defer mallory.Shutdown()
-
-	// Wait a while for any handshakes to complete
-	time.Sleep(time.Second)
 
 	// Ensure that mallory hasn't been added (invalid security key)
 	if len(mallory.pool) != 0 {

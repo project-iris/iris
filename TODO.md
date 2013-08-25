@@ -8,13 +8,14 @@ Stuff that need implementing, fixing or testing.
 - Features
     - Iris + Carrier + Overlay
         - Prioritized system messages (otherwise under load they may time out)
+    - Carrier + Overlay
+        - Implement proper statictics gathering and reporting mechanism (and remove them from the Boot func)
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Carrier
         - Exchange topic load report only for app groups, not topics
     - Overlay
         - Limit number of parallel incoming STS handshakes (CPU exhaustion)
-        - Convergence check to remove annoying sleeps from tests
         - Send peer close messages (dropSink) without spawning new goroutines
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)

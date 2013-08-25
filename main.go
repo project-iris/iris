@@ -36,7 +36,6 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
-	"time"
 )
 
 // Command line flags
@@ -167,19 +166,20 @@ func main() {
 	// Create and boot a new carrier
 	log.Printf("main: booting carrier...")
 	car := carrier.New(clusterId, rsaKey)
-	if err := car.Boot(); err != nil {
-		panic(err)
+	if peers, err := car.Boot(); err != nil {
+		log.Fatalf("main: failed to boot carrier: %v.", err)
+	} else {
+		log.Printf("main: carrier converged with %v remote connections.", peers)
 	}
-	// Wait for boot to complete
-	time.Sleep(15 * time.Second)
-
 	// Create and boot a new relay
 	log.Printf("main: booting relay service...")
 	rel, err := relay.New(relayPort, car)
 	if err != nil {
-		panic(err)
+		log.Fatalf("main: failed to create relay service: %v.", err)
 	}
-	rel.Boot()
+	if err := rel.Boot(); err != nil {
+		log.Fatalf("main: failed to boot relay: %v.", err)
+	}
 
 	// Capture termination signals
 	quit := make(chan os.Signal, 1)

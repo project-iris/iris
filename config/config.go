@@ -165,6 +165,12 @@ var OverlayLeaves = 8
 // Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
 
+// Time after booting to consider the overlay a single node in the network (ms).
+var OverlayBootTimeout = 10000
+
+// Idle time after which to consider the overlay converged (ms).
+var OverlayConvTimeout = 3000
+
 // Heartbeat period to ensure connections are alive and tear down unused ones (ms).
 var OverlayBeatPeriod = 10000
 

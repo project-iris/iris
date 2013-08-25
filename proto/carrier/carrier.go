@@ -34,7 +34,7 @@ import (
 
 // The carrier interface to route all messages to desired topics.
 type Carrier interface {
-	Boot() error
+	Boot() (int, error)
 	Shutdown()
 	Connect(cb ConnectionCallback) *Connection
 }
@@ -63,13 +63,14 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 	return c
 }
 
-// Boots the message carrier.
-func (c *carrier) Boot() error {
-	if err := c.transport.Boot(); err != nil {
-		return err
+// Boots the message carrier, returning the numner of remote peers.
+func (c *carrier) Boot() (int, error) {
+	peers, err := c.transport.Boot()
+	if err != nil {
+		return 0, err
 	}
 	c.heart.Start()
-	return nil
+	return peers, nil
 }
 
 // Terminates the carrier and all lower layer network primitives.
