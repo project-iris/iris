@@ -1,15 +1,11 @@
-  Iris - Distributed Messaging Framework
-==========================================
+  Iris - Decentralized Messaging Framework
+============================================
 
-Source code is mostly released when publications catch up.
+  Contributions
+-----------------
 
-  Publications
-----------------
+Currently my development aims are to stabilize the project and its language bindings. Hence, although I'm open and very happy for any and all contributions, the most valuable ones are tests, benchmarks and bug-fixes.
 
-Szilágyi, Péter: *Decentralized bootstrapping in clouds.* [Author's copy!](https://github.com/downloads/karalabe/iris/2012%20-%20Szilagyi%20-%20Decentralized%20bootstrapping%20in%20clouds%20%28SISY12%29.pdf)
- - Published: 2012 IEEE 10th Jubilee International Symposium on Intelligent Systems and Informatics (SISY)
- - Available: [IEEE Xplore](http://dx.doi.org/10.1109/SISY.2012.6339529)
+Due to the already significant complexity of the project, I kindly ask anyone willing to pinch in to first file an [issue](https://github.com/karalabe/iris/issues) with their plans to achieve a best possible integration :).
 
- 
-Szilágyi, Péter: *Secure communication in a peer-to-peer based message oriented middleware.*
- - Submitted: Elsevier Computer Networks
+Additionally, to prevent copyright disputes and such, a signed contributor license agreement is required to be on file before any material can be accepted into the official repositories. These can be filled online via either the [Individual Contributor License Agreement](http://iris.karalabe.com/icla) or the [Corporate Contributor License Agreement](http://iris.karalabe.com/ccla).

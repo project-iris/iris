@@ -1,4 +1,4 @@
-// Iris - Distributed Messaging Framework
+// Iris - Decentralized Messaging Framework
 // Copyright 2013 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
@@ -20,10 +20,10 @@ package hkdf_test
 
 import (
 	"bytes"
-	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
+	"github.com/karalabe/iris/crypto/hkdf"
 	"io"
 )
 

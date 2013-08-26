@@ -1,4 +1,4 @@
-// Iris - Distributed Messaging Framework
+// Iris - Decentralized Messaging Framework
 // Copyright 2013 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
@@ -26,8 +26,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	_ "crypto/sha1"
-	"crypto/sts"
 	"fmt"
+	"github.com/karalabe/iris/crypto/sts"
 	"math/big"
 )
 

@@ -1,4 +1,4 @@
-// Iris - Distributed Messaging Framework
+// Iris - Decentralized Messaging Framework
 // Copyright 2013 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
@@ -461,7 +461,7 @@ func TestSecret(t *testing.T) {
 				t.Errorf("test %d: failed to retrieve acceptor's secret: %v", i, err)
 			} else {
 				if !bytes.Equal(iniSecret, accSecret) {
-					t.Errorf("test %d: secret mismatch: initiator %v, acceptor %v", i, err, iniSecret, accSecret)
+					t.Errorf("test %d: secret mismatch: initiator %v, acceptor %v", i, iniSecret, accSecret)
 				}
 			}
 		}
