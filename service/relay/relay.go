@@ -48,14 +48,14 @@ type relay struct {
 	// Network layer fields
 	sock     net.Conn          // Network connection to the attached client
 	sockBuf  *bufio.ReadWriter // Buffered access to the network socket
-	sockLock sync.Mutex        // Mutex to atomise message sending
+	sockLock sync.Mutex        // Mutex to atomize message sending
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
 
 	// Bookkeeping fields
 	done chan *relay     // Channel on which to signal termination
-	quit chan chan error // Quit channe to synchronize relay termination
+	quit chan chan error // Quit channel to synchronize relay termination
 	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 

@@ -16,6 +16,8 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// Package session implements an encrypted gob stream based on the STS protocol.
 package session
 
 import (
