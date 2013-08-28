@@ -17,40 +17,29 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
+// Contains some helper routines for the iris commands.
+
 package main
 
 import (
-	"fmt"
-	"os"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"io/ioutil"
 )
 
-func main() {
-	// Extract the subcommand if any was specified
-	cmd := "iris"
-	if len(os.Args) > 1 {
-		cmd = os.Args[1]
+// Tries to load an RSA private key from a file in either PEM or DER format,
+// returning wither the parsed key or the error reason.
+func parseRsaKey(path string) (*rsa.PrivateKey, error) {
+	// Read the key contents
+	rsaData, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
-	// Switch logic based on command
-	switch cmd {
-	case "gateway":
-		// Fetch the subcommand
-		subCmd := ""
-		if len(os.Args) > 2 {
-			subCmd = os.Args[2]
-		}
-		// Switch the entry based on the gateway subcommand
-		switch subCmd {
-		case "init":
-			gateInitMain()
-		case "add":
-			gateAddMain()
-		case "rem":
-			// gateRemMain()
-		default:
-			fmt.Fprintf(os.Stderr, "invalid subcommand \"%s\" for command gateway\n", subCmd)
-			os.Exit(1)
-		}
-	default:
-		irisMain()
+	// Try processing as PEM format
+	if block, _ := pem.Decode(rsaData); block != nil {
+		return x509.ParsePKCS1PrivateKey(block.Bytes)
 	}
+	// Give it a shot as simple binary DER
+	return x509.ParsePKCS1PrivateKey(rsaData)
 }
