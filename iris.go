@@ -78,6 +78,9 @@ func irisUsage() {
 	})
 	fmt.Printf("\n")
 
+	//fmt.Printf("Extending services:\n")
+	//fmt.Printf("\n")
+
 	fmt.Printf("Helper commands:\n")
 	fmt.Printf("\t%-25s%s\n", "gateway add", "adds a remote network to the local gateway")
 	fmt.Printf("\t%-25s%s\n", "gateway init", "initializes a local gateway configuration")

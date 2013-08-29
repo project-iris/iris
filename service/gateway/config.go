@@ -21,6 +21,7 @@ package gateway
 
 import (
 	"crypto"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -39,7 +40,7 @@ type Network struct {
 	Key       []byte   `json:"key"`
 	Signature []byte   `json:"signature,omitempty"`
 	Gateways  []string `json:"gateways"`
-	Allow     string   `json:"allow,omitempty"`
+	Access    string   `json:"access,omitempty"`
 }
 
 // Initializes an empty gateway configuration blob, ready to accept remote
@@ -69,10 +70,46 @@ func InitNetworkConfig(net string, key *rsa.PrivateKey) ([]byte, error) {
 	return json.MarshalIndent(config, "", "  ")
 }
 
+// Adds a network to an existing gateway configuration. Note, that all arguments
+// are expected to be pre-validated!
+func AddNetwork(config []byte, net []byte, access string, gates []string, key *rsa.PrivateKey) ([]byte, error) {
+	// Parse the gateway and network config blobs
+	gateConf, err := parseGatewayConfig(config, &key.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	netConf, err := parseNetworkConfig(net)
+	if err != nil {
+		return nil, err
+	}
+	// Dedup networks
+	for _, n := range gateConf.Networks {
+		if n.Name == netConf.Name {
+			return nil, fmt.Errorf("network already exists")
+		}
+	}
+	// Calculate the remote network's public key signature
+	hasher := sha256.New()
+	if _, err := hasher.Write(netConf.Key); err != nil {
+		return nil, err
+	}
+	sign, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hasher.Sum(nil))
+	if err != nil {
+		return nil, err
+	}
+	netConf.Signature = sign
+
+	// Set the outstanding variables, insert and marshal
+	netConf.Access = access
+	netConf.Gateways = gates
+
+	gateConf.Networks = append(gateConf.Networks, *netConf)
+	return marshalGatewayConfig(gateConf)
+}
+
 // Parses a JSON configuration string, verifies all cryptographic keys and
-// signatures against the node key and executes some sanity checks. If all
-// pass, the configuration structure is returned.
-func Parse(config []byte, key *rsa.PublicKey) (*Config, error) {
+// signatures against the node key.
+func parseGatewayConfig(config []byte, key *rsa.PublicKey) (*Config, error) {
 	// Parse the JSON structure
 	conf := new(Config)
 	if err := json.Unmarshal(config, conf); err != nil {
@@ -80,6 +117,10 @@ func Parse(config []byte, key *rsa.PublicKey) (*Config, error) {
 	}
 	// Verify all public keys
 	for _, net := range conf.Networks {
+		if _, err := x509.ParsePKIXPublicKey(net.Key); err != nil {
+			return nil, err
+		}
+		// Verify the signature
 		hasher := sha256.New()
 		if _, err := hasher.Write(net.Key); err != nil {
 			return nil, err
@@ -89,13 +130,38 @@ func Parse(config []byte, key *rsa.PublicKey) (*Config, error) {
 		}
 	}
 	// Sanity checks on the config values
-	if len(conf.Networks) == 0 {
-		return nil, fmt.Errorf("no remote networks")
+	// if len(conf.Networks) == 0 {
+	// 	return nil, fmt.Errorf("no remote networks")
+	// }
+	// for _, net := range conf.Networks {
+	// 	if len(net.Gateways) == 0 {
+	// 		return nil, fmt.Errorf("no gateways for network %v", net.Name)
+	// 	}
+	// }
+	return conf, nil
+}
+
+// Parses a JSON configuration string of a remote network stats.
+func parseNetworkConfig(config []byte) (*Network, error) {
+	// Parse the JSON structure
+	conf := new(Network)
+	if err := json.Unmarshal(config, conf); err != nil {
+		return nil, err
 	}
-	for _, net := range conf.Networks {
-		if len(net.Gateways) == 0 {
-			return nil, fmt.Errorf("no gateways for network %v", net.Name)
-		}
+	// Sanity checks on some fields
+	if conf.Name == "" {
+		return nil, fmt.Errorf("missing name")
+	}
+	if conf.Key == nil {
+		return nil, fmt.Errorf("missing key")
+	}
+	if _, err := x509.ParsePKIXPublicKey(conf.Key); err != nil {
+		return nil, err
 	}
 	return conf, nil
+}
+
+// Marshals a gateway config structure into a JSON byte stream.
+func marshalGatewayConfig(config *Config) ([]byte, error) {
+	return json.MarshalIndent(config, "", "  ")
 }

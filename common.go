@@ -25,7 +25,9 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"io/ioutil"
+	"os"
 )
 
 // Tries to load an RSA private key from a file in either PEM or DER format,
@@ -42,4 +44,10 @@ func parseRsaKey(path string) (*rsa.PrivateKey, error) {
 	}
 	// Give it a shot as simple binary DER
 	return x509.ParsePKCS1PrivateKey(rsaData)
+}
+
+// Similar to the log.Fatalf, only using fmt instead of log.
+func fatalf(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
 }
