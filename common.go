@@ -46,8 +46,20 @@ func parseRsaKey(path string) (*rsa.PrivateKey, error) {
 	return x509.ParsePKCS1PrivateKey(rsaData)
 }
 
-// Similar to the log.Fatalf, only using fmt instead of log.
-func fatalf(format string, args ...interface{}) {
+// Similar to the log.Fatalf, only using fmt instead of log. Beside the output
+// arguments, the last one can be a function to execute before terminating.
+func fatal(format string, args ...interface{}) {
+	// Extract last argument if a function
+	f, ok := args[len(args)-1].(func())
+	if ok {
+		args = args[:len(args)-1]
+	}
+	// Format and output the string
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+
+	// Execute any pending method and terminate
+	if ok {
+		f()
+	}
 	os.Exit(1)
 }

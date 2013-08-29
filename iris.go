@@ -108,8 +108,7 @@ func parseIrisFlags() (int, string, *rsa.PrivateKey, string, string) {
 
 	// Check the relay port range
 	if *relayPort <= 0 || *relayPort >= 65536 {
-		fmt.Fprintf(os.Stderr, "Invalid relay port: have %v, want [1-65535].\n", *relayPort)
-		os.Exit(1)
+		fatal("Invalid relay port: have %v, want [1-65535].", *relayPort)
 	}
 	// User random network id and RSA key in developer mode
 	if *devMode {
@@ -117,8 +116,7 @@ func parseIrisFlags() (int, string, *rsa.PrivateKey, string, string) {
 		fmt.Printf("Entering developer mode\n")
 		fmt.Printf("Generating random RSA key... ")
 		if key, err := rsa.GenerateKey(rand.Reader, 2048); err != nil {
-			fmt.Printf("failed: %v\n", err)
-			os.Exit(1)
+			fatal("failed: %v", err)
 		} else {
 			fmt.Printf("done.\n")
 			rsaKey = key
@@ -131,18 +129,13 @@ func parseIrisFlags() (int, string, *rsa.PrivateKey, string, string) {
 	} else {
 		// Production mode, read the network id and RSA key from the arguments
 		if *networkName == "" {
-			fmt.Fprintf(os.Stderr, "No network specified (-net), did you intend developer mode (-dev)?\n")
-			irisUsage()
-			os.Exit(1)
+			fatal("No network specified (-net), did you intend developer mode (-dev)?", irisUsage)
 		}
 		if *rsaKeyPath == "" {
-			fmt.Fprintf(os.Stderr, "No RSA key specified (-rsa), did you intend developer mode (-dev)?\n")
-			irisUsage()
-			os.Exit(1)
+			fatal("No RSA key specified (-rsa), did you intend developer mode (-dev)?", irisUsage)
 		}
 		if key, err := parseRsaKey(*rsaKeyPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Loading RSA key failed: %v.\n", err)
-			os.Exit(1)
+			fatal("Loading RSA key failed: %v.", err)
 		} else {
 			rsaKey = key
 		}

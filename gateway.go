@@ -68,29 +68,21 @@ func parseGateInitFlags() (string, *rsa.PrivateKey, *net.TCPAddr, string, string
 
 	// Validate the command line arguments
 	if *networkName == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a network name (-net)!\n")
-		gateInitUsage()
-		os.Exit(1)
+		fatal("You must specify a network name (-net)!", gateInitUsage)
 	}
 	if *rsaKeyPath == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a private key (-rsa)!\n")
-		gateInitUsage()
-		os.Exit(1)
+		fatal("You must specify a private key (-rsa)!", gateInitUsage)
 	}
 	key, err := parseRsaKey(*rsaKeyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Loading RSA key failed: %v.\n", err)
-		os.Exit(1)
+		fatal("Loading RSA key failed: %v.", err)
 	}
 	if *gateAddr == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a local listener address for the gateway (-addr)!\n")
-		gateInitUsage()
-		os.Exit(1)
+		fatal("You must specify a local listener address for the gateway (-addr)!", gateInitUsage)
 	}
 	addr, err := net.ResolveTCPAddr("tcp", *gateAddr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid gateway listener address: %v.\n", err)
-		os.Exit(1)
+		fatal("Invalid gateway listener address: %v.", err)
 	}
 	return *networkName, key, addr, *gateConfPath, *netConfPath
 }
@@ -105,8 +97,7 @@ func gateInitMain() {
 	} else {
 		if gatePath != "" {
 			if err := ioutil.WriteFile(gatePath, config, 0640); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to export gateway config \"%s\": %v\n", gatePath, err)
-				os.Exit(1)
+				fatal("Failed to export gateway config \"%s\": %v.", gatePath, err)
 			} else {
 				fmt.Printf("Initialized gateway config, exported into \"%s\"\n", gatePath)
 			}
@@ -121,8 +112,7 @@ func gateInitMain() {
 	} else {
 		if netPath != "" {
 			if err := ioutil.WriteFile(netPath, config, 0640); err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to export network config \"%s\": %v\n", netPath, err)
-				os.Exit(1)
+				fatal("Failed to export network config \"%s\": %v.", netPath, err)
 			} else {
 				fmt.Printf("Initialized network config, exported into \"%s\"\n", netPath)
 			}
@@ -164,45 +154,32 @@ func parseGateAddFlags() (*rsa.PrivateKey, string, string, string, []string) {
 
 	// Validate the command line arguments
 	if *rsaKeyPath == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a private key (-rsa)!\n")
-		gateAddUsage()
-		os.Exit(1)
+		fatal("You must specify a private key (-rsa)!", gateAddUsage)
 	}
 	key, err := parseRsaKey(*rsaKeyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Loading RSA key failed: %v.\n", err)
-		os.Exit(1)
+		fatal("Loading RSA key failed: %v.", err)
 	}
 	if *gateConfPath == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a gateway configuration to modify (-gate)!\n")
-		gateAddUsage()
-		os.Exit(1)
+		fatal("You must specify a gateway configuration to modify (-gate)!", gateAddUsage)
 	}
 	if *netConfPath == "" {
-		fmt.Fprintf(os.Stderr, "You must specify a network configuration to insert (-remote)!\n")
-		gateAddUsage()
-		os.Exit(1)
+		fatal("You must specify a network configuration to insert (-remote)!", gateAddUsage)
 	}
 	if *accessPerm == "" {
-		fmt.Fprintf(os.Stderr, "You must specify the access permissions (-access)!\n")
-		gateAddUsage()
-		os.Exit(1)
+		fatal("You must specify the access permissions (-access)!", gateAddUsage)
 	}
 	if _, err := regexp.Compile(*accessPerm); err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid access pattern: %v.\n", err)
-		os.Exit(1)
+		fatal("Invalid access pattern: %v.", err)
 	}
 	// Extract the list of gateways and verify their validity
 	gates := gateAddFlags.Args()
 	if len(gates) == 0 {
-		fmt.Fprintf(os.Stderr, "You must specify at least one remote access point!\n")
-		gateAddUsage()
-		os.Exit(1)
+		fatal("You must specify at least one remote access point!", gateAddUsage)
 	}
 	for _, gate := range gates {
 		if _, err := net.ResolveTCPAddr("tcp", gate); err != nil {
-			fmt.Fprintf(os.Stderr, "Invalid gateway address: %v.\n", err)
-			os.Exit(1)
+			fatal("Invalid gateway address: %v.", err)
 		}
 	}
 	// Return the parsed values
@@ -216,24 +193,20 @@ func gateAddMain() {
 	// Load the gateway and network config files
 	gateData, err := ioutil.ReadFile(gatePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load gateway config file: %v.\n", err)
-		os.Exit(1)
+		fatal("Failed to load gateway config file: %v.", err)
 	}
 	netData, err := ioutil.ReadFile(netPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load network config file: %v.\n", err)
-		os.Exit(1)
+		fatal("Failed to load network config file: %v.", err)
 	}
 	// Insert the network into the gateway config
 	config, err := gateway.AddNetwork(gateData, netData, access, gates, key)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to merge configs: %v.\n", err)
-		os.Exit(1)
+		fatal("Failed to merge configs: %v.", err)
 	}
 	// Serialize it back to disk and report
 	if err := ioutil.WriteFile(gatePath, config, 0640); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to export gateway config \"%s\": %v\n", gatePath, err)
-		os.Exit(1)
+		fatal("Failed to export gateway config \"%s\": %v.", gatePath, err)
 	} else {
 		fmt.Printf("Merged gateway config, exported into \"%s\"\n", gatePath)
 	}
