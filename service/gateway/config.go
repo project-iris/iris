@@ -107,6 +107,27 @@ func AddNetwork(config []byte, net []byte, access string, gates []string, key *r
 	return marshalGatewayConfig(gateConf)
 }
 
+// Removes one or more networks from an existing gateway configuration.
+func RemoveNetwork(config []byte, net string, key *rsa.PrivateKey) ([]byte, error) {
+	// Parse the gateway config blob
+	gateConf, err := parseGatewayConfig(config, &key.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	// Remove the network and marshal the new config
+	found := false
+	for i := 0; i < len(gateConf.Networks) && !found; i++ {
+		if gateConf.Networks[i].Name == net {
+			gateConf.Networks = append(gateConf.Networks[:i], gateConf.Networks[i+1:]...)
+			found = true
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("unknown network: \"%v\"", net)
+	}
+	return marshalGatewayConfig(gateConf)
+}
+
 // Parses a JSON configuration string, verifies all cryptographic keys and
 // signatures against the node key.
 func parseGatewayConfig(config []byte, key *rsa.PublicKey) (*Config, error) {

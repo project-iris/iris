@@ -44,8 +44,8 @@ func main() {
 			gateInitMain()
 		case "add":
 			gateAddMain()
-		case "rem":
-			// gateRemMain()
+		case "rm":
+			gateRmMain()
 		default:
 			fmt.Fprintf(os.Stderr, "invalid subcommand \"%s\" for command gateway\n", subCmd)
 			os.Exit(1)

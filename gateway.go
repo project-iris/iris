@@ -54,7 +54,7 @@ func gateInitUsage() {
 	fmt.Printf("\n")
 }
 
-// Parses the iris command line flags and checks their validity.
+// Parses the gateway init command line flags and checks their validity.
 func parseGateInitFlags() (string, *rsa.PrivateKey, *net.TCPAddr, string, string) {
 	// Assign and parse the command line flags
 	networkName := gateInitFlags.String("net", "", "network name of the local cluster")
@@ -126,9 +126,9 @@ func gateInitMain() {
 
 // Prints the usage of the gateway add subcommand and its options.
 func gateAddUsage() {
-	fmt.Printf("Adds a remote network into the local new gateway configuration.\n\n")
+	fmt.Printf("Adds a remote network into a gateway configuration.\n\n")
 	fmt.Printf("Usage:\n")
-	fmt.Printf("\t%s gateway add [options] <access-points...>\n\n", os.Args[0])
+	fmt.Printf("\t%s gateway add [options] <addresses...>\n\n", os.Args[0])
 
 	fmt.Printf("Command options:\n")
 	gateAddFlags.VisitAll(func(f *flag.Flag) {
@@ -141,7 +141,7 @@ func gateAddUsage() {
 	fmt.Printf("\n")
 }
 
-// Parses the iris command line flags and checks their validity.
+// Parses the gateway add command line flags and checks their validity.
 func parseGateAddFlags() (*rsa.PrivateKey, string, string, string, []string) {
 	// Assign and parse the command line flags
 	rsaKeyPath := gateAddFlags.String("rsa", "", "private key of the local cluster")
@@ -211,4 +211,74 @@ func gateAddMain() {
 		fmt.Printf("Merged gateway config, exported into \"%s\"\n", gatePath)
 	}
 	fmt.Printf("%s\n\n", config)
+}
+
+// Prints the usage of the gateway rm subcommand and its options.
+func gateRmUsage() {
+	fmt.Printf("Removes a remote network from a gateway configuration.\n\n")
+	fmt.Printf("Usage:\n")
+	fmt.Printf("\t%s gateway rm [options] <networks...>\n\n", os.Args[0])
+
+	fmt.Printf("Command options:\n")
+	gateRmFlags.VisitAll(func(f *flag.Flag) {
+		if f.DefValue != "" {
+			fmt.Printf("\t-%-12s%-12s%s\n", f.Name, "[="+f.DefValue+"]", f.Usage)
+		} else {
+			fmt.Printf("\t-%-24s%s\n", f.Name, f.Usage)
+		}
+	})
+	fmt.Printf("\n")
+}
+
+// Parses the gateway add command line flags and checks their validity.
+func parseGateRmFlags() (*rsa.PrivateKey, string, []string) {
+	// Assign and parse the command line flags
+	rsaKeyPath := gateRmFlags.String("rsa", "", "private key of the local cluster")
+	gateConfPath := gateRmFlags.String("gate", "", "gateway config file to remove from")
+
+	gateRmFlags.Usage = gateRmUsage
+	gateRmFlags.Parse(os.Args[3:])
+
+	// Validate the command line arguments
+	if *rsaKeyPath == "" {
+		fatal("You must specify a private key (-rsa)!", gateRmUsage)
+	}
+	key, err := parseRsaKey(*rsaKeyPath)
+	if err != nil {
+		fatal("Loading RSA key failed: %v.", err)
+	}
+	if *gateConfPath == "" {
+		fatal("You must specify a gateway configuration to modify (-gate)!", gateRmUsage)
+	}
+	// Extract the list of networks to remove
+	nets := gateRmFlags.Args()
+	if len(nets) == 0 {
+		fatal("You must specify at least one network to remove!", gateRmUsage)
+	}
+	// Return the parsed values
+	return key, *gateConfPath, nets
+}
+
+func gateRmMain() {
+	key, gatePath, nets := parseGateRmFlags()
+
+	// Load the gateway config file
+	gateData, err := ioutil.ReadFile(gatePath)
+	if err != nil {
+		fatal("Failed to load gateway config file: %v.", err)
+	}
+	// Remove the networks from the gateway config
+	for _, net := range nets {
+		gateData, err = gateway.RemoveNetwork(gateData, net, key)
+		if err != nil {
+			fatal("Failed to filter config: %v.", err)
+		}
+	}
+	// Serialize it back to disk and report
+	if err := ioutil.WriteFile(gatePath, gateData, 0640); err != nil {
+		fatal("Failed to export gateway config \"%s\": %v.", gatePath, err)
+	} else {
+		fmt.Printf("Filtered gateway config, exported into \"%s\"\n", gatePath)
+	}
+	fmt.Printf("%s\n\n", gateData)
 }
