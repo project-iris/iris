@@ -1,4 +1,4 @@
-  Iris - Distributed Messaging Framework - Todo list
+  Iris - Decentralized Messaging Framework - Todo list
 ======================================================
 
 Stuff that need implementing, fixing or testing.
