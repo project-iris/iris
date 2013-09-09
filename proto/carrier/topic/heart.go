@@ -51,17 +51,13 @@ func (t *Topic) Beat() {
 // Implements the heart.Callback.Dead method. Either a child or the parent node
 // was reported dead, remove them.
 func (t *Topic) Dead(id *big.Int) {
-	// Handle the dead parent
-	t.lock.Lock()
-	parent := false
-	if t.parent != nil && t.parent.Cmp(id) == 0 {
-		t.parent = nil
-		parent = true
-	}
-	t.lock.Unlock()
+	t.lock.RLock()
+	parent := (t.parent != nil && t.parent.Cmp(id) == 0)
+	t.lock.RUnlock()
 
-	// Handle dead children
-	if !parent {
+	if parent {
+		t.Reown(nil)
+	} else {
 		t.UnsubscribeNode(id)
 	}
 }

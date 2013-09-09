@@ -87,15 +87,17 @@ func (t *Topic) Reown(parent *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	// In an old parent existed, clear out leftovers
+	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
 		t.heart.Unmonitor(t.parent)
 		t.load.Unregister(t.parent)
 	}
-	// Initialize and save the new parent
+	// Initialize and save the new parent if any
+	if parent != nil {
+		t.heart.Monitor(parent)
+		t.load.Register(parent)
+	}
 	t.parent = parent
-	t.heart.Monitor(parent)
-	t.load.Register(parent)
 }
 
 // Returns whether the current topic subtree is empty.
