@@ -49,11 +49,11 @@ func TestBalancer(t *testing.T) {
 	}
 	// Check total and excluded capacities
 	if cap := bal.Capacity(nil); cap != total {
-		t.Errorf("total capacity mismatch: have %v, want %v.", cap, total)
+		t.Fatalf("total capacity mismatch: have %v, want %v.", cap, total)
 	}
 	for i, ex := range ids {
 		if cap := bal.Capacity(ex); cap != total-caps[i] {
-			t.Errorf("excluded capacity mismatch: have %v, want %v.", cap, total-caps[i])
+			t.Fatalf("excluded capacity mismatch: have %v, want %v.", cap, total-caps[i])
 		}
 	}
 	// Balance N x total capacity on separate threads each
@@ -61,7 +61,11 @@ func TestBalancer(t *testing.T) {
 	for i := 0; i < threads; i++ {
 		go func(idx int) {
 			for c := 0; c < total; c++ {
-				res <- bal.Balance(nil)
+				if id, err := bal.Balance(nil); err != nil {
+					t.Fatalf("failed to balance: %v.", err)
+				} else {
+					res <- id
+				}
 			}
 		}(i)
 	}
@@ -69,7 +73,11 @@ func TestBalancer(t *testing.T) {
 	for i := 0; i < entities; i++ {
 		go func(idx int) {
 			for c := 0; c < total-caps[idx]; c++ {
-				res <- bal.Balance(ids[idx])
+				if id, err := bal.Balance(ids[idx]); err != nil {
+					t.Fatalf("failed to balance: %v.", err)
+				} else {
+					res <- id
+				}
 			}
 		}(i)
 	}
@@ -91,7 +99,7 @@ func TestBalancer(t *testing.T) {
 		}
 		// Report anything above 3% error (high enough to pass, low enough to catch anomalies)
 		if float64(diff)/float64(caps[i]) > 0.03 {
-			t.Errorf("unbalanced frequency: diff %v, cap %v.", diff, caps[i])
+			t.Fatalf("unbalanced frequency: diff %v, cap %v.", diff, caps[i])
 		}
 	}
 }

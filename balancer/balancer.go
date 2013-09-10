@@ -103,13 +103,13 @@ func (b *Balancer) Update(id *big.Int, cap int) error {
 // Returns an id to which to send the next message to. The optional ex (can be
 // nil) is used to exclude an entity from balancing to (if it's the only one
 // available then this guarantee will be forfeit).
-func (b *Balancer) Balance(ex *big.Int) *big.Int {
+func (b *Balancer) Balance(ex *big.Int) (*big.Int, error) {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
 	// Make sure there is actually somebody to balance to
 	if b.capacity == 0 {
-		panic("no capacity to balance")
+		return nil, fmt.Errorf("no capacity to balance")
 	}
 	// Calculate the available capacity with ex excluded
 	available := b.capacity
@@ -132,7 +132,7 @@ func (b *Balancer) Balance(ex *big.Int) *big.Int {
 		}
 		cap -= m.cap
 		if cap < 0 {
-			return m.id
+			return m.id, nil
 		}
 	}
 	// Just in case to prevent bugs

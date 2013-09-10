@@ -23,6 +23,7 @@
 package carrier
 
 import (
+	"github.com/karalabe/iris/config"
 	"math/big"
 )
 
@@ -30,6 +31,18 @@ import (
 type report struct {
 	Tops []*big.Int // Topics shared between two carrier nodes
 	Caps []int      // Capacity reports related to the topics above
+}
+
+// Adds the node within the topic to the list of monitored entities.
+func (c *carrier) monitor(topic *big.Int, node *big.Int) error {
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	return c.heart.Monitor(id)
+}
+
+// Remove the node of a specific topic from the list of monitored entities.
+func (c *carrier) unmonitor(topic *big.Int, node *big.Int) error {
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	return c.heart.Unmonitor(id)
 }
 
 // Implements the heart.Callback.Beat method. At each heartbeat, the load stats

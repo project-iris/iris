@@ -49,31 +49,31 @@ func TestTopic(t *testing.T) {
 	// Create the topic and check internal state
 	top := New(topicId, beatPeriod, killCount)
 	if id := top.Self(); id.Cmp(topicId) != 0 {
-		t.Errorf("topic id mismatch: have %v, want %v.", id, topicId)
+		t.Fatalf("topic id mismatch: have %v, want %v.", id, topicId)
 	}
 	// Check subscribe and unsubscribe features
 	for i, id := range nodes {
 		top.SubscribeNode(id)
 		if n := len(top.nodes); n != i+1 {
-			t.Errorf("topic child node count mismatch: have %v, want %v", n, i+1)
+			t.Fatalf("topic child node count mismatch: have %v, want %v", n, i+1)
 		}
 	}
 	for i, id := range nodes {
 		top.UnsubscribeNode(id)
 		if n := len(top.nodes); n != len(nodes)-1-i {
-			t.Errorf("topic child node count mismatch: have %v, want %v", n, len(nodes)-1-i)
+			t.Fatalf("topic child node count mismatch: have %v, want %v", n, len(nodes)-1-i)
 		}
 	}
 	for i, id := range apps {
 		top.SubscribeApp(id)
 		if n := len(top.apps); n != i+1 {
-			t.Errorf("topic child app count mismatch: have %v, want %v", n, i+1)
+			t.Fatalf("topic child app count mismatch: have %v, want %v", n, i+1)
 		}
 	}
 	for i, id := range apps {
 		top.UnsubscribeApp(id)
 		if n := len(top.apps); n != len(apps)-1-i {
-			t.Errorf("topic child app count mismatch: have %v, want %v", n, len(apps)-1-i)
+			t.Fatalf("topic child app count mismatch: have %v, want %v", n, len(apps)-1-i)
 		}
 	}
 	// Subscribe everybody back
@@ -86,27 +86,30 @@ func TestTopic(t *testing.T) {
 	// Check broadcasting
 	ns, as := top.Broadcast()
 	if len(ns) != len(nodes) {
-		t.Errorf("broadcast node list length mismatch: have %v, want %v.", len(ns), len(nodes))
+		t.Fatalf("broadcast node list length mismatch: have %v, want %v.", len(ns), len(nodes))
 	}
 	for i, id := range ns {
 		if nodes[i].Cmp(id) != 0 {
-			t.Errorf("broadcast node %d mismatch: have %v, want %v.", i, id, nodes[i])
+			t.Fatalf("broadcast node %d mismatch: have %v, want %v.", i, id, nodes[i])
 		}
 	}
 	if len(as) != len(apps) {
-		t.Errorf("broadcast app list length mismatch: have %v, want %v.", len(as), len(apps))
+		t.Fatalf("broadcast app list length mismatch: have %v, want %v.", len(as), len(apps))
 	}
 	for i, id := range as {
 		if apps[i].Cmp(id) != 0 {
-			t.Errorf("broadcast app %d mismatch: have %v, want %v.", i, id, apps[i])
+			t.Fatalf("broadcast app %d mismatch: have %v, want %v.", i, id, apps[i])
 		}
 	}
 	// Check load balancing (without one entry)
 	ns, as = []*big.Int{}, []*big.Int{}
 	for i := 0; i < 1000; i++ {
-		n, a := top.Balance(nodes[0])
+		n, a, err := top.Balance(nodes[0])
+		if err != nil {
+			t.Fatalf("failed to balance: %v.", err)
+		}
 		if (n == nil && a == nil) || (n != nil && a != nil) {
-			t.Errorf("invalid balancing result (both or none nil): node %v, app %v.", n, a)
+			t.Fatalf("invalid balancing result (both or none nil): node %v, app %v.", n, a)
 		}
 		if n != nil {
 			ns = append(ns, n)
@@ -115,34 +118,34 @@ func TestTopic(t *testing.T) {
 		}
 	}
 	if len(ns) == 0 {
-		t.Errorf("no nodes have been balanced to")
+		t.Fatalf("no nodes have been balanced to")
 	}
 	if len(as) == 0 {
-		t.Errorf("no apps have been balanced to")
+		t.Fatalf("no apps have been balanced to")
 	}
 	for i, id := range ns {
 		if id.Cmp(nodes[0]) == 0 {
-			t.Errorf("balance %d: excluded node %v.", i, id)
+			t.Fatalf("balance %d: excluded node %v.", i, id)
 		}
 		idx := sortext.SearchBigInts(nodes, id)
 		if idx >= len(nodes) || nodes[idx] != id {
-			t.Errorf("balance %d: invalid node id %v.", i, id)
+			t.Fatalf("balance %d: invalid node id %v.", i, id)
 		}
 	}
 	for i, id := range as {
 		idx := sortext.SearchBigInts(apps, id)
 		if idx >= len(apps) || apps[idx] != id {
-			t.Errorf("balance %d: invalid node id %v.", i, id)
+			t.Fatalf("balance %d: invalid node id %v.", i, id)
 		}
 	}
 	// Check load report generation
 	ns, caps := top.GenerateReport()
 	if len(ns) != len(nodes) || len(caps) != len(nodes) {
-		t.Errorf("report target size mismatch: have %v/%v nodes/caps, want %v.", len(ns), len(caps), len(nodes))
+		t.Fatalf("report target size mismatch: have %v/%v nodes/caps, want %v.", len(ns), len(caps), len(nodes))
 	}
 	for i, cap := range caps {
 		if cap != len(nodes) {
-			t.Errorf("capacity %d mismatch: have %v, want %v", i, cap, len(nodes))
+			t.Fatalf("capacity %d mismatch: have %v, want %v", i, cap, len(nodes))
 		}
 	}
 	// Check load processing
@@ -154,7 +157,7 @@ func TestTopic(t *testing.T) {
 	ns, caps = top.GenerateReport()
 	for i, cap := range caps {
 		if cap != total-10*(i+1) {
-			t.Errorf("capacity %d mismatch: have %v, want %v", i, cap, total-10*(i+1))
+			t.Fatalf("capacity %d mismatch: have %v, want %v", i, cap, total-10*(i+1))
 		}
 	}
 	// Wait for all nodes but first to time out
@@ -164,20 +167,20 @@ func TestTopic(t *testing.T) {
 	}
 	// Make sure only the first node and apps remained in the topic
 	if n := len(top.nodes); n != 1 {
-		t.Errorf("topic node list size mismatch: have %v, want %v.", n, 1)
+		t.Fatalf("topic node list size mismatch: have %v, want %v.", n, 1)
 	}
 	// Run the balancer issuing everything to local apps and verify load
 	for i := 1; i <= 100; i++ {
 		top.Balance(nodes[0])
 		if n := int(top.msgs); n != i {
-			t.Errorf("locally processed message mismatch: have %v, want %v.", n, i)
+			t.Fatalf("locally processed message mismatch: have %v, want %v.", n, i)
 		}
 	}
 	time.Sleep(beatPeriod)
 	if n := int(top.msgs); n != 0 {
-		t.Errorf("post-beat locally processed message mismatch: have %v, want %v.", n, 0)
+		t.Fatalf("post-beat locally processed message mismatch: have %v, want %v.", n, 0)
 	}
 	if cap := top.load.Capacity(nodes[0]); cap < 100 {
-		t.Errorf("load capacity mismatch: have %v, want min %v.", cap, 100)
+		t.Fatalf("load capacity mismatch: have %v, want min %v.", cap, 100)
 	}
 }

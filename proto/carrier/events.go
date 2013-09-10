@@ -207,7 +207,12 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 
 	if ok {
 		// Fetch the recipient and either forward or deliver
-		node, app := top.Balance(prevHop)
+		node, app, err := top.Balance(prevHop)
+		if err != nil {
+			// Maybe the topic is terminating, log and return unhandled
+			log.Printf("carrier: failed to handle balance request: %v.", err)
+			return false
+		}
 		if node != nil {
 			c.fwdBalance(node, msg)
 		} else {

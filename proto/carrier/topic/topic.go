@@ -25,6 +25,7 @@ import (
 	"github.com/karalabe/iris/balancer"
 	"github.com/karalabe/iris/ext/sortext"
 	"github.com/karalabe/iris/heart"
+	"log"
 	"math/big"
 	"math/rand"
 	"sync"
@@ -51,6 +52,8 @@ type Topic struct {
 
 // Creates a new topic with no subscriptions.
 func New(id *big.Int, beat time.Duration, kill int) *Topic {
+	log.Printf("Topic %v created", id)
+
 	top := &Topic{
 		id:    id,
 		nodes: []*big.Int{},
@@ -66,6 +69,7 @@ func New(id *big.Int, beat time.Duration, kill int) *Topic {
 
 // Closes down a topic, releasing the internal heartbeat mechanism.
 func (t *Topic) Close() {
+	log.Printf("Topic %v termianted", t.id)
 	t.heart.Terminate()
 }
 
@@ -86,6 +90,8 @@ func (t *Topic) Parent() *big.Int {
 func (t *Topic) Reown(parent *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
+
+	log.Printf("topic %v: changing ownership from %v to %v.", t.id, t.parent, parent)
 
 	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
@@ -133,11 +139,15 @@ func (t *Topic) SubscribeNode(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
+	log.Printf("Topic %v: node subscription: %v.", t.id, id)
+
 	idx := sortext.SearchBigInts(t.nodes, id)
 	if idx >= len(t.nodes) || id.Cmp(t.nodes[idx]) != 0 {
 		// New entity, insert into the list
 		t.nodes = append(t.nodes, id)
 		sortext.BigInts(t.nodes)
+
+		log.Printf("Topic %v: subbed, state: %v.", t.id, t.nodes)
 
 		// Start monitoring and load balancing to it too
 		t.heart.Monitor(id)
@@ -174,6 +184,8 @@ func (t *Topic) UnsubscribeNode(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
+	log.Printf("Topic %v: node unsubscription: %v.", t.id, id)
+
 	idx := sortext.SearchBigInts(t.nodes, id)
 	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
 		// Remove the node from the load balancer and heart monitor
@@ -187,6 +199,8 @@ func (t *Topic) UnsubscribeNode(id *big.Int) {
 
 		// Create ordered list once again
 		sortext.BigInts(t.nodes)
+
+		log.Printf("Topic %v: remed, state: %v.", t.id, t.nodes)
 	}
 }
 
@@ -210,18 +224,19 @@ func (t *Topic) Broadcast() (nodes, apps []*big.Int) {
 // message should be sent. An optional ex node can be specified to prevent
 // balancing there (if others exist). Only one result will be valid, the other
 // nil.
-func (t *Topic) Balance(ex *big.Int) (nodeId, appId *big.Int) {
+func (t *Topic) Balance(ex *big.Int) (nodeId, appId *big.Int, err error) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
 	// Pick a balance target and forward if remote node
-	id := t.load.Balance(ex)
-	if id.Cmp(localId) != 0 {
-		return id, nil
+	if id, err := t.load.Balance(ex); err != nil {
+		return nil, nil, err
+	} else if id.Cmp(localId) != 0 {
+		return id, nil, nil
 	}
 	// Otherwise balance between local apps
 	atomic.AddInt32(&t.msgs, 1)
-	return nil, t.apps[rand.Intn(len(t.apps))]
+	return nil, t.apps[rand.Intn(len(t.apps))], nil
 }
 
 // Returns the list of nodes to report to, and the report for each.
