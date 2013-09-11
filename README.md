@@ -4,7 +4,7 @@
   Releases
 ------------
 
- * Version 0.1-pre2 (hotfix): **development**
+ * Version 0.1-pre2 (hotfix): **September 11, 2013**
     - Fix fast subscription reply only if subsciption succeeds.
     - Fix topic self report after a node failure.
     - Fix heart mechanism to report errors not panics, check duplicate monitoring.
