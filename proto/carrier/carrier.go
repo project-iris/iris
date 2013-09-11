@@ -66,7 +66,7 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 
 // Boots the message carrier, returning the numner of remote peers.
 func (c *carrier) Boot() (int, error) {
-	log.Printf("Booting carrier: %v.", c.transport.Self())
+	log.Printf("carrier: booting with id %v.", c.transport.Self())
 
 	// Start the heartbeat first since convergence can last long
 	c.heart.Start()

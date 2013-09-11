@@ -23,7 +23,6 @@ package heart
 
 import (
 	"fmt"
-	"log"
 	"math/big"
 	"sort"
 	"sync"
@@ -63,13 +62,11 @@ func New(beat time.Duration, kill int, handler Callback) *Heart {
 
 // Starts the beater and event notifier.
 func (h *Heart) Start() {
-	log.Printf("starting heartbeat")
 	go h.beater()
 }
 
 // Terminates the heartbeat mechanism.
 func (h *Heart) Terminate() {
-	log.Printf("terminating heartbeat")
 	close(h.quit)
 }
 
@@ -133,7 +130,6 @@ func (h *Heart) beater() {
 		case <-h.quit:
 			return
 		case <-beat.C:
-			log.Printf("beating")
 			// Beat cycle: update tick and collect dead entries
 			h.lock.Lock()
 			h.tick++
