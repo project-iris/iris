@@ -22,14 +22,16 @@
 package topic
 
 import (
+	"fmt"
 	"github.com/karalabe/iris/balancer"
 	"github.com/karalabe/iris/ext/sortext"
-	"github.com/karalabe/iris/heart"
+	"github.com/karalabe/iris/system"
+	"log"
+	"math"
 	"math/big"
 	"math/rand"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // Special id to reffer to the local node.
@@ -42,31 +44,27 @@ type Topic struct {
 	nodes  []*big.Int // Remote children in the topic tree
 	apps   []*big.Int // Local children in the topic tree
 
-	heart *heart.Heart       // Heart-beat mechanism to notice dead/leaver nodes
-	load  *balancer.Balancer // Balancer to load-distribute messages
-	msgs  int32              // Number of messages balanced to locals (atomic, take care)
+	load *balancer.Balancer // Balancer to load-distribute messages
+	msgs int32              // Number of messages balanced to locals (atomic, take care)
 
 	lock sync.RWMutex
 }
 
 // Creates a new topic with no subscriptions.
-func New(id *big.Int, beat time.Duration, kill int) *Topic {
-	top := &Topic{
+func New(id *big.Int) *Topic {
+	log.Printf("Topic %v created", id)
+
+	return &Topic{
 		id:    id,
 		nodes: []*big.Int{},
 		apps:  []*big.Int{},
 		load:  balancer.New(),
 	}
-	// Create the heartbeat mechanism and start it
-	top.heart = heart.New(beat, kill, top)
-	top.heart.Start()
-
-	return top
 }
 
 // Closes down a topic, releasing the internal heartbeat mechanism.
 func (t *Topic) Close() {
-	t.heart.Terminate()
+	log.Printf("Topic %v termianted", t.id)
 }
 
 // Returns the topic identifier.
@@ -87,15 +85,17 @@ func (t *Topic) Reown(parent *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	// In an old parent existed, clear out leftovers
+	log.Printf("topic %v: changing ownership from %v to %v.", t.id, t.parent, parent)
+
+	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
-		t.heart.Unmonitor(t.parent)
 		t.load.Unregister(t.parent)
 	}
-	// Initialize and save the new parent
+	// Initialize and save the new parent if any
+	if parent != nil {
+		t.load.Register(parent)
+	}
 	t.parent = parent
-	t.heart.Monitor(parent)
-	t.load.Register(parent)
 }
 
 // Returns whether the current topic subtree is empty.
@@ -125,22 +125,27 @@ func (t *Topic) SubscribeApp(id *big.Int) {
 	}
 }
 
-// Subscribes a remote node to the topic, inserts it into the load balancer's
-// registry and starts monitoring it for activity.
-func (t *Topic) SubscribeNode(id *big.Int) {
+// Subscribes a remote node to the topic and inserts it into the load balancer's
+// registry.
+func (t *Topic) SubscribeNode(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	idx := sortext.SearchBigInts(t.nodes, id)
-	if idx >= len(t.nodes) || id.Cmp(t.nodes[idx]) != 0 {
-		// New entity, insert into the list
-		t.nodes = append(t.nodes, id)
-		sortext.BigInts(t.nodes)
+	log.Printf("Topic %v: node subscription: %v.", t.id, id)
 
-		// Start monitoring and load balancing to it too
-		t.heart.Monitor(id)
-		t.load.Register(id)
+	idx := sortext.SearchBigInts(t.nodes, id)
+	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
+		return fmt.Errorf("already subscribed")
 	}
+	// New entity, insert into the list
+	t.nodes = append(t.nodes, id)
+	sortext.BigInts(t.nodes)
+
+	log.Printf("Topic %v: subbed, state: %v.", t.id, t.nodes)
+
+	// Start load balancing to it too
+	t.load.Register(id)
+	return nil
 }
 
 // Unsubscribes a local application from the topic and possibly removes the
@@ -172,11 +177,12 @@ func (t *Topic) UnsubscribeNode(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
+	log.Printf("Topic %v: node unsubscription: %v.", t.id, id)
+
 	idx := sortext.SearchBigInts(t.nodes, id)
 	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
-		// Remove the node from the load balancer and heart monitor
+		// Remove the node from the load balancer
 		t.load.Unregister(t.nodes[idx])
-		t.heart.Unmonitor(t.nodes[idx])
 
 		// Remove the node from the children
 		last := len(t.nodes) - 1
@@ -185,6 +191,8 @@ func (t *Topic) UnsubscribeNode(id *big.Int) {
 
 		// Create ordered list once again
 		sortext.BigInts(t.nodes)
+
+		log.Printf("Topic %v: remed, state: %v.", t.id, t.nodes)
 	}
 }
 
@@ -208,18 +216,19 @@ func (t *Topic) Broadcast() (nodes, apps []*big.Int) {
 // message should be sent. An optional ex node can be specified to prevent
 // balancing there (if others exist). Only one result will be valid, the other
 // nil.
-func (t *Topic) Balance(ex *big.Int) (nodeId, appId *big.Int) {
+func (t *Topic) Balance(ex *big.Int) (nodeId, appId *big.Int, err error) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
 	// Pick a balance target and forward if remote node
-	id := t.load.Balance(ex)
-	if id.Cmp(localId) != 0 {
-		return id, nil
+	if id, err := t.load.Balance(ex); err != nil {
+		return nil, nil, err
+	} else if id.Cmp(localId) != 0 {
+		return id, nil, nil
 	}
 	// Otherwise balance between local apps
 	atomic.AddInt32(&t.msgs, 1)
-	return nil, t.apps[rand.Intn(len(t.apps))]
+	return nil, t.apps[rand.Intn(len(t.apps))], nil
 }
 
 // Returns the list of nodes to report to, and the report for each.
@@ -244,11 +253,23 @@ func (t *Topic) GenerateReport() ([]*big.Int, []int) {
 
 // Sets the load capacity for a source node in the balancer.
 func (t *Topic) ProcessReport(id *big.Int, cap int) error {
-	// Update the capacity in the load balancer
-	if err := t.load.Update(id, cap); err != nil {
-		return err
+	return t.load.Update(id, cap)
+}
+
+// If local subscriptions are alive in the topic, updates the balancer according
+// to the messages processed since the last beat.
+func (t *Topic) Cycle() {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	// Notify the balancer of the local capacity
+	if len(t.apps) > 0 {
+		// Sanity check not to send some weird value
+		cap := math.Max(0, float64(atomic.LoadInt32(&t.msgs))/float64(system.CpuUsage()))
+		cap = math.Min(math.MaxInt32, cap)
+
+		t.load.Update(localId, int(cap))
 	}
-	// Notify the heartbeater of the source presence
-	t.heart.Ping(id)
-	return nil
+	// Reset counters for next beat
+	atomic.StoreInt32(&t.msgs, 0)
 }

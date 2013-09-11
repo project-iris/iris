@@ -22,6 +22,7 @@
 package heart
 
 import (
+	"fmt"
 	"math/big"
 	"sort"
 	"sync"
@@ -70,16 +71,23 @@ func (h *Heart) Terminate() {
 }
 
 // Registers a new entity for the beater to monitor.
-func (h *Heart) Monitor(id *big.Int) {
+func (h *Heart) Monitor(id *big.Int) error {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
+	// Make sure no duplicate entries are specified
+	idx := h.mems.Search(id)
+	if idx < len(h.mems) && h.mems[idx].id.Cmp(id) == 0 {
+		return fmt.Errorf("duplicate entry")
+	}
+
 	h.mems = append(h.mems, &entity{id: id, tick: h.tick})
 	sort.Sort(h.mems)
+	return nil
 }
 
 // Unregisters an entity from the possible balancing destinations.
-func (h *Heart) Unmonitor(id *big.Int) {
+func (h *Heart) Unmonitor(id *big.Int) error {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
@@ -92,22 +100,22 @@ func (h *Heart) Unmonitor(id *big.Int) {
 
 		// Get back to sorted order
 		sort.Sort(h.mems)
-	} else {
-		panic("trying to remove non-monitored entity")
+		return nil
 	}
+	return fmt.Errorf("non-monitored entity")
 }
 
 // Updates the life tick of an entity.
-func (h *Heart) Ping(id *big.Int) {
+func (h *Heart) Ping(id *big.Int) error {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
 	idx := h.mems.Search(id)
 	if idx < len(h.mems) && h.mems[idx].id.Cmp(id) == 0 {
 		h.mems[idx].tick = h.tick
-	} else {
-		panic("trying to ping non-monitored entity")
+		return nil
 	}
+	return fmt.Errorf("non-monitored entity")
 }
 
 // Beater function meant to run as a separate go routine to keep pinging each

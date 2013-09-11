@@ -159,7 +159,7 @@ var BootFastProbe = 250
 var BootSlowProbe = 1000
 
 // Scanning interval during bootstrapping (ms).
-var BootScan = 250
+var BootScan = 100
 
 // Virtual address space (bits).
 var OverlaySpace = 40
