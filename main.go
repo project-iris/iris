@@ -31,6 +31,8 @@ import (
 	"io/ioutil"
 	"log"
 	rng "math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -143,6 +145,10 @@ func parseFlags() (int, string, *rsa.PrivateKey) {
 func main() {
 	// Extract the command line arguments
 	relayPort, clusterId, rsaKey := parseFlags()
+
+	go func() {
+		log.Println(http.ListenAndServe("0:6060", nil))
+	}()
 
 	// Check for CPU profiling
 	if *cpuProfile != "" {

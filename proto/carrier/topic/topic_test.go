@@ -23,14 +23,11 @@ import (
 	"github.com/karalabe/iris/ext/sortext"
 	"math/big"
 	"testing"
-	"time"
 )
 
 func TestTopic(t *testing.T) {
 	// Define some setup parameters for the test
 	topicId := big.NewInt(314)
-	beatPeriod := 50 * time.Millisecond
-	killCount := 3
 
 	nodeIds := []int64{1, 2, 3, 4, 5}
 	nodes := make([]*big.Int, len(nodeIds))
@@ -47,7 +44,7 @@ func TestTopic(t *testing.T) {
 	sortext.BigInts(apps)
 
 	// Create the topic and check internal state
-	top := New(topicId, beatPeriod, killCount)
+	top := New(topicId)
 	if id := top.Self(); id.Cmp(topicId) != 0 {
 		t.Fatalf("topic id mismatch: have %v, want %v.", id, topicId)
 	}
@@ -159,28 +156,5 @@ func TestTopic(t *testing.T) {
 		if cap != total-10*(i+1) {
 			t.Fatalf("capacity %d mismatch: have %v, want %v", i, cap, total-10*(i+1))
 		}
-	}
-	// Wait for all nodes but first to time out
-	for i := 0; i < killCount; i++ {
-		time.Sleep(beatPeriod)
-		top.ProcessReport(nodes[0], 1)
-	}
-	// Make sure only the first node and apps remained in the topic
-	if n := len(top.nodes); n != 1 {
-		t.Fatalf("topic node list size mismatch: have %v, want %v.", n, 1)
-	}
-	// Run the balancer issuing everything to local apps and verify load
-	for i := 1; i <= 100; i++ {
-		top.Balance(nodes[0])
-		if n := int(top.msgs); n != i {
-			t.Fatalf("locally processed message mismatch: have %v, want %v.", n, i)
-		}
-	}
-	time.Sleep(beatPeriod)
-	if n := int(top.msgs); n != 0 {
-		t.Fatalf("post-beat locally processed message mismatch: have %v, want %v.", n, 0)
-	}
-	if cap := top.load.Capacity(nodes[0]); cap < 100 {
-		t.Fatalf("load capacity mismatch: have %v, want min %v.", cap, 100)
 	}
 }

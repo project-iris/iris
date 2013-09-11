@@ -5,6 +5,8 @@
 ------------
 
  * Version 0.1-pre2 (hotfix): **development**
+    - Fix fast subscription reply only if subsciption succeeds.
+    - Fix topic self report after a node failure.
  		- Fix heart mechanism to report errors not panics, check duplicate monitoring.
     - Fix late carrier heartbeat startup.
     - Fix panic caused by balance requests pending during topic termination.

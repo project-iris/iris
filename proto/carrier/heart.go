@@ -24,6 +24,7 @@ package carrier
 
 import (
 	"github.com/karalabe/iris/config"
+	"log"
 	"math/big"
 )
 
@@ -43,6 +44,12 @@ func (c *carrier) monitor(topic *big.Int, node *big.Int) error {
 func (c *carrier) unmonitor(topic *big.Int, node *big.Int) error {
 	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
 	return c.heart.Unmonitor(id)
+}
+
+// Updates the last ping time of a node within a topic.
+func (c *carrier) ping(topic *big.Int, node *big.Int) error {
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	return c.heart.Ping(id)
 }
 
 // Implements the heart.Callback.Beat method. At each heartbeat, the load stats
@@ -67,6 +74,7 @@ func (c *carrier) Beat() {
 			rep.Tops = append(rep.Tops, top.Self())
 			rep.Caps = append(rep.Caps, caps[i])
 		}
+		top.Cycle()
 	}
 	// Distribute the load reports to the remote carriers
 	for sid, rep := range reports {
@@ -84,8 +92,31 @@ func (c *carrier) Beat() {
 	}
 }
 
-// Implements the heat.Callback.Dead method. Topic member death monitoring is
-// done by the topics themselves, thus this should never be called.
+// Implements the heat.Callback.Dead method, monitoring the death events of
+// topic member nodes.
 func (c *carrier) Dead(id *big.Int) {
-	panic("carrier heart-beat reported something dead")
+	// Split the id into topic and node parts
+	topic := new(big.Int).Rsh(id, uint(config.OverlaySpace))
+	node := new(big.Int).Sub(id, new(big.Int).Lsh(topic, uint(config.OverlaySpace)))
+
+	// Depending on whether it was the topic parent or a child reown or unsub
+	c.lock.RLock()
+	top, ok := c.topics[topic.String()]
+	c.lock.RUnlock()
+
+	if ok {
+		parent := top.Parent()
+		if parent != nil && parent.Cmp(node) == 0 {
+			// Make sure it's out of the heartbeat mechanism
+			if err := c.heart.Unmonitor(id); err != nil {
+				log.Printf("carrier: failed to unmonitor parent %v from topic %v: %v.", node, topic, err)
+			}
+			// Reassign topic rendes-vous point
+			top.Reown(nil)
+		} else {
+			c.handleUnsubscribe(node, topic, false)
+		}
+	} else {
+		log.Printf("carrier: topic %v already dead.", topic)
+	}
 }
