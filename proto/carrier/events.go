@@ -22,12 +22,10 @@
 package carrier
 
 import (
-	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/carrier/topic"
 	"log"
 	"math/big"
-	"time"
 )
 
 // Implements the overlay.Callback.Deliver method.
@@ -57,8 +55,12 @@ func (c *carrier) Deliver(msg *proto.Message, key *big.Int) {
 			log.Printf("carrier: couldn't handle delivered balance event: %v.", msg)
 		}
 	case opRep:
-		// Load report, integrate into topics
-		c.handleReport(head.SrcNode, head.Report)
+		// Load report, integrate only if we're the real destination
+		if key.Cmp(c.transport.Self()) == 0 {
+			c.handleReport(head.SrcNode, head.Report)
+		} else {
+			log.Printf("carrier: wrong delivery for load report: %v.", msg)
+		}
 	case opDir:
 		// Direct message, deliver
 		c.handleDirect(msg, head.DestApp)
@@ -99,10 +101,7 @@ func (c *carrier) handleSubscribe(entityId, topicId *big.Int, app bool) {
 	sid := topicId.String()
 	top, ok := c.topics[sid]
 	if !ok {
-		beat := time.Duration(config.CarrierBeatPeriod) * time.Millisecond
-		kill := config.CarrierKillCount
-
-		top = topic.New(topicId, beat, kill)
+		top = topic.New(topicId)
 		c.topics[sid] = top
 	}
 	c.lock.Unlock()
@@ -111,8 +110,13 @@ func (c *carrier) handleSubscribe(entityId, topicId *big.Int, app bool) {
 	if app {
 		top.SubscribeApp(entityId)
 	} else {
-		top.SubscribeNode(entityId)
-
+		if err := top.SubscribeNode(entityId); err != nil {
+			log.Printf("carrier: failed to subscribe node %v to topic %v: %v.", entityId, topicId, err)
+			return
+		}
+		if err := c.monitor(topicId, entityId); err != nil {
+			log.Printf("carrier: failed to monitor node %v in topic %v: %v.", entityId, topicId, err)
+		}
 		// Respond immediately to the subscription with an empty report (fast parent discovery)
 		rep := &report{
 			Tops: []*big.Int{topicId},
@@ -134,10 +138,17 @@ func (c *carrier) handleUnsubscribe(entityId, topicId *big.Int, app bool) {
 			top.UnsubscribeApp(entityId)
 		} else {
 			top.UnsubscribeNode(entityId)
+			if err := c.unmonitor(topicId, entityId); err != nil {
+				log.Printf("carrier: failed to unmonitor node %v in topic %v: %v.", entityId, topicId, err)
+			}
 		}
 		// If topic became empty, send unsubscribe to parent, close and delete
 		if top.Empty() {
 			if parent := top.Parent(); parent != nil {
+				if err := c.unmonitor(topicId, parent); err != nil {
+					log.Printf("carrier: failed to unmonitor parent %v in topic %v: %v.", entityId, topicId, err)
+				}
+				top.Reown(nil)
 				go c.sendUnsubscribe(parent, top.Self())
 			}
 			top.Close()
@@ -207,7 +218,12 @@ func (c *carrier) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 
 	if ok {
 		// Fetch the recipient and either forward or deliver
-		node, app := top.Balance(prevHop)
+		node, app, err := top.Balance(prevHop)
+		if err != nil {
+			// Maybe the topic is terminating, log and return unhandled
+			log.Printf("carrier: failed to handle balance request: %v.", err)
+			return false
+		}
 		if node != nil {
 			c.fwdBalance(node, msg)
 		} else {
@@ -246,12 +262,23 @@ func (c *carrier) handleReport(src *big.Int, rep *report) {
 			// Insert the report into the topic and assign parent if needed
 			if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
 				if top.Parent() == nil {
+					// Assign a new parent TODO: REWRITE!!!
+					if err := c.monitor(id, src); err != nil {
+						log.Printf("carrier: topic %v failed to monitor new parent %v: %v.", id, src, err)
+					}
 					top.Reown(src)
+
+					// Insert the topic report now
 					if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
 						log.Printf("carrier: topic failed to process new parent report %v: %v.", rep.Caps[i], err)
 					}
 				} else {
 					log.Printf("carrier: topic failed to process report %v: %v.", rep.Caps[i], err)
+				}
+			} else {
+				// Report processed correctly, update the heart
+				if err := c.ping(id, src); err != nil {
+					log.Printf("carrier: failed to ping node %v in topic %v: %v.", src, id, err)
 				}
 			}
 		} else {

@@ -51,14 +51,15 @@ func TestHeart(t *testing.T) {
 
 	// Create the heartbeat mechanism and monitor some entities
 	heart := New(beat, kill, call)
-	heart.Monitor(alice)
-
+	if err := heart.Monitor(alice); err != nil {
+		t.Fatalf("failed to monitor alice: %v.", err)
+	}
 	// Make sure no beat requests are issued before starting
 	for i := 0; i < kill+1; i++ {
 		time.Sleep(beat)
 	}
 	if call.beat > 0 || len(call.dead) > 0 {
-		t.Errorf("events received before starting beater: %v", call)
+		t.Fatalf("events received before starting beater: %v", call)
 	}
 	// Start the beater and check for beat events
 	heart.Start()
@@ -66,46 +67,51 @@ func TestHeart(t *testing.T) {
 
 	time.Sleep(beat)
 	if n := call.beat; n != 1 {
-		t.Errorf("beat event count mismatch: have %v, want %v", n, 1)
+		t.Fatalf("beat event count mismatch: have %v, want %v", n, 1)
 	}
 	if n := len(call.dead); n != 0 {
-		t.Errorf("dead event count mismatch: have %v, want %v", n, 0)
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, 0)
 	}
 	// Insert another entity, check the beats again
-	heart.Monitor(bob)
+	if err := heart.Monitor(bob); err != nil {
+		t.Fatalf("failed to monitor bob: %v.", err)
+	}
 	time.Sleep(beat)
 	if n := call.beat; n != 2 {
-		t.Errorf("beat event count mismatch: have %v, want %v", n, 2)
+		t.Fatalf("beat event count mismatch: have %v, want %v", n, 2)
 	}
 	if n := len(call.dead); n != 0 {
-		t.Errorf("dead event count mismatch: have %v, want %v", n, 0)
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, 0)
 	}
 	// Wait another beat, check beats and dead reports
 	time.Sleep(beat)
 	if n := call.beat; n != 3 {
-		t.Errorf("beat event count mismatch: have %v, want %v", n, 3)
+		t.Fatalf("beat event count mismatch: have %v, want %v", n, 3)
 	}
 	if n := len(call.dead); n != 1 {
-		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
 	}
 	// Remove dead guy, ping live one, make sure bob doesn't die now
-	heart.Unmonitor(alice)
-	heart.Ping(bob)
-
+	if err := heart.Unmonitor(alice); err != nil {
+		t.Fatalf("failed to unmonitor alice: %v.", err)
+	}
+	if err := heart.Ping(bob); err != nil {
+		t.Fatalf("failed to ping bob: %v.", err)
+	}
 	time.Sleep(beat)
 	if n := call.beat; n != 4 {
-		t.Errorf("beat event count mismatch: have %v, want %v", n, 4)
+		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	if n := len(call.dead); n != 1 {
-		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
 	}
 	// Terminate beater and ensure no more events are fired
 	heart.Terminate()
 	time.Sleep(beat)
 	if n := call.beat; n != 4 {
-		t.Errorf("beat event count mismatch: have %v, want %v", n, 4)
+		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	if n := len(call.dead); n != 1 {
-		t.Errorf("dead event count mismatch: have %v, want %v", n, 1)
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
 	}
 }

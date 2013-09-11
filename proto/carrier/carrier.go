@@ -28,6 +28,7 @@ import (
 	"github.com/karalabe/iris/heart"
 	"github.com/karalabe/iris/proto/carrier/topic"
 	"github.com/karalabe/iris/proto/overlay"
+	"log"
 	"sync"
 	"time"
 )
@@ -65,11 +66,16 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 
 // Boots the message carrier, returning the numner of remote peers.
 func (c *carrier) Boot() (int, error) {
+	log.Printf("carrier: booting with id %v.", c.transport.Self())
+
+	// Start the heartbeat first since convergence can last long
+	c.heart.Start()
+
+	// Boot the carrier and wait will it converges
 	peers, err := c.transport.Boot()
 	if err != nil {
 		return 0, err
 	}
-	c.heart.Start()
 	return peers, nil
 }
 

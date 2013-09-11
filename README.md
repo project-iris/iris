@@ -1,6 +1,19 @@
   Iris - Decentralized Messaging Framework
 ============================================
 
+  Releases
+------------
+
+ * Version 0.1-pre2 (hotfix): **September 11, 2013**
+    - Fix fast subscription reply only if subsciption succeeds.
+    - Fix topic self report after a node failure.
+    - Fix heart mechanism to report errors not panics, check duplicate monitoring.
+    - Fix late carrier heartbeat startup.
+    - Fix panic caused by balance requests pending during topic termination.
+    - Fix corrupt topic balancer caused by stale parent after removal.
+ * Version 0.1-pre: **August 26, 2013**
+    - Initial RFC release.
+
   Contributions
 -----------------
 
