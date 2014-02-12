@@ -25,8 +25,9 @@ package pool
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/container/queue"
 	"sync"
+
+	"github.com/karalabe/iris/container/queue"
 )
 
 // A task function meant to be started as a go routine.
@@ -35,95 +36,108 @@ type Task func()
 // A thread pool to place a hard limit on the number of go-routines doing some
 // type of (possibly too consuming) work.
 type ThreadPool struct {
-	mutex sync.Mutex
-	tasks *queue.Queue
-
-	idle  int
-	total int
-
-	quit chan struct{}
+	mutex  sync.Mutex
+	seed   bool
+	task   chan Task
+	worker chan struct{}
+	clear  chan struct{}
+	quit   chan struct{}
 }
 
 // Creates a thread pool with the given concurrent thread capacity.
-func NewThreadPool(cap int) *ThreadPool {
-	return &ThreadPool{
-		tasks: queue.New(),
-		idle:  0,
-		total: cap,
-		quit:  make(chan struct{}),
+func NewThreadPool(capacity int) *ThreadPool {
+	p := &ThreadPool{
+		task:   make(chan Task),
+		worker: make(chan struct{}, capacity),
+		clear:  make(chan struct{}),
+		quit:   make(chan struct{}),
+	}
+	go p.loop()
+	return p
+}
+
+func (t *ThreadPool) loop() {
+	var next Task
+	tasks := queue.New()
+	worker := t.worker
+	// wait for work or signals
+	for {
+		// get the next task if we need one and it's available
+		if next == nil && !tasks.Empty() {
+			next = tasks.Pop().(Task)
+		}
+		if next == nil {
+			worker = nil // disable receiving a worker since we don't have a task
+		} else {
+			worker = t.worker // enable receiving a worker since we do have a task
+		}
+		select {
+		case task := <-t.task:
+			tasks.Push(task)
+		case <-worker:
+			task := next
+			go func() {
+				task()
+				t.worker <- struct{}{}
+			}()
+			next = nil
+		case <-t.clear:
+			tasks.Reset()
+			next = nil
+		case <-t.quit:
+			return
+		}
 	}
 }
 
 // Starts the thread pool and workers.
 func (t *ThreadPool) Start() {
-	// Although we could check to start min(tasks, total), but this way is simpler
-	for i := 0; i < t.total; i++ {
-		go t.runner()
+	t.mutex.Lock()
+	if !t.seed {
+		// seed with workers
+		for i := 0; i < cap(t.worker); i++ {
+			t.worker <- struct{}{}
+		}
+		t.seed = true
 	}
+	t.mutex.Unlock()
 }
 
 // Waits for all threads to finish, terminating the whole pool afterwards. No
 // new tasks are accepted in the meanwhile.
 func (t *ThreadPool) Terminate() {
-	close(t.quit)
+	t.mutex.Lock()
+	select {
+	case <-t.quit:
+		// closed
+	default:
+		// close and wait for all work to complete
+		close(t.quit)
+		if t.seed {
+			for i := 0; i < cap(t.worker); i++ {
+				<-t.worker
+			}
+		}
+	}
+	t.mutex.Unlock()
 }
 
 // Schedules a new task into the thread pool.
 func (t *ThreadPool) Schedule(task Task) error {
-	// If terminating, return so
 	select {
+	case t.task <- task:
+		return nil
 	case <-t.quit:
 		return fmt.Errorf("pool terminating")
-	default:
-		// Ok, schedule
 	}
-	// Schedule the task and start execution if threads available
-	t.mutex.Lock()
-	t.tasks.Push(task)
-	if t.idle > 0 {
-		t.idle--
-		go t.runner()
-	}
-	t.mutex.Unlock()
-
-	return nil
 }
 
 // Dumps the waiting tasks from the pool.
 func (t *ThreadPool) Clear() {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-	t.tasks.Reset()
-}
-
-func (t *ThreadPool) runner() {
-	// Make sure the idle count is incremented bask even if we die
-	defer func() {
-		t.mutex.Lock()
-		t.idle++
-		t.mutex.Unlock()
-	}()
-	// Execute jobs until all's done
-	var task Task
-	for done := false; !done; {
-		// Check for termination
-		select {
-		case <-t.quit:
-			return
-		default:
-		}
-		// Fetch a new task or terminate if all's done
-		t.mutex.Lock()
-		if t.tasks.Empty() {
-			done = true
-		} else {
-			task = t.tasks.Pop().(Task)
-		}
-		t.mutex.Unlock()
-
-		// Execute the task if any was fetched
-		if !done {
-			task()
-		}
+	select {
+	case t.clear <- struct{}{}:
+		// cleared
+	case <-t.quit:
+		// closed
 	}
 }
