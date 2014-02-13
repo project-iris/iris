@@ -105,10 +105,20 @@ func (q *Queue) Size() int {
 
 // Clears out the contents of the queue.
 func (q *Queue) Reset() {
+	// Rewind the queue indices
 	q.headIdx = 0
 	q.tailIdx = 0
 	q.headOff = 0
 	q.tailOff = 0
+
+	// Reset the active blocks
 	q.head = q.blocks[0]
 	q.tail = q.blocks[0]
+
+	// Set all elements to nil to allow garbage collection
+	for _, block := range q.blocks {
+		for i := 0; i < len(block); i++ {
+			block[i] = nil
+		}
+	}
 }
