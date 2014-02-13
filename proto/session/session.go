@@ -20,13 +20,13 @@ package session
 
 import (
 	"bytes"
+	"code.google.com/p/go.crypto/hkdf"
 	"crypto/cipher"
 	"crypto/hmac"
 	"encoding/gob"
 	"errors"
 	"fmt"
 	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/crypto/hkdf"
 	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/stream"
 	"hash"

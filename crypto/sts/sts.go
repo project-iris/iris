@@ -36,11 +36,11 @@
 package sts
 
 import (
+	"code.google.com/p/go.crypto/hkdf"
 	"crypto"
 	"crypto/cipher"
 	"crypto/rsa"
 	"errors"
-	"github.com/karalabe/iris/crypto/hkdf"
 	"hash"
 	"io"
 	"math/big"
