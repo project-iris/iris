@@ -46,9 +46,9 @@ func TestThreadPool(t *testing.T) {
 			t.Errorf("failed to schedule task: %v.", err)
 		}
 	}
-	//if size := pool.tasks.Size(); size != 9 {
-	//	t.Errorf("task count mismatch: have %v, want %v.", size, 9)
-	//}
+	if size := pool.tasks.Size(); size != 9 {
+		t.Errorf("task count mismatch: have %v, want %v.", size, 9)
+	}
 	time.Sleep(100 * time.Millisecond)
 	if count > 0 {
 		t.Errorf("non-started pool executed tasks.")
@@ -157,24 +157,24 @@ func TestClear(t *testing.T) {
 	started := 0
 	workers := 2
 	pool := NewThreadPool(workers)
-	pool.Start()
 	for i := 0; i < workers*2; i++ {
 		err := pool.Schedule(func() {
 			mutex.Lock()
 			started++
-			n := started
 			mutex.Unlock()
-			if n <= workers {
-				// initial tasks sleep
-				time.Sleep(10 * time.Millisecond)
-			}
+			time.Sleep(10 * time.Millisecond)
 		})
 		if err != nil {
 			t.Errorf("failed to schedule task, err: %v", err)
 		}
 	}
-	pool.Clear()
-	time.Sleep(15 * time.Millisecond)
+	pool.Start() // should start initial tasks
+	pool.Clear() // before clear removes them
+	// check that no more tasks can be scheduled
+	if err := pool.Schedule(func() {}); err != nil {
+		t.Errorf("failed to schedule task after clear, err: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
 	if started != workers {
 		t.Errorf("unexpected tasks started: have %d, want %d", started, workers)
 	}
@@ -186,23 +186,19 @@ func TestTerminate(t *testing.T) {
 	started := 0
 	workers := 2
 	pool := NewThreadPool(workers)
-	pool.Start()
 	for i := 0; i < workers*2; i++ {
 		err := pool.Schedule(func() {
 			mutex.Lock()
 			started++
-			n := started
 			mutex.Unlock()
-			if n <= workers {
-				// initial tasks sleep
-				time.Sleep(10 * time.Millisecond)
-			}
+			time.Sleep(10 * time.Millisecond)
 		})
 		if err != nil {
 			t.Errorf("failed to schedule task, err: %v", err)
 		}
 	}
-	pool.Terminate()
+	pool.Start()     // should start initial tasks
+	pool.Terminate() // before terminate removes them
 	// should block until current workers have finished
 	if started != workers {
 		t.Errorf("unexpected tasks started: have %d, want %d", started, workers)
@@ -212,7 +208,7 @@ func TestTerminate(t *testing.T) {
 	if err := pool.Schedule(func() {}); err == nil {
 		t.Errorf("task scheduling succeeded, shouldn't have.")
 	}
-	time.Sleep(15 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	// no extra tasts should finish
 	if started != workers {
 		t.Errorf("unexpected tasks started: have %d, want %d", started, workers)
