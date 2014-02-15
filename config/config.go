@@ -140,6 +140,9 @@ var SessionCipherBits = 128
 // Hash creator for the session HMAC.
 var SessionHash = md5.New
 
+// Maximum allowed time to complete a session setup (ms).
+var SessionShakeTimeout = 3000
+
 // Symmetric cipher for the temporary message encryption.
 var PacketCipher = aes.NewCipher
 

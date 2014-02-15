@@ -28,6 +28,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"time"
 )
 
 // Authenticated connection request message. Contains the originators ID for
@@ -99,6 +100,10 @@ func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Ses
 
 // Client side of the STS session negotiation.
 func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
+	// Set an overall time limit for the handshake to complete
+	strm.Raw().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
+	defer strm.Raw().SetDeadline(time.Time{})
+
 	// Defer an error handler that will ensure a closed stream
 	defer func() {
 		if err != nil {
@@ -162,6 +167,10 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 
 // Server side of the STS session negotiation.
 func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session) {
+	// Set an overall time limit for the handshake to complete
+	strm.Raw().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
+	defer strm.Raw().SetDeadline(time.Time{})
+
 	// Defer an error handler that will ensure a closed stream
 	var err error
 	defer func() {
