@@ -1,11 +1,14 @@
-  Iris - Decentralized Messaging Framework
-============================================
+  Iris - Decentralized Messaging
+==================================
 
   Releases
 ------------
-
+ * Development:
+    - Fix session handshake infinite wait.
+    - Fix thread pool termination wait.
+    - Fix queue reset GC allowance.
  * Version 0.1-pre2 (hotfix): **September 11, 2013**
-    - Fix fast subscription reply only if subsciption succeeds.
+    - Fix fast subscription reply only if subscription succeeds.
     - Fix topic self report after a node failure.
     - Fix heart mechanism to report errors not panics, check duplicate monitoring.
     - Fix late carrier heartbeat startup.
