@@ -10,5 +10,5 @@ The agreement for individuals can be filled out on the web.
   Contributors
 ----------------
 
- - Andrew Michael Bursavich <andrew.bursavich@gree.net>
+ - Andrew Michael Bursavich <abursavich@gmail.com>
  - Péter Szilágyi <peterke@gmail.com>
