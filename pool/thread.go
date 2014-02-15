@@ -24,10 +24,13 @@
 package pool
 
 import (
-	"fmt"
-	"github.com/karalabe/iris/container/queue"
+	"errors"
 	"sync"
+
+	"github.com/karalabe/iris/container/queue"
 )
+
+var ErrTerminating = errors.New("pool terminating")
 
 // A task function meant to be started as a go routine.
 type Task func()
@@ -38,53 +41,69 @@ type ThreadPool struct {
 	mutex sync.Mutex
 	tasks *queue.Queue
 
+	start bool
 	idle  int
 	total int
 
-	quit chan struct{}
+	quit bool
+	done *sync.Cond
 }
 
 // Creates a thread pool with the given concurrent thread capacity.
 func NewThreadPool(cap int) *ThreadPool {
-	return &ThreadPool{
+	t := &ThreadPool{
 		tasks: queue.New(),
-		idle:  0,
+		idle:  cap,
 		total: cap,
-		quit:  make(chan struct{}),
 	}
+	t.done = sync.NewCond(&t.mutex)
+	return t
 }
 
 // Starts the thread pool and workers.
 func (t *ThreadPool) Start() {
-	// Although we could check to start min(tasks, total), but this way is simpler
-	for i := 0; i < t.total; i++ {
-		go t.runner()
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	if !t.start {
+		for i := 0; i < t.total && !t.tasks.Empty(); i++ {
+			t.idle--
+			go t.runner(t.tasks.Pop().(Task))
+		}
+		t.start = true
 	}
 }
 
 // Waits for all threads to finish, terminating the whole pool afterwards. No
 // new tasks are accepted in the meanwhile.
 func (t *ThreadPool) Terminate() {
-	close(t.quit)
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	t.quit = true
+	t.tasks.Reset()
+
+	for t.idle < t.total {
+		t.done.Wait()
+	}
 }
 
 // Schedules a new task into the thread pool.
 func (t *ThreadPool) Schedule(task Task) error {
-	// If terminating, return so
-	select {
-	case <-t.quit:
-		return fmt.Errorf("pool terminating")
-	default:
-		// Ok, schedule
-	}
-	// Schedule the task and start execution if threads available
 	t.mutex.Lock()
-	t.tasks.Push(task)
-	if t.idle > 0 {
-		t.idle--
-		go t.runner()
+	defer t.mutex.Unlock()
+
+	// If terminating, return so
+	if t.quit {
+		return ErrTerminating
 	}
-	t.mutex.Unlock()
+
+	if t.start && t.idle > 0 {
+		t.idle--
+		go t.runner(task)
+	} else {
+		t.tasks.Push(task)
+	}
 
 	return nil
 }
@@ -93,37 +112,41 @@ func (t *ThreadPool) Schedule(task Task) error {
 func (t *ThreadPool) Clear() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
+
 	t.tasks.Reset()
 }
 
-func (t *ThreadPool) runner() {
-	// Make sure the idle count is incremented bask even if we die
+func (t *ThreadPool) runner(task Task) {
+	// Make sure the idle count is incremented back even if we panic
 	defer func() {
 		t.mutex.Lock()
-		t.idle++
-		t.mutex.Unlock()
-	}()
-	// Execute jobs until all's done
-	var task Task
-	for done := false; !done; {
-		// Check for termination
-		select {
-		case <-t.quit:
-			return
-		default:
-		}
-		// Fetch a new task or terminate if all's done
-		t.mutex.Lock()
+		// Without this respawn hack there's a race condition where a task
+		// may be scheduled after a runner has exited its loop but before it's
+		// gotten here to be marked as idle. Do one last check for that case
+		// while we have the lock.
 		if t.tasks.Empty() {
-			done = true
+			t.idle++
 		} else {
-			task = t.tasks.Pop().(Task)
+			go t.runner(t.tasks.Pop().(Task))
 		}
 		t.mutex.Unlock()
 
-		// Execute the task if any was fetched
-		if !done {
-			task()
-		}
+		t.done.Signal()
+	}()
+
+	// Execute all tasks that are available
+	for ; task != nil; task = t.next() {
+		task()
 	}
+}
+
+func (t *ThreadPool) next() Task {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	if t.tasks.Empty() { // tasks reset on termination
+		return nil
+	}
+
+	return t.tasks.Pop().(Task)
 }
