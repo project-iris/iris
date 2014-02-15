@@ -25,9 +25,8 @@ package pool
 
 import (
 	"errors"
-	"sync"
-
 	"github.com/karalabe/iris/container/queue"
+	"sync"
 )
 
 var ErrTerminating = errors.New("pool terminating")
@@ -38,15 +37,16 @@ type Task func()
 // A thread pool to place a hard limit on the number of go-routines doing some
 // type of (possibly too consuming) work.
 type ThreadPool struct {
+	tasks *queue.Queue // List of pending tasks
+
+	idle  int // Number of idle workers (i.e. not running)
+	total int // Maximum pool worker capacity
+
+	start bool // Whether the pool was already started
+	quit  bool // Whether the pool was already terminated
+
 	mutex sync.Mutex
-	tasks *queue.Queue
-
-	start bool
-	idle  int
-	total int
-
-	quit bool
-	done *sync.Cond
+	done  *sync.Cond
 }
 
 // Creates a thread pool with the given concurrent thread capacity.
@@ -133,7 +133,6 @@ func (t *ThreadPool) runner(task Task) {
 
 		t.done.Signal()
 	}()
-
 	// Execute all tasks that are available
 	for ; task != nil; task = t.next() {
 		task()
@@ -144,9 +143,8 @@ func (t *ThreadPool) next() Task {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
-	if t.tasks.Empty() { // tasks reset on termination
+	if t.tasks.Empty() { // Note, tasks is reset on termination
 		return nil
 	}
-
 	return t.tasks.Pop().(Task)
 }

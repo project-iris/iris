@@ -21,8 +21,6 @@ Stuff that need implementing, fixing or testing.
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
         - Completely rewrite quit mechanism to chan chan error
 - Bugs
-    - Thread pool
-        - Terminate does not wait for threads to finish
     - Relay
         - Race condition if reply and immediate close (needs close sync with finishing ops)
     - Iris
