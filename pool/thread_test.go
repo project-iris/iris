@@ -224,8 +224,13 @@ func TestTerminate(t *testing.T) {
 			t.Fatalf("failed to schedule task: %v.", err)
 		}
 	}
-	pool.Start()     // should start initial tasks
-	pool.Terminate() // before terminate removes them
+	pool.Start()
+
+	// Launch a number of terminations to ensure correct blocking and no deadlocks (issue #7)
+	for i := 0; i < 16; i++ {
+		go pool.Terminate()
+	}
+	pool.Terminate() // main terminator
 
 	// Ensure terminate blocked until current workers have finished
 	if started != workers {
