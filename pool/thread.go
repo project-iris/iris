@@ -131,7 +131,7 @@ func (t *ThreadPool) runner(task Task) {
 		}
 		t.mutex.Unlock()
 
-		t.done.Signal()
+		t.done.Broadcast()
 	}()
 	// Execute all tasks that are available
 	for ; task != nil; task = t.next() {
