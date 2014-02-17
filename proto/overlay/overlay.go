@@ -26,13 +26,14 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto"
 	"io"
 	"math/big"
 	"net"
 	"sync"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/pool"
+	"github.com/karalabe/iris/proto"
 )
 
 // Different status types in which the node can be.
@@ -128,7 +129,7 @@ func (o *Overlay) Boot() (int, error) {
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok {
 			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				go o.acceptor(ipnet.IP)
+				go o.acceptor(ipnet)
 			}
 		}
 	}

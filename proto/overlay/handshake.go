@@ -26,15 +26,16 @@ package overlay
 import (
 	"encoding/gob"
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/bootstrap"
-	"github.com/karalabe/iris/proto/session"
 	"log"
 	"math/big"
 	"net"
 	"sort"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/bootstrap"
+	"github.com/karalabe/iris/proto/session"
 )
 
 // The initialization packet when the connection is set up.
@@ -50,11 +51,11 @@ func init() {
 
 // Starts up the overlay networking on a specified interface and fans in all the
 // inbound connections into the overlay-global channels.
-func (o *Overlay) acceptor(ip net.IP) {
+func (o *Overlay) acceptor(ipnet *net.IPNet) {
 	// Listen for incomming session on the given interface and random port.
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
 	if err != nil {
-		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ip, err))
+		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
 	}
 	sesSink, quit, err := session.Listen(addr, o.lkey, o.rkeys)
 	if err != nil {
@@ -69,7 +70,7 @@ func (o *Overlay) acceptor(ip net.IP) {
 	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
-	booter, bootSink, err := bootstrap.New(ip, []byte(o.overId), o.nodeId, addr.Port)
+	booter, bootSink, err := bootstrap.New(ipnet, []byte(o.overId), o.nodeId, addr.Port)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create bootstrapper: %v.", err))
 	}

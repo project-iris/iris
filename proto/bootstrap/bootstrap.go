@@ -30,13 +30,14 @@ package bootstrap
 import (
 	"bytes"
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/gobber"
 	"math/big"
 	"math/rand"
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/gobber"
 )
 
 // Constants for the protocol UDP layer
@@ -62,6 +63,7 @@ type Message struct {
 type Bootstrapper struct {
 	addr *net.UDPAddr
 	sock *net.UDPConn
+	mask *net.IPMask
 
 	magic    []byte // Filters side-by-side Iris networks
 	request  []byte // Pre-generated request packet
@@ -79,7 +81,7 @@ type Bootstrapper struct {
 // for incoming requests and scan the same interface for other peers. The magic
 // is used to filter multiple Iris networks in the same physical network, while
 // the overlay is the TCP listener port of the DHT.
-func New(ip net.IP, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
+func New(ipnet net.IPNet, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
 	bs := &Bootstrapper{
 		magic: magic,
 		beats: make(chan *Event, config.BootBeatsBuffer),
@@ -88,7 +90,7 @@ func New(ip net.IP, magic []byte, node *big.Int, overlay int) (*Bootstrapper, ch
 	// Open the server socket
 	var err error
 	for _, port := range config.BootPorts {
-		bs.addr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+		bs.addr, err = net.ResolveUDPAddr("udp", net.JoinHostPort(ipnet.IP.String(), strconv.Itoa(port)))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -97,6 +99,7 @@ func New(ip net.IP, magic []byte, node *big.Int, overlay int) (*Bootstrapper, ch
 			continue
 		} else {
 			bs.addr.Port = bs.sock.LocalAddr().(*net.UDPAddr).Port
+			bs.mask = &ipnet.Mask
 			break
 		}
 	}
@@ -226,8 +229,7 @@ func (bs *Bootstrapper) accept() {
 // config array are tried simultaneously. Self connection is disabled.
 func (bs *Bootstrapper) probe() {
 	// Set up some initial parameters
-	mask := bs.addr.IP.DefaultMask()
-	ones, bits := mask.Size()
+	ones, bits := bs.mask.Size()
 
 	// Probe random addresses until termination is requested
 	var errc chan error
@@ -240,7 +242,7 @@ func (bs *Bootstrapper) probe() {
 			host := bs.addr.IP
 			for host.Equal(bs.addr.IP) {
 				subip := rand.Intn(1<<uint(bits-ones)-2) + 1
-				host = bs.addr.IP.Mask(mask)
+				host = bs.addr.IP.Mask(*bs.mask)
 				for i := len(host) - 1; i >= 0; i-- {
 					host[i] |= byte(subip & 255)
 					subip >>= 8
@@ -279,8 +281,7 @@ func (bs *Bootstrapper) probe() {
 func (bs *Bootstrapper) scan() {
 	// Set up some initial parameters
 	size := len(bs.addr.IP)
-	mask := bs.addr.IP.DefaultMask()
-	ones, bits := mask.Size()
+	ones, bits := bs.mask.Size()
 	subip := 0
 	for i := 0; i < bits-ones; i++ {
 		subip += int(bs.addr.IP[size-1-i/8]) & (1 << uint(i%8))
@@ -318,7 +319,7 @@ func (bs *Bootstrapper) scan() {
 				continue
 			}
 			// Generate the new address
-			host := bs.addr.IP.Mask(mask)
+			host := bs.addr.IP.Mask(*bs.mask)
 			for i := len(host) - 1; i >= 0; i-- {
 				host[i] |= byte(scanip & 255)
 				scanip >>= 8
