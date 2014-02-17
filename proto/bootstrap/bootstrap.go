@@ -81,7 +81,7 @@ type Bootstrapper struct {
 // for incoming requests and scan the same interface for other peers. The magic
 // is used to filter multiple Iris networks in the same physical network, while
 // the overlay is the TCP listener port of the DHT.
-func New(ipnet net.IPNet, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
+func New(ipnet *net.IPNet, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
 	bs := &Bootstrapper{
 		magic: magic,
 		beats: make(chan *Event, config.BootBeatsBuffer),
