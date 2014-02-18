@@ -12,3 +12,4 @@ The agreement for individuals can be filled out on the web.
 
  - Andrew Michael Bursavich <abursavich@gmail.com>
  - Péter Szilágyi <peterke@gmail.com>
+ - Sander van Harmelen <svanharmelen@schubergphilis.com>
