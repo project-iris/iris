@@ -4,6 +4,7 @@
   Releases
 ------------
  * Development:
+    - Fix invalid bootstrap net mask (default -> actual).
     - Fix session handshake infinite wait.
     - Fix thread pool termination wait.
     - Fix queue reset GC allowance.
