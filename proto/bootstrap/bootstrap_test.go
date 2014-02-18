@@ -28,9 +28,14 @@ import (
 )
 
 func TestPortSelection(t *testing.T) {
+	// Create the localhost IP net
+	ipnet := &net.IPNet{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Mask: net.IPv4Mask(0xff, 0, 0, 0),
+	}
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
-		if bs, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), big.NewInt(int64(i)), 11111); err != nil {
+		if bs, _, err := New(ipnet, []byte("magic"), big.NewInt(int64(i)), 11111); err != nil {
 			t.Fatalf("failed to create bootstrapper: %v.", err)
 		} else {
 			if err := bs.Boot(); err != nil {
@@ -40,7 +45,7 @@ func TestPortSelection(t *testing.T) {
 		}
 	}
 	// Ensure failure after all ports are used
-	if _, _, err := New(net.IPv4(127, 0, 0, 1), []byte("magic"), big.NewInt(333), 11111); err == nil {
+	if _, _, err := New(ipnet, []byte("magic"), big.NewInt(333), 11111); err == nil {
 		t.Errorf("bootstrapper created even though no ports were available.")
 	}
 }
@@ -49,9 +54,16 @@ func TestScan(t *testing.T) {
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
-
+	ipnet1 := &net.IPNet{
+		IP:   over1.IP,
+		Mask: over1.IP.DefaultMask(),
+	}
+	ipnet2 := &net.IPNet{
+		IP:   over2.IP,
+		Mask: over2.IP.DefaultMask(),
+	}
 	// Start up two bootstrappers
-	bs1, evs1, err := New(over1.IP, []byte("magic"), big.NewInt(1), over1.Port)
+	bs1, evs1, err := New(ipnet1, []byte("magic"), big.NewInt(1), over1.Port)
 	if err != nil {
 		t.Fatalf("failed to create first booter: %v.", err)
 	}
@@ -60,7 +72,7 @@ func TestScan(t *testing.T) {
 	}
 	defer bs1.Terminate()
 
-	bs2, evs2, err := New(over2.IP, []byte("magic"), big.NewInt(2), over2.Port)
+	bs2, evs2, err := New(ipnet2, []byte("magic"), big.NewInt(2), over2.Port)
 	if err != nil {
 		t.Fatalf("failed to create second booter: %v.", err)
 	}
@@ -103,9 +115,16 @@ func TestMagic(t *testing.T) {
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
-
+	ipnet1 := &net.IPNet{
+		IP:   over1.IP,
+		Mask: over1.IP.DefaultMask(),
+	}
+	ipnet2 := &net.IPNet{
+		IP:   over2.IP,
+		Mask: over2.IP.DefaultMask(),
+	}
 	// Start up two bootstrappers
-	bs1, evs1, err := New(over1.IP, []byte("magic1"), big.NewInt(1), over1.Port)
+	bs1, evs1, err := New(ipnet1, []byte("magic1"), big.NewInt(1), over1.Port)
 	if err != nil {
 		t.Fatalf("failed to create first booter: %v.", err)
 	}
@@ -114,7 +133,7 @@ func TestMagic(t *testing.T) {
 	}
 	defer bs1.Terminate()
 
-	bs2, evs2, err := New(over2.IP, []byte("magic2"), big.NewInt(2), over2.Port)
+	bs2, evs2, err := New(ipnet2, []byte("magic2"), big.NewInt(2), over2.Port)
 	if err != nil {
 		t.Fatalf("failed to create second booter: %v.", err)
 	}
