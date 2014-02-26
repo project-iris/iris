@@ -28,87 +28,107 @@ package stream
 import (
 	"bufio"
 	"encoding/gob"
-	"fmt"
+	"log"
 	"net"
 	"time"
 )
 
 // TCP/IP based stream with a gob encoder on top.
 type Stream struct {
-	sock    net.Conn          // Network connection to the remote endpoint
-	sockBuf *bufio.ReadWriter // Buffered access to the network socket
-
-	enc *gob.Encoder // Gob encoder for data serialization
-	dec *gob.Decoder // Gob decoder for data deserialization
+	socket  *net.TCPConn      // Network connection to the remote endpoint
+	buffers *bufio.ReadWriter // Buffered access to the network socket
+	encoder *gob.Encoder      // Gob encoder for data serialization
+	decoder *gob.Decoder      // Gob decoder for data deserialization
 }
 
 // Constants for the protocol TCP/IP layer
-var acceptTimeout = time.Second
-var dialTimeout = time.Second
+const acceptTimeout = time.Second
 
-// Opens a tcp server socket, and if successful, starts a go routine for
+// Opens a TCP server socket, and if successful, starts a go routine for
 // accepting incoming connections and returns a stream and a quit channel.
-// If an auto-port (0) was requested, the port is returned in the addr arg.
-func Listen(addr *net.TCPAddr) (chan *Stream, chan struct{}, error) {
+// If an auto-port (0) was requested, the port is updated in the argument.
+func Listen(addr *net.TCPAddr) (chan *Stream, chan chan error, error) {
 	// Open the server socket
 	sock, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		return nil, nil, err
 	}
 	addr.Port = sock.Addr().(*net.TCPAddr).Port
+
 	// Create the two channels, start the acceptor and return
 	sink := make(chan *Stream)
-	quit := make(chan struct{})
+	quit := make(chan chan error)
 	go accept(sock, sink, quit)
 	return sink, quit, nil
 }
 
-// Connects to a remote host and returns the connection stream.
-func Dial(host string, port int) (*Stream, error) {
-	addr := fmt.Sprintf("%s:%d", host, port)
-	sock, err := net.DialTimeout("tcp", addr, dialTimeout)
-	if err != nil {
-		return nil, err
-	}
-	return newStream(sock), nil
-}
-
 // Accepts incoming connection requests, converts them info a TCP/IP gob stream
 // and send them back on the sink channel.
-func accept(sock *net.TCPListener, sink chan *Stream, quit chan struct{}) {
-	defer close(sink)
-	defer sock.Close()
-	for {
+func accept(sock *net.TCPListener, sink chan *Stream, quit chan chan error) {
+	var errc chan error
+	var errv error
+
+	// Loop until an error occurs or quit is requested
+	for errv == nil && errc == nil {
 		select {
-		case <-quit:
-			return
+		case errc = <-quit:
+			continue
 		default:
 			// Accept an incoming connection but without blocking for too long
 			sock.SetDeadline(time.Now().Add(acceptTimeout))
-			conn, err := sock.Accept()
-			if err == nil {
+			if conn, err := sock.AcceptTCP(); err == nil {
 				sink <- newStream(conn)
+			} else if !err.(net.Error).Timeout() {
+				log.Printf("stream: failed to accept connection: %v.", err)
+				errv = err
 			}
 		}
 	}
+	// Close the socket and upstream stream sink
+	close(sink)
+	if err := sock.Close(); err != nil && errv == nil {
+		// Keep only first error
+		errv = err
+	}
+	// Wait for termination sync and return
+	if errc == nil {
+		errc = <-quit
+	}
+	errc <- errv
 }
 
 // Creates a new, gob backed network stream based on a live TCP/IP connection.
-func newStream(sock net.Conn) *Stream {
-	sockBuf := bufio.NewReadWriter(bufio.NewReader(sock), bufio.NewWriter(sock))
-	return &Stream{sock, sockBuf, gob.NewEncoder(sockBuf), gob.NewDecoder(sockBuf)}
+func newStream(sock *net.TCPConn) *Stream {
+	reader := bufio.NewReader(sock)
+	writer := bufio.NewWriter(sock)
+
+	return &Stream{
+		socket:  sock,
+		buffers: bufio.NewReadWriter(reader, writer),
+		encoder: gob.NewEncoder(writer),
+		decoder: gob.NewDecoder(reader),
+	}
+}
+
+// Connects to a remote host and returns the connection stream.
+func Dial(address string, timeout time.Duration) (*Stream, error) {
+	if sock, err := net.DialTimeout("tcp", address, timeout); err != nil {
+		return nil, err
+	} else {
+		return newStream(sock.(*net.TCPConn)), nil
+	}
 }
 
 // Retrieves the raw connection object if special manipulations are needed.
-func (s *Stream) Raw() *net.TCPConn {
-	return s.sock.(*net.TCPConn)
+func (s *Stream) Sock() *net.TCPConn {
+	return s.socket
 }
 
-// Serializes a data an sends it over the wire. In case of an error, the network
-// stream is torn down.
+// Serializes an object and sends it over the wire. In case of an error, the
+// connection is torn down.
 func (s *Stream) Send(data interface{}) error {
-	if err := s.enc.Encode(data); err != nil {
-		s.sock.Close()
+	if err := s.encoder.Encode(data); err != nil {
+		s.socket.Close()
 		return err
 	}
 	return nil
@@ -117,8 +137,8 @@ func (s *Stream) Send(data interface{}) error {
 // Flushes the outbound socket. In case of an error, the  network stream is torn
 // down.
 func (s *Stream) Flush() error {
-	if err := s.sockBuf.Flush(); err != nil {
-		s.sock.Close()
+	if err := s.buffers.Flush(); err != nil {
+		s.socket.Close()
 		return err
 	}
 	return nil
@@ -127,14 +147,14 @@ func (s *Stream) Flush() error {
 // Receives a gob of the given type and returns it. If an  error occurs, the
 // network stream is torn down.
 func (s *Stream) Recv(data interface{}) error {
-	err := s.dec.Decode(data)
-	if err != nil {
-		s.sock.Close()
+	if err := s.decoder.Decode(data); err != nil {
+		s.socket.Close()
+		return err
 	}
-	return err
+	return nil
 }
 
 // Closes the underlying network connection of a stream.
-func (s *Stream) Close() {
-	s.sock.Close()
+func (s *Stream) Close() error {
+	return s.socket.Close()
 }

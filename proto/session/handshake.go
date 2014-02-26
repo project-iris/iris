@@ -22,13 +22,15 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/crypto/sts"
-	"github.com/karalabe/iris/proto/stream"
+	"fmt"
 	"log"
 	"math/big"
 	"net"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/crypto/sts"
+	"github.com/karalabe/iris/proto/stream"
 )
 
 // Authenticated connection request message. Contains the originators ID for
@@ -72,7 +74,8 @@ func Listen(addr *net.TCPAddr, key *rsa.PrivateKey, store map[string]*rsa.Public
 // further communication.
 func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
 	// Open the TCP socket
-	conn, err := stream.Dial(host, port)
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := stream.Dial(addr, time.Duration(config.SessionDialTimeout)*time.Millisecond)
 	if err != nil {
 		return nil, err
 	}
@@ -82,11 +85,16 @@ func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.Pu
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
 func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session, quit chan struct{},
-	netSink chan *stream.Stream, netQuit chan struct{}) {
+	netSink chan *stream.Stream, netQuit chan chan error) {
 	for {
 		select {
 		case <-quit:
-			close(netQuit)
+			// Terminate the stream listener
+			errc := make(chan error)
+			netQuit <- errc
+			if err := <-errc; err != nil {
+				log.Printf("session: failed to terminate stream listener: %v.", err)
+			}
 			return
 		case conn, ok := <-netSink:
 			// Negotiate an STS session (if channel has not been closed)
@@ -101,8 +109,8 @@ func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Ses
 // Client side of the STS session negotiation.
 func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
 	// Set an overall time limit for the handshake to complete
-	strm.Raw().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
-	defer strm.Raw().SetDeadline(time.Time{})
+	strm.Sock().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
+	defer strm.Sock().SetDeadline(time.Time{})
 
 	// Defer an error handler that will ensure a closed stream
 	defer func() {
@@ -168,8 +176,8 @@ func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.P
 // Server side of the STS session negotiation.
 func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session) {
 	// Set an overall time limit for the handshake to complete
-	strm.Raw().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
-	defer strm.Raw().SetDeadline(time.Time{})
+	strm.Sock().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
+	defer strm.Sock().SetDeadline(time.Time{})
 
 	// Defer an error handler that will ensure a closed stream
 	var err error

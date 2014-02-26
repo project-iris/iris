@@ -16,12 +16,15 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package stream_test
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/proto/stream"
 	"net"
+	"time"
+
+	"github.com/karalabe/iris/proto/stream"
 )
 
 var host = "localhost"
@@ -29,11 +32,13 @@ var port = 55555
 
 // Stream example of an echo server and client using streams.
 func Example_usage() {
+	live := make(chan struct{})
 	quit := make(chan struct{})
 	data := make(chan string)
 	msg := "Hello Stream!"
 
-	go server(quit)
+	go server(live, quit)
+	<-live
 	go client(msg, data)
 
 	fmt.Println("Input message:", msg)
@@ -45,7 +50,7 @@ func Example_usage() {
 	// Output message: Hello Stream!
 }
 
-func server(quit chan struct{}) {
+func server(live, quit chan struct{}) {
 	// Open a TCP port to accept incoming stream connections
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
@@ -57,57 +62,62 @@ func server(quit chan struct{}) {
 		fmt.Println("Failed to listen for incoming streams:", err)
 		return
 	}
+	live <- struct{}{}
+
 	// While not exiting, process stream connections
-	select {
-	case <-quit:
-		close(strmQuit)
-		return
-	case strm := <-sink:
-		// Receive and echo back a string
-		data := new(string)
-		err = strm.Recv(data)
-		if err != nil {
-			fmt.Println("failed to receive a string object:", err)
-		} else {
-			err = strm.Send(data)
-			if err != nil {
-				fmt.Println("failed to send back a string object:", err)
+	for {
+		select {
+		case <-quit:
+			errc := make(chan error)
+			strmQuit <- errc
+			if err = <-errc; err != nil {
+				fmt.Println("Failed to terminate stream listener:", err)
 			}
-			strm.Flush()
-			if err != nil {
+			return
+		case strm := <-sink:
+			defer strm.Close()
+
+			// Receive and echo back a string
+			var data string
+			if err = strm.Recv(&data); err != nil {
+				fmt.Println("Failed to receive a string object:", err)
+				continue
+			}
+			if err = strm.Send(&data); err != nil {
+				fmt.Println("Failed to send back a string object:", err)
+				continue
+			}
+			if err = strm.Flush(); err != nil {
 				fmt.Println("Failed to flush the response:", err)
 				return
 			}
 		}
-		// Close the stream
-		strm.Close()
 	}
 }
 
 func client(msg string, ch chan string) {
 	// Open a TCP connection to the stream server
-	strm, err := stream.Dial(host, port)
+	addr := fmt.Sprintf("%s:%d", host, port)
+	strm, err := stream.Dial(addr, time.Second)
 	if err != nil {
 		fmt.Println("Failed to connect to stream server:", err)
 		return
 	}
+	defer strm.Close()
+
 	// Send the message and receive a reply
-	err = strm.Send(msg)
-	if err != nil {
+	if err = strm.Send(msg); err != nil {
 		fmt.Println("Failed to send the message:", err)
 		return
 	}
-	err = strm.Flush()
-	if err != nil {
+	if err = strm.Flush(); err != nil {
 		fmt.Println("Failed to flush the message:", err)
 		return
 	}
-	err = strm.Recv(&msg)
-	if err != nil {
+	if err = strm.Recv(&msg); err != nil {
 		fmt.Println("Failed to receive the reply:", err)
 		return
 	}
 	// Return the reply to the caller and terminate
 	ch <- msg
-	strm.Close()
 }

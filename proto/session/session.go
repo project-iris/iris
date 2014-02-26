@@ -20,19 +20,20 @@ package session
 
 import (
 	"bytes"
-	"code.google.com/p/go.crypto/hkdf"
 	"crypto/cipher"
 	"crypto/hmac"
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/stream"
 	"hash"
 	"io"
 	"log"
 	"net"
+
+	"code.google.com/p/go.crypto/hkdf"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/stream"
 )
 
 // Accomplishes secure and authenticated full duplex communication.
@@ -126,7 +127,7 @@ func (s *Session) Communicate(sink chan *proto.Message, quit chan struct{}) chan
 
 // Retrieves the raw connection object if special manipulations are needed.
 func (s *Session) Raw() *net.TCPConn {
-	return s.socket.Raw()
+	return s.socket.Sock()
 }
 
 // Sends messages from the upper layers into the session stream.

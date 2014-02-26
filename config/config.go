@@ -140,6 +140,9 @@ var SessionCipherBits = 128
 // Hash creator for the session HMAC.
 var SessionHash = md5.New
 
+// Maximum allowed time to complete a session connection (ms).
+var SessionDialTimeout = 1000
+
 // Maximum allowed time to complete a session setup (ms).
 var SessionShakeTimeout = 3000
 

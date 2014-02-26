@@ -16,113 +16,165 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package stream
 
 import (
+	"fmt"
 	"net"
 	"testing"
 	"time"
 )
 
+// Tests whether the stream listener can be set up and torn down correctly.
 func TestListen(t *testing.T) {
+	t.Parallel()
+
+	// Resolve a random local port and listen on it
 	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	if err != nil {
-		t.Errorf("failed to resolve local address: %v.", err)
+		t.Fatalf("failed to resolve local address: %v.", err)
 	}
 	sink, quit, err := Listen(addr)
 	if err != nil {
-		t.Errorf("failed to listen for incomming streams: %v", err)
+		t.Fatalf("failed to listen for incoming streams: %v.", err)
 	}
-	for c := 0; c < 3; c++ {
+	// Establish a few connections and ensure each gets reported
+	for i := 0; i < 3; i++ {
 		sock, err := net.Dial(addr.Network(), addr.String())
 		if err != nil {
-			t.Errorf("test %d: failed to connect to stream listener: %v", c, err)
+			t.Fatalf("test %d: failed to connect to stream listener: %v.", i, err)
 		}
-		timeout := time.Tick(time.Second)
 		select {
-		case <-sink:
+		case stream := <-sink:
+			stream.Close()
 			continue
-		case <-timeout:
-			t.Errorf("test %d: listener didn't return incoming stream", c)
+		case <-time.After(10 * time.Millisecond):
+			t.Fatalf("test %d: listener didn't return incoming stream.", i)
 		}
 		sock.Close()
 	}
-	close(quit)
-}
-
-func TestDial(t *testing.T) {
-	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
-	if err != nil {
-		t.Errorf("failed to resolve local address: %v.", err)
+	// Close the stream listener and ensure it terminates correctly
+	errc := make(chan error)
+	select {
+	case quit <- errc:
+		// Ok, error channel sent over
+	case <-time.After(2 * acceptTimeout):
+		t.Fatalf("failed to request termination in %d.", 2*acceptTimeout)
 	}
-	sock, err := net.Listen(addr.Network(), addr.String())
-	if err != nil {
-		t.Errorf("failed to listen for incoming TCP connections: %v", err)
-	}
-	for c := 0; c < 3; c++ {
-		strm, err := Dial("localhost", sock.Addr().(*net.TCPAddr).Port)
+	select {
+	case err := <-errc:
 		if err != nil {
-			t.Errorf("test %d: failed to connect to TCP listener: %v", c, err)
+			t.Fatalf("listener reported failure: %v.", err)
 		}
-		strm.Close()
+	case <-time.After(10 * time.Millisecond):
+		t.Fatalf("listener failed to report termination in %d.", 10*time.Millisecond)
 	}
-	sock.Close()
 }
 
-func TestSendRecv(t *testing.T) {
+// Tests whether a stream connection can be made to an open TCP port and closed.
+func TestDial(t *testing.T) {
+	t.Parallel()
+
+	// Resolve a random local port and listen on it
 	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	if err != nil {
-		t.Errorf("failed to resolve local address: %v.", err)
+		t.Fatalf("failed to resolve local address: %v.", err)
+	}
+	sock, err := net.ListenTCP(addr.Network(), addr)
+	if err != nil {
+		t.Fatalf("failed to listen for incoming TCP connections: %v.", err)
+	}
+	defer sock.Close()
+
+	// Establish a few connections and ensure each succeeds
+	for i := 0; i < 3; i++ {
+		host := fmt.Sprintf("%s:%d", "localhost", sock.Addr().(*net.TCPAddr).Port)
+		strm, err := Dial(host, time.Millisecond)
+		if err != nil {
+			t.Fatalf("test %d: failed to connect to TCP listener: %v.", i, err)
+		}
+		if err := strm.Close(); err != nil {
+			t.Fatalf("test %d: failed to close dialed stream: %v.", i, err)
+		}
+	}
+}
+
+// Tests whether data can be correctly sent and received through a stream connection.
+func TestSendRecv(t *testing.T) {
+	t.Parallel()
+
+	// Resolve a random local port and listen on it
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("failed to resolve local address: %v.", err)
 	}
 	sink, quit, err := Listen(addr)
 	if err != nil {
-		t.Errorf("failed to listen for incomming streams: %v", err)
+		t.Fatalf("failed to listen for incoming streams: %v.", err)
 	}
-	c2s, err := Dial("localhost", addr.Port)
+	// Establish a stream connection to the listener
+	host := fmt.Sprintf("%s:%d", "localhost", addr.Port)
+	client, err := Dial(host, time.Millisecond)
 	if err != nil {
-		t.Errorf("failed to connect to stream listener: %v", err)
+		t.Fatalf("failed to connect to stream listener: %v.", err)
 	}
-	s2c := <-sink
+	server := <-sink
 
-	var send1 = struct{ A, B int }{3, 14}
-	var recv1 = struct{ A, B int }{}
-
-	err = c2s.Send(send1)
-	if err != nil {
-		t.Errorf("failed to send client -> server: %v", err)
+	// Swap some data a few times to ensure all works
+	for i := 0; i < 1000; i++ {
+		// Execute a data transfer from client to server
+		send1 := struct{ A, B int }{3, 14}
+		recv1 := struct{ A, B int }{}
+		if err = client.Send(send1); err != nil {
+			t.Fatalf("failed to send through client: %v.", err)
+		}
+		if err = client.Flush(); err != nil {
+			t.Fatalf("failed to flush client: %v.", err)
+		}
+		if err = server.Recv(&recv1); err != nil {
+			t.Fatalf("failed to receive through server: %v.", err)
+		}
+		if send1.A != recv1.A || send1.B != recv1.B {
+			t.Fatalf("send/recv mismatch: have %v, want %v.", recv1, send1)
+		}
+		// Execute a data transfer from server to client
+		send2 := struct{ A, B, C int }{3, 1, 4}
+		recv2 := struct{ A, C int }{}
+		if err = server.Send(send2); err != nil {
+			t.Fatalf("failed to send through server: %v", err)
+		}
+		if err = server.Flush(); err != nil {
+			t.Fatalf("failed to flush server: %v", err)
+		}
+		if err = client.Recv(&recv2); err != nil {
+			t.Fatalf("failed to receive through client: %v", err)
+		}
+		if send2.A != recv2.A || send2.C != recv2.C {
+			t.Fatalf("send/recv mismatch: have %v, want %v", recv1, send1)
+		}
 	}
-	err = c2s.Flush()
-	if err != nil {
-		t.Errorf("failed to flush client -> server: %v", err)
+	// Close the active connections
+	if err = client.Close(); err != nil {
+		t.Fatalf("failed to close client stream: %v.", err)
 	}
-	err = s2c.Recv(&recv1)
-	if err != nil {
-		t.Errorf("failed to recieve server -> client: %v", err)
+	if err = server.Close(); err != nil {
+		t.Fatalf("failed to close server stream: %v.", err)
 	}
-	if send1.A != recv1.A || send1.B != recv1.B {
-		t.Errorf("sent/received mismatch: have %v, want %v", recv1, send1)
+	// Close the stream listener and ensure it terminates correctly
+	errc := make(chan error)
+	select {
+	case quit <- errc:
+		// Ok, error channel sent over
+	case <-time.After(2 * acceptTimeout):
+		t.Fatalf("failed to request termination in %d.", 2*acceptTimeout)
 	}
-
-	var send2 = struct{ A, B, C int }{3, 1, 4}
-	var recv2 = struct{ A, C int }{}
-
-	err = s2c.Send(send2)
-	if err != nil {
-		t.Errorf("failed to send server -> client: %v", err)
+	select {
+	case err := <-errc:
+		if err != nil {
+			t.Fatalf("listener reported failure: %v.", err)
+		}
+	case <-time.After(10 * time.Millisecond):
+		t.Fatalf("listener failed to report termination in %d.", 10*time.Millisecond)
 	}
-	err = s2c.Flush()
-	if err != nil {
-		t.Errorf("failed to flush server -> client: %v", err)
-	}
-	err = c2s.Recv(&recv2)
-	if err != nil {
-		t.Errorf("failed to recieve client -> server: %v", err)
-	}
-	if send2.A != recv2.A || send2.C != recv2.C {
-		t.Errorf("sent/received mismatch: have %v, want %v", recv1, send1)
-	}
-
-	c2s.Close()
-	s2c.Close()
-	close(quit)
 }
