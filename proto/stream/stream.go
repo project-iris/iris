@@ -33,6 +33,17 @@ import (
 	"time"
 )
 
+// Constants for the protocol TCP/IP layer
+const acceptBlockTimeout = 250 * time.Millisecond
+
+// Stream listener to accept inbound connections.
+type Listener struct {
+	Sink chan *Stream // Channel receiving the accepted connections
+
+	socket *net.TCPListener // Network socket to accept connections on
+	quit   chan chan error  // Termination synchronization channel
+}
+
 // TCP/IP based stream with a gob encoder on top.
 type Stream struct {
 	socket  *net.TCPConn      // Network connection to the remote endpoint
@@ -41,58 +52,75 @@ type Stream struct {
 	decoder *gob.Decoder      // Gob decoder for data deserialization
 }
 
-// Constants for the protocol TCP/IP layer
-const acceptTimeout = time.Second
-
 // Opens a TCP server socket, and if successful, starts a go routine for
 // accepting incoming connections and returns a stream and a quit channel.
 // If an auto-port (0) was requested, the port is updated in the argument.
-func Listen(addr *net.TCPAddr) (chan *Stream, chan chan error, error) {
+func Listen(addr *net.TCPAddr) (*Listener, error) {
 	// Open the server socket
 	sock, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	addr.Port = sock.Addr().(*net.TCPAddr).Port
 
-	// Create the two channels, start the acceptor and return
-	sink := make(chan *Stream)
-	quit := make(chan chan error)
-	go accept(sock, sink, quit)
-	return sink, quit, nil
+	// Initialize and return the listener
+	return &Listener{
+		socket: sock,
+		Sink:   make(chan *Stream),
+		quit:   make(chan chan error),
+	}, nil
+}
+
+// Starts the stream connection accepter, with a maximum timeout to wait for an
+// established connection to be handled.
+func (l *Listener) Accept(timeout time.Duration) {
+	go l.accepter(timeout)
+}
+
+// Terminates the acceptor and returns any encountered errors.
+func (l *Listener) Close() error {
+	errc := make(chan error)
+	l.quit <- errc
+	return <-errc
 }
 
 // Accepts incoming connection requests, converts them info a TCP/IP gob stream
 // and send them back on the sink channel.
-func accept(sock *net.TCPListener, sink chan *Stream, quit chan chan error) {
+func (l *Listener) accepter(timeout time.Duration) {
 	var errc chan error
 	var errv error
 
 	// Loop until an error occurs or quit is requested
 	for errv == nil && errc == nil {
 		select {
-		case errc = <-quit:
+		case errc = <-l.quit:
 			continue
 		default:
 			// Accept an incoming connection but without blocking for too long
-			sock.SetDeadline(time.Now().Add(acceptTimeout))
-			if conn, err := sock.AcceptTCP(); err == nil {
-				sink <- newStream(conn)
+			l.socket.SetDeadline(time.Now().Add(acceptBlockTimeout))
+			if conn, err := l.socket.AcceptTCP(); err == nil {
+				strm := newStream(conn)
+				select {
+				case l.Sink <- strm:
+					// Ok, connection was handled
+				case <-time.After(timeout):
+					log.Printf("stream: failed to handle accepted connection in %v, dropping.", timeout)
+					strm.Close()
+				}
 			} else if !err.(net.Error).Timeout() {
 				log.Printf("stream: failed to accept connection: %v.", err)
 				errv = err
 			}
 		}
 	}
-	// Close the socket and upstream stream sink
-	close(sink)
-	if err := sock.Close(); err != nil && errv == nil {
-		// Keep only first error
+	// Close upstream stream sink and socket (keep initial error, if any)
+	close(l.Sink)
+	if err := l.socket.Close(); err != nil && errv == nil {
 		errv = err
 	}
 	// Wait for termination sync and return
 	if errc == nil {
-		errc = <-quit
+		errc = <-l.quit
 	}
 	errc <- errv
 }

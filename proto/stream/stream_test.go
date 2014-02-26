@@ -21,7 +21,10 @@ package stream
 
 import (
 	"fmt"
+	"io/ioutil"
+	"log"
 	"net"
+	"os"
 	"testing"
 	"time"
 )
@@ -35,40 +38,51 @@ func TestListen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve local address: %v.", err)
 	}
-	sink, quit, err := Listen(addr)
+	sock, err := Listen(addr)
 	if err != nil {
 		t.Fatalf("failed to listen for incoming streams: %v.", err)
 	}
+	sock.Accept(10 * time.Millisecond)
+
 	// Establish a few connections and ensure each gets reported
 	for i := 0; i < 3; i++ {
-		sock, err := net.Dial(addr.Network(), addr.String())
+		conn, err := net.Dial(addr.Network(), addr.String())
 		if err != nil {
 			t.Fatalf("test %d: failed to connect to stream listener: %v.", i, err)
 		}
 		select {
-		case stream := <-sink:
+		case stream := <-sock.Sink:
 			stream.Close()
 			continue
 		case <-time.After(10 * time.Millisecond):
 			t.Fatalf("test %d: listener didn't return incoming stream.", i)
 		}
-		sock.Close()
+		conn.Close()
+	}
+	// Establish a few connections and ensure they get dropped if not handled
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stderr)
+
+	for i := 0; i < 3; i++ {
+		conn, err := net.Dial(addr.Network(), addr.String())
+		if err != nil {
+			t.Fatalf("test %d: failed to connect to stream listener: %v.", i, err)
+		}
+		// Wait for handler to time out
+		time.Sleep(15 * time.Millisecond)
+
+		select {
+		case stream := <-sock.Sink:
+			t.Fatalf("test %d: listener returned timed out stream.", i)
+			stream.Close()
+		default:
+			// Ok
+		}
+		conn.Close()
 	}
 	// Close the stream listener and ensure it terminates correctly
-	errc := make(chan error)
-	select {
-	case quit <- errc:
-		// Ok, error channel sent over
-	case <-time.After(2 * acceptTimeout):
-		t.Fatalf("failed to request termination in %d.", 2*acceptTimeout)
-	}
-	select {
-	case err := <-errc:
-		if err != nil {
-			t.Fatalf("listener reported failure: %v.", err)
-		}
-	case <-time.After(10 * time.Millisecond):
-		t.Fatalf("listener failed to report termination in %d.", 10*time.Millisecond)
+	if err := sock.Close(); err != nil {
+		t.Fatalf("failed to close listener: %v.", err)
 	}
 }
 
@@ -109,17 +123,19 @@ func TestSendRecv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resolve local address: %v.", err)
 	}
-	sink, quit, err := Listen(addr)
+	sock, err := Listen(addr)
 	if err != nil {
 		t.Fatalf("failed to listen for incoming streams: %v.", err)
 	}
+	sock.Accept(10 * time.Millisecond)
+
 	// Establish a stream connection to the listener
 	host := fmt.Sprintf("%s:%d", "localhost", addr.Port)
 	client, err := Dial(host, time.Millisecond)
 	if err != nil {
 		t.Fatalf("failed to connect to stream listener: %v.", err)
 	}
-	server := <-sink
+	server := <-sock.Sink
 
 	// Swap some data a few times to ensure all works
 	for i := 0; i < 1000; i++ {
@@ -162,19 +178,7 @@ func TestSendRecv(t *testing.T) {
 		t.Fatalf("failed to close server stream: %v.", err)
 	}
 	// Close the stream listener and ensure it terminates correctly
-	errc := make(chan error)
-	select {
-	case quit <- errc:
-		// Ok, error channel sent over
-	case <-time.After(2 * acceptTimeout):
-		t.Fatalf("failed to request termination in %d.", 2*acceptTimeout)
-	}
-	select {
-	case err := <-errc:
-		if err != nil {
-			t.Fatalf("listener reported failure: %v.", err)
-		}
-	case <-time.After(10 * time.Millisecond):
-		t.Fatalf("listener failed to report termination in %d.", 10*time.Millisecond)
+	if err := sock.Close(); err != nil {
+		t.Fatalf("failed to close listener: %v.", err)
 	}
 }

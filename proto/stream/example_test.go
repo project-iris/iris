@@ -57,24 +57,23 @@ func server(live, quit chan struct{}) {
 		fmt.Println("Failed to resolve local address:", err)
 		return
 	}
-	sink, strmQuit, err := stream.Listen(addr)
+	sock, err := stream.Listen(addr)
 	if err != nil {
 		fmt.Println("Failed to listen for incoming streams:", err)
 		return
 	}
+	sock.Accept(time.Second)
 	live <- struct{}{}
 
 	// While not exiting, process stream connections
 	for {
 		select {
 		case <-quit:
-			errc := make(chan error)
-			strmQuit <- errc
-			if err = <-errc; err != nil {
+			if err = sock.Close(); err != nil {
 				fmt.Println("Failed to terminate stream listener:", err)
 			}
 			return
-		case strm := <-sink:
+		case strm := <-sock.Sink:
 			defer strm.Close()
 
 			// Receive and echo back a string

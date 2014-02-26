@@ -58,14 +58,16 @@ type authResponse struct {
 // quit channel to be able to terminate the listener.
 func Listen(addr *net.TCPAddr, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
 	// Open the TCP socket
-	netSink, netQuit, err := stream.Listen(addr)
+	sock, err := stream.Listen(addr)
 	if err != nil {
 		return nil, nil, err
 	}
+	sock.Accept(time.Duration(config.SessionAcceptTimeout) * time.Millisecond)
+
 	// For each incoming connection, execute auth negotiation
 	sink := make(chan *Session)
 	quit := make(chan struct{})
-	go accept(key, store, sink, quit, netSink, netQuit)
+	go accept(key, store, sink, quit, sock)
 	return sink, quit, nil
 }
 
@@ -84,23 +86,20 @@ func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.Pu
 
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
-func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session, quit chan struct{},
-	netSink chan *stream.Stream, netQuit chan chan error) {
+func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session, quit chan struct{}, sock *stream.Listener) {
 	for {
 		select {
 		case <-quit:
 			// Terminate the stream listener
-			errc := make(chan error)
-			netQuit <- errc
-			if err := <-errc; err != nil {
+			if err := sock.Close(); err != nil {
 				log.Printf("session: failed to terminate stream listener: %v.", err)
 			}
 			return
-		case conn, ok := <-netSink:
-			// Negotiate an STS session (if channel has not been closed)
+		case conn, ok := <-sock.Sink:
 			if !ok {
-				return
+				log.Printf("session: stream acceptor terminated prematurely.")
 			}
+			// Negotiate an STS session
 			go authenticate(conn, key, store, sink)
 		}
 	}
