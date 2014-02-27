@@ -25,6 +25,7 @@ import (
 	"crypto/aes"
 	"crypto/md5"
 	"math/big"
+	"time"
 )
 
 // Cyclic group for the STS cryptography (2448 bits).
@@ -140,14 +141,14 @@ var SessionCipherBits = 128
 // Hash creator for the session HMAC.
 var SessionHash = md5.New
 
-// Maximum allowed time to complete a session connection (ms).
-var SessionDialTimeout = 1000
+// Maximum allowed time to complete a session connection.
+var SessionDialTimeout = time.Second
 
-// Maximum allowed time to handle a session connection (ms).
-var SessionAcceptTimeout = 1000
+// Maximum allowed time to handle a session connection.
+var SessionAcceptTimeout = time.Second
 
-// Maximum allowed time to complete a session setup (ms).
-var SessionShakeTimeout = 3000
+// Maximum allowed time to complete a session setup.
+var SessionShakeTimeout = 3 * time.Second
 
 // Symmetric cipher for the temporary message encryption.
 var PacketCipher = aes.NewCipher
@@ -190,6 +191,9 @@ var OverlayConvTimeout = 3000
 
 // Heartbeat period to ensure connections are alive and tear down unused ones (ms).
 var OverlayBeatPeriod = 10000
+
+// Maximum time to queue an authenticated session connection before dropping it.
+var OverlayAcceptTimout = time.Second
 
 // Time to wait after session setup for the init packet (ms).
 var OverlayInitTimeout = 5000

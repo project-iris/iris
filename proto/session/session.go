@@ -16,6 +16,9 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
+// Package session implements an encrypted data stream, authenticated through
+// the station-to-station key exchange.
 package session
 
 import (
@@ -123,6 +126,11 @@ func (s *Session) Communicate(sink chan *proto.Message, quit chan struct{}) chan
 	go s.sender(ch, quit)
 	go s.receiver(sink)
 	return ch
+}
+
+// Terminate a
+func (s *Session) Close() error {
+	return nil
 }
 
 // Retrieves the raw connection object if special manipulations are needed.

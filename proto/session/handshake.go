@@ -16,6 +16,7 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package session
 
 import (
@@ -26,6 +27,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/karalabe/iris/config"
@@ -36,7 +38,6 @@ import (
 // Authenticated connection request message. Contains the originators ID for
 // key lookup and the client exponential.
 type authRequest struct {
-	Id  string
 	Exp *big.Int
 }
 
@@ -52,191 +53,202 @@ type authResponse struct {
 	Token []byte
 }
 
-// Starts a listener on port to accept incoming sessions. The key/store pairs
-// are used for the mutual authentication. On success, a session channel is
-// returned which will receive the successfully authenticated clients; and a
-// quit channel to be able to terminate the listener.
-func Listen(addr *net.TCPAddr, key *rsa.PrivateKey, store map[string]*rsa.PublicKey) (chan *Session, chan struct{}, error) {
-	// Open the TCP socket
-	sock, err := stream.Listen(addr)
-	if err != nil {
-		return nil, nil, err
-	}
-	sock.Accept(time.Duration(config.SessionAcceptTimeout) * time.Millisecond)
+// Session listener to accept inbound authenticated sessions.
+type Listener struct {
+	Sink  chan *Session  // Channel receiving the accepted sessions
+	pends sync.WaitGroup // Pending authentications to sync the sink closing
 
-	// For each incoming connection, execute auth negotiation
-	sink := make(chan *Session)
-	quit := make(chan struct{})
-	go accept(key, store, sink, quit, sock)
-	return sink, quit, nil
+	socket *stream.Listener // Stream listener socket to accept connections on
+	key    *rsa.PrivateKey  // Private RSA key to authenticate with
+	quit   chan chan error  // Termination synchronization channel
 }
 
-// Connects to a remote node and negotiates a session using the local secret key
-// and the remote public key. On success, a new Session is returned to handle
-// further communication.
-func Dial(host string, port int, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (*Session, error) {
-	// Open the TCP socket
-	addr := fmt.Sprintf("%s:%d", host, port)
-	conn, err := stream.Dial(addr, time.Duration(config.SessionDialTimeout)*time.Millisecond)
+// Starts a TCP listener to accept incoming sessions, returning the socket ready
+// to accept. If an auto-port (0) is requested, the port is updated in the arg.
+func Listen(addr *net.TCPAddr, key *rsa.PrivateKey) (*Listener, error) {
+	// Open the stream listener socket
+	sock, err := stream.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
-	return connect(conn, self, skey, pkey)
+	// Assemble and return the session listener
+	return &Listener{
+		Sink:   make(chan *Session),
+		socket: sock,
+		key:    key,
+		quit:   make(chan chan error),
+	}, nil
+}
+
+// Starts the session connection accepter, with a maximum timeout to wait for an
+// established connection to be handled.
+func (l *Listener) Accept(timeout time.Duration) {
+	l.socket.Accept(config.SessionAcceptTimeout)
+	go l.accepter(timeout)
+}
+
+// Terminates the acceptor and returns any encountered errors.
+func (l *Listener) Close() error {
+	errc := make(chan error)
+	l.quit <- errc
+	return <-errc
 }
 
 // Accepts incoming net connections and initiates an STS authentication for each of them. Those that
 // successfully pass the protocol get sent back on the session channel.
-func accept(key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session, quit chan struct{}, sock *stream.Listener) {
-	for {
+func (l *Listener) accepter(timeout time.Duration) {
+	var errc chan error
+	var errv error
+
+	// Loop until an error occurs or quit is requested
+	for errv == nil && errc == nil {
 		select {
-		case <-quit:
-			// Terminate the stream listener
-			if err := sock.Close(); err != nil {
-				log.Printf("session: failed to terminate stream listener: %v.", err)
-			}
-			return
-		case conn, ok := <-sock.Sink:
+		case errc = <-l.quit:
+			continue
+		case conn, ok := <-l.socket.Sink:
+			// Negotiate an STS session if a connection was established
 			if !ok {
-				log.Printf("session: stream acceptor terminated prematurely.")
+				errv = errors.New("stream listener terminated")
+			} else {
+				l.pends.Add(1)
+				go l.serverAuth(conn, timeout)
 			}
-			// Negotiate an STS session
-			go authenticate(conn, key, store, sink)
 		}
 	}
+	// Make sure all running auths either finish or time out and close upstream sink
+	l.pends.Wait()
+	close(l.Sink)
+
+	// Close stream listener, keeping initial error, if any
+	if err := l.socket.Close(); err != nil && errv == nil {
+		errv = err
+	}
+	// Wait for termination sync and return
+	if errc == nil {
+		errc = <-l.quit
+	}
+	errc <- errv
 }
 
-// Client side of the STS session negotiation.
-func connect(strm *stream.Stream, self string, skey *rsa.PrivateKey, pkey *rsa.PublicKey) (ses *Session, err error) {
-	// Set an overall time limit for the handshake to complete
-	strm.Sock().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
-	defer strm.Sock().SetDeadline(time.Time{})
-
-	// Defer an error handler that will ensure a closed stream
-	defer func() {
-		if err != nil {
-			strm.Close()
-			ses = nil
+// Connects to a remote node and negotiates a session.
+func Dial(host string, port int, key *rsa.PrivateKey) (*Session, error) {
+	// Open the stream connection
+	addr := fmt.Sprintf("%s:%d", host, port)
+	strm, err := stream.Dial(addr, config.SessionDialTimeout)
+	if err != nil {
+		return nil, err
+	}
+	// Set up the authenticated session
+	secret, err := clientAuth(strm, key)
+	if err != nil {
+		log.Printf("session: failed to authenticate connection: %v.", err)
+		if err := strm.Close(); err != nil {
+			log.Printf("session: failed to close unauthenticated connection: %v.", err)
 		}
-	}()
-	// Create a new empty session
-	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
-		config.StsCipher, config.StsCipherBits, config.StsSigHash)
-	if err != nil {
-		log.Printf("session: failed to create new session: %v\n", err)
-		return
-	}
-	// Initiate a key exchange, send the exponential
-	exp, err := session.Initiate()
-	if err != nil {
-		log.Printf("session: failed to initiate key exchange: %v\n", err)
-		return
-	}
-	err = strm.Send(authRequest{self, exp})
-	if err != nil {
-		log.Printf("session: failed to send auth request: %v\n", err)
-		return
-	}
-	err = strm.Flush()
-	if err != nil {
-		log.Printf("session: failed to flush auth request: %v\n", err)
-		return
-	}
-	// Receive the foreign exponential and auth token and if verifies, send own auth
-	chall := new(authChallenge)
-	err = strm.Recv(chall)
-	if err != nil {
-		log.Printf("session: failed to receive auth challenge: %v\n", err)
-		return
-	}
-	token, err := session.Verify(rand.Reader, skey, pkey, chall.Exp, chall.Token)
-	if err != nil {
-		log.Printf("session: failed to verify acceptor auth token: %v\n", err)
-		return
-	}
-	err = strm.Send(authResponse{token})
-	if err != nil {
-		log.Printf("session: failed to send auth response: %v\n", err)
-		return
-	}
-	err = strm.Flush()
-	if err != nil {
-		log.Printf("session: failed to flush auth response: %v\n", err)
-		return
-	}
-	// Protocol done, other side should finalize if all is correct
-	secret, err := session.Secret()
-	if err != nil {
-		log.Printf("session: failed to retrieve exchanged secret: %v\n", err)
-		return
 	}
 	return newSession(strm, secret, true), nil
 }
 
-// Server side of the STS session negotiation.
-func authenticate(strm *stream.Stream, key *rsa.PrivateKey, store map[string]*rsa.PublicKey, sink chan *Session) {
+// Client side of the STS session negotiation.
+func clientAuth(strm *stream.Stream, key *rsa.PrivateKey) ([]byte, error) {
 	// Set an overall time limit for the handshake to complete
-	strm.Sock().SetDeadline(time.Now().Add(time.Duration(config.SessionShakeTimeout) * time.Millisecond))
+	strm.Sock().SetDeadline(time.Now().Add(config.SessionShakeTimeout))
 	defer strm.Sock().SetDeadline(time.Time{})
 
-	// Defer an error handler that will ensure a closed stream
-	var err error
-	defer func() {
-		if err != nil {
-			strm.Close()
+	// Create a new empty session
+	stsSess, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator, config.StsCipher, config.StsCipherBits, config.StsSigHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new session: %v", err)
+	}
+	// Initiate a key exchange, send the exponential
+	exp, err := stsSess.Initiate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initiate key exchange: %v", err)
+	}
+	if err = strm.Send(authRequest{exp}); err != nil {
+		return nil, fmt.Errorf("failed to send auth request: %v", err)
+	}
+	if err = strm.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush auth request: %v", err)
+	}
+	// Receive the foreign exponential and auth token and if verifies, send own auth
+	chall := new(authChallenge)
+	if err = strm.Recv(chall); err != nil {
+		return nil, fmt.Errorf("failed to receive auth challenge: %v", err)
+	}
+	token, err := stsSess.Verify(rand.Reader, key, &key.PublicKey, chall.Exp, chall.Token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify acceptor auth token: %v", err)
+	}
+	if err = strm.Send(authResponse{token}); err != nil {
+		return nil, fmt.Errorf("failed to send auth response: %v", err)
+	}
+	if err = strm.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush auth response: %v", err)
+	}
+	return stsSess.Secret()
+}
+
+// Server side of the STS session negotiation.
+func (l *Listener) serverAuth(strm *stream.Stream, timeout time.Duration) {
+	// Make sure the authentication is synced with the sink
+	defer l.pends.Done()
+
+	// Set an overall time limit for the handshake to complete
+	strm.Sock().SetDeadline(time.Now().Add(config.SessionShakeTimeout))
+	defer strm.Sock().SetDeadline(time.Time{})
+
+	// Authenticate and clean up if unsuccessful
+	if secret, err := l.doServerAuth(strm); err != nil {
+		log.Printf("session: failed to authenticate remote stream: %v.", err)
+		if err = strm.Close(); err != nil {
+			log.Printf("session: failed to close unauthenticated stream: %v.", err)
 		}
-	}()
+	} else {
+		sess := newSession(strm, secret, false)
+		select {
+		case l.Sink <- sess:
+			// Ok
+		case <-time.After(timeout):
+			log.Printf("session: established session not handled in %v, dropping.", timeout)
+			if err = strm.Close(); err != nil {
+				log.Printf("session: failed to close established session: %v.", err)
+			}
+		}
+	}
+}
+
+// Executes the server side authentication and returns wither the agreed secret
+// session key or the a failure reason.
+func (l *Listener) doServerAuth(strm *stream.Stream) ([]byte, error) {
 	// Create a new STS session
-	session, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
+	stsSess, err := sts.New(rand.Reader, config.StsGroup, config.StsGenerator,
 		config.StsCipher, config.StsCipherBits, config.StsSigHash)
 	if err != nil {
-		log.Printf("session: failed to create new session: %v\n", err)
-		return
+		return nil, fmt.Errorf("failed to create STS session: %v", err)
 	}
 	// Receive foreign exponential, accept the incoming key exchange request and send back own exp + auth token
 	req := new(authRequest)
-	err = strm.Recv(req)
-	if err != nil {
-		log.Printf("session: failed to decode auth request: %v\n", err)
-		return
+	if err = strm.Recv(req); err != nil {
+		return nil, fmt.Errorf("failed to retrieve auth request: %v", err)
 	}
-	_, ok := store[req.Id]
-	if !ok {
-		log.Printf("session: unknown connecting client: %v\n", req.Id)
-		err = errors.New("unknown client")
-		return
-	}
-	exp, token, err := session.Accept(rand.Reader, key, req.Exp)
+	exp, token, err := stsSess.Accept(rand.Reader, l.key, req.Exp)
 	if err != nil {
-		log.Printf("session: failed to accept incoming exchange: %v\n", err)
-		return
+		return nil, fmt.Errorf("failed to accept incoming exchange: %v", err)
 	}
-	err = strm.Send(authChallenge{exp, token})
-	if err != nil {
-		log.Printf("session: failed to encode auth challenge: %v\n", err)
-		return
+	if err = strm.Send(authChallenge{exp, token}); err != nil {
+		return nil, fmt.Errorf("failed to encode auth challenge: %v", err)
 	}
-	err = strm.Flush()
-	if err != nil {
-		log.Printf("session: failed to flush auth challenge: %v\n", err)
-		return
+	if err = strm.Flush(); err != nil {
+		return nil, fmt.Errorf("failed to flush auth challenge: %v", err)
 	}
 	// Receive the foreign auth token and if verifies conclude session
 	resp := new(authResponse)
-	err = strm.Recv(resp)
-	if err != nil {
-		log.Printf("session: failed to decode auth response: %v\n", err)
-		return
+	if err = strm.Recv(resp); err != nil {
+		return nil, fmt.Errorf("failed to decode auth response: %v", err)
 	}
-	err = session.Finalize(store[req.Id], resp.Token)
-	if err != nil {
-		log.Printf("session: failed to finalize exchange: %v\n", err)
-		return
+	if err = stsSess.Finalize(&l.key.PublicKey, resp.Token); err != nil {
+		return nil, fmt.Errorf("failed to finalize exchange: %v", err)
 	}
-	// Protocol done
-	secret, err := session.Secret()
-	if err != nil {
-		log.Printf("session: failed to retrieve exchanged secret: %v\n", err)
-		return
-	}
-	sink <- newSession(strm, secret, false)
+	return stsSess.Secret()
 }

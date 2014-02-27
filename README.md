@@ -4,7 +4,7 @@
   Releases
 ------------
  * Development:
-    - Synced stream listener termination.
+    - Synced stream + session listener termination.
     - Fix invalid bootstrap net mask (default -> actual).
     - Fix session handshake infinite wait.
     - Fix thread pool termination wait.

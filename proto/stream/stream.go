@@ -52,9 +52,8 @@ type Stream struct {
 	decoder *gob.Decoder      // Gob decoder for data deserialization
 }
 
-// Opens a TCP server socket, and if successful, starts a go routine for
-// accepting incoming connections and returns a stream and a quit channel.
-// If an auto-port (0) was requested, the port is updated in the argument.
+// Opens a TCP server socket and returns a stream listener, ready to accept. If
+// an auto-port (0) is requested, the port is updated in the argument.
 func Listen(addr *net.TCPAddr) (*Listener, error) {
 	// Open the server socket
 	sock, err := net.ListenTCP("tcp", addr)

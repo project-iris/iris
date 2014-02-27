@@ -16,6 +16,7 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package session
 
 import (
@@ -27,103 +28,111 @@ import (
 	"time"
 )
 
+// Tests whether the session handshake works.
 func TestHandshake(t *testing.T) {
+	t.Parallel()
+
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-
-	store := make(map[string]*rsa.PublicKey)
-	store["client"] = &clientKey.PublicKey
-
-	// Start the server and connect with a client
-	sink, quit, err := Listen(addr, serverKey, store)
+	// Start the server
+	sock, err := Listen(addr, key)
 	if err != nil {
-		t.Errorf("failed to start the session listener: %v.", err)
+		t.Fatalf("failed to start the session listener: %v.", err)
 	}
-	c2sSes, err := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
-	if err != nil {
-		t.Errorf("failed to connect to the server: %v.", err)
-	}
-	// Make sure the server also gets back a live session
-	timeout := time.Tick(time.Second)
-	select {
-	case s2cSes := <-sink:
-		// Ensure server and client side crypto primitives match
-		c2sData := make([]byte, 4096)
-		s2cData := make([]byte, 4096)
+	sock.Accept(10 * time.Millisecond)
 
-		c2sSes.inCipher.XORKeyStream(c2sData, c2sData)
-		s2cSes.outCipher.XORKeyStream(s2cData, s2cData)
-		if !bytes.Equal(c2sData, s2cData) {
-			t.Errorf("cipher mismatch on the session endpoints")
+	// Connect with a few clients, verifying the crypto primitives
+	for i := 0; i < 3; i++ {
+		client, err := Dial("localhost", addr.Port, key)
+		if err != nil {
+			t.Fatalf("test %d: failed to connect to the server: %v.", i, err)
 		}
-		c2sSes.outCipher.XORKeyStream(c2sData, c2sData)
-		s2cSes.inCipher.XORKeyStream(s2cData, s2cData)
-		if !bytes.Equal(c2sData, s2cData) {
-			t.Errorf("cipher mismatch on the session endpoints")
+		// Make sure the server also gets back a live session
+		select {
+		case server := <-sock.Sink:
+			// Ensure server and client side crypto primitives match
+			clientData := make([]byte, 4096)
+			serverData := make([]byte, 4096)
+
+			client.inCipher.XORKeyStream(clientData, clientData)
+			server.outCipher.XORKeyStream(serverData, serverData)
+			if !bytes.Equal(clientData, serverData) {
+				t.Fatalf("test %d: cipher mismatch on the session endpoints", i)
+			}
+			client.outCipher.XORKeyStream(clientData, clientData)
+			server.inCipher.XORKeyStream(serverData, serverData)
+			if !bytes.Equal(clientData, serverData) {
+				t.Fatalf("test %d: cipher mismatch on the session endpoints", i)
+			}
+			client.inMacer.Write(clientData)
+			server.outMacer.Write(serverData)
+			clientData = client.inMacer.Sum(nil)
+			serverData = server.outMacer.Sum(nil)
+			if !bytes.Equal(clientData, serverData) {
+				t.Fatalf("test %d: macer mismatch on the session endpoints", i)
+			}
+			client.outMacer.Write(clientData)
+			server.inMacer.Write(serverData)
+			clientData = client.outMacer.Sum(nil)
+			serverData = server.inMacer.Sum(nil)
+			if !bytes.Equal(clientData, serverData) {
+				t.Fatalf("test %d: macer mismatch on the session endpoints", i)
+			}
+		case <-time.After(10 * time.Millisecond):
+			t.Fatalf("test %d: server-side handshake timed out.", i)
 		}
-		c2sSes.inMacer.Write(c2sData)
-		s2cSes.outMacer.Write(s2cData)
-		c2sData = c2sSes.inMacer.Sum(nil)
-		s2cData = s2cSes.outMacer.Sum(nil)
-		if !bytes.Equal(c2sData, s2cData) {
-			t.Errorf("macer mismatch on the session endpoints")
-		}
-		c2sSes.outMacer.Write(c2sData)
-		s2cSes.inMacer.Write(s2cData)
-		c2sData = c2sSes.outMacer.Sum(nil)
-		s2cData = s2cSes.inMacer.Sum(nil)
-		if !bytes.Equal(c2sData, s2cData) {
-			t.Errorf("macer mismatch on the session endpoints")
-		}
-	case <-timeout:
-		t.Errorf("server-side handshake timed out.")
 	}
-	close(quit)
+	// Ensure the listener can be torn down correctly
+	if err := sock.Close(); err != nil {
+		t.Fatalf("failed to terminate session listener: %v.", err)
+	}
 }
 
+// Benchmarks the session setup performance.
 func BenchmarkHandshake(b *testing.B) {
 	b.StopTimer()
-	// Setup the benchmark: public keys, stores and open TCP socket
+
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-
-	store := make(map[string]*rsa.PublicKey)
-	store["client"] = &clientKey.PublicKey
-
-	sink, quit, err := Listen(addr, serverKey, store)
+	sock, err := Listen(addr, key)
 	if err != nil {
-		b.Errorf("failed to start the session listener: %v.", err)
+		b.Fatalf("failed to start the session listener: %v.", err)
 	}
+	sock.Accept(10 * time.Millisecond)
 
+	sink := make(chan *Session)
+
+	// Execute the handshake benchmarks
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		// Start a dialler on a new thread
-		ch := make(chan *Session)
+		// Start a dialer on a new thread
 		go func() {
-			ses, err := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
+			ses, err := Dial("localhost", addr.Port, key)
 			if err != nil {
-				b.Errorf("failed to connect to the server: %v.", err)
-				close(ch)
+				b.Fatalf("failed to connect to the server: %v.", err)
+				close(sink)
 			} else {
-				ch <- ses
+				sink <- ses
 			}
 		}()
 		// Wait for the negotiated session from both client and server side
-		_, ok := <-ch
+		_, ok := <-sink
 		if !ok {
-			b.Errorf("client negotiation failed.")
+			b.Fatalf("client negotiation failed.")
 		}
-		timeout := time.Tick(time.Second)
 		select {
-		case <-sink:
-			// All ok, continue
-		case <-timeout:
-			b.Errorf("server-side handshake timed out.")
+		case <-sock.Sink:
+			// Ok
+		case <-time.After(10 * time.Millisecond):
+			b.Fatalf("server-side handshake timed out.")
 		}
 	}
-	close(quit)
+	b.StopTimer()
+
+	// Tear down the listener
+	if err := sock.Close(); err != nil {
+		b.Fatalf("failed to terminate session listener: %v.", err)
+	}
 }

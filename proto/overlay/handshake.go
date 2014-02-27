@@ -57,12 +57,17 @@ func (o *Overlay) acceptor(ipnet *net.IPNet) {
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
 	}
-	sesSink, quit, err := session.Listen(addr, o.lkey, o.rkeys)
+	sock, err := session.Listen(addr, o.lkey)
 	if err != nil {
 		panic(fmt.Sprintf("failed to start session listener: %v.", err))
 	}
-	defer close(quit)
+	sock.Accept(config.OverlayAcceptTimout)
 
+	defer func() {
+		if err := sock.Close(); err != nil {
+			log.Printf("overlay: failed to terminate session listener: %v.", err)
+		}
+	}()
 	// Save the new listener address into the local (sorted) address list
 	o.lock.Lock()
 	o.addrs = append(o.addrs, addr.String())
@@ -93,7 +98,7 @@ func (o *Overlay) acceptor(ipnet *net.IPNet) {
 			if !o.filter(boot.Peer) {
 				o.auther.Schedule(func() { o.dial([]*net.TCPAddr{boot.Addr}) })
 			}
-		case ses := <-sesSink:
+		case ses := <-sock.Sink:
 			// Agree upon overlay states
 			go o.shake(ses)
 		}
@@ -151,7 +156,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 	}
 	// Dial away, trying interfaces one after the other until connection succeeds
 	for _, addr := range addrs {
-		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.overId, o.lkey, o.rkeys[o.overId]); err == nil {
+		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.lkey); err == nil {
 			o.shake(ses)
 			return
 		} else {

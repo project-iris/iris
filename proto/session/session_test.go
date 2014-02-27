@@ -16,39 +16,49 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
+
 package session
 
 import (
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
 	"io"
 	"net"
 	"testing"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
 )
 
 func TestForward(t *testing.T) {
+	t.Parallel()
+
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	// Start the server and connect with a client
+	sock, err := Listen(addr, key)
+	if err != nil {
+		t.Fatalf("failed to start the session listener: %v.", err)
+	}
+	sock.Accept(10 * time.Millisecond)
 
-	store := make(map[string]*rsa.PublicKey)
-	store["client"] = &clientKey.PublicKey
+	client, err := Dial("localhost", addr.Port, key)
+	if err != nil {
+		t.Fatalf("failed to connect to the server: %v.", err)
+	}
+	server := <-sock.Sink
 
-	sink, quit, _ := Listen(addr, serverKey, store)
-	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
-	srvSes := <-sink
+	quit := make(chan struct{})
 
 	// Create the sender and receiver channels for both session sides
 	cliApp := make(chan *proto.Message, 2)
 	srvApp := make(chan *proto.Message, 2)
 
-	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	srvNet := srvSes.Communicate(srvApp, quit) // Hack: reuse prev live quit channel
+	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	srvNet := server.Communicate(srvApp, quit) // Hack: reuse prev live quit channel
 
 	// Generate the messages to transmit
 	msgs := make([]proto.Message, 10)
@@ -108,6 +118,10 @@ func TestForward(t *testing.T) {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
+	// Tear down the listener
+	if err := sock.Close(); err != nil {
+		t.Fatalf("failed to terminate session listener: %v.", err)
+	}
 	close(quit)
 }
 
@@ -156,35 +170,40 @@ func BenchmarkLatency1MByte(b *testing.B) {
 }
 
 func benchmarkLatency(b *testing.B, block int) {
-	// Setup the benchmark: public keys, stores and sessions
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	// Start the server
+	sock, err := Listen(addr, key)
+	if err != nil {
+		b.Fatalf("failed to start the session listener: %v.", err)
+	}
+	sock.Accept(10 * time.Millisecond)
 
-	store := make(map[string]*rsa.PublicKey)
-	store["client"] = &clientKey.PublicKey
+	client, err := Dial("localhost", addr.Port, key)
+	if err != nil {
+		b.Fatalf("failed to connect to the server: %v.", err)
+	}
+	server := <-sock.Sink
 
-	sink, quit, _ := Listen(addr, serverKey, store)
-	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
-	srvSes := <-sink
+	quit := make(chan struct{})
 
 	// Create the sender and receiver channels for both session sides
 	cliApp := make(chan *proto.Message, 64)
 	srvApp := make(chan *proto.Message, 64)
 
-	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	server.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
 
 	// Create a header of the right size
-	key := make([]byte, config.PacketCipherBits/8)
-	io.ReadFull(rand.Reader, key)
-	cipher, _ := config.PacketCipher(key)
+	msgKey := make([]byte, config.PacketCipherBits/8)
+	io.ReadFull(rand.Reader, msgKey)
+	cipher, _ := config.PacketCipher(msgKey)
 
 	iv := make([]byte, cipher.BlockSize())
 	io.ReadFull(rand.Reader, iv)
 
-	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, key, iv}
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, msgKey, iv}
 
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
@@ -225,6 +244,11 @@ func benchmarkLatency(b *testing.B, block int) {
 	<-done
 
 	b.StopTimer()
+
+	// Tear down the listener
+	if err := sock.Close(); err != nil {
+		b.Fatalf("failed to terminate session listener: %v.", err)
+	}
 	close(quit)
 }
 
@@ -273,35 +297,40 @@ func BenchmarkThroughput1MByte(b *testing.B) {
 }
 
 func benchmarkThroughput(b *testing.B, block int) {
-	// Setup the benchmark: public keys, stores and sessions
 	addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 
-	serverKey, _ := rsa.GenerateKey(rand.Reader, 1024)
-	clientKey, _ := rsa.GenerateKey(rand.Reader, 1024)
+	// Start the server
+	sock, err := Listen(addr, key)
+	if err != nil {
+		b.Fatalf("failed to start the session listener: %v.", err)
+	}
+	sock.Accept(10 * time.Millisecond)
 
-	store := make(map[string]*rsa.PublicKey)
-	store["client"] = &clientKey.PublicKey
+	client, err := Dial("localhost", addr.Port, key)
+	if err != nil {
+		b.Fatalf("failed to connect to the server: %v.", err)
+	}
+	server := <-sock.Sink
 
-	sink, quit, _ := Listen(addr, serverKey, store)
-	cliSes, _ := Dial("localhost", addr.Port, "client", clientKey, &serverKey.PublicKey)
-	srvSes := <-sink
+	quit := make(chan struct{})
 
 	// Create the sender and receiver channels for both session sides
 	cliApp := make(chan *proto.Message, 64)
 	srvApp := make(chan *proto.Message, 64)
 
-	cliNet := cliSes.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	srvSes.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
+	server.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
 
 	// Create a header of the right size
-	key := make([]byte, config.PacketCipherBits/8)
-	io.ReadFull(rand.Reader, key)
-	cipher, _ := config.PacketCipher(key)
+	msgKey := make([]byte, config.PacketCipherBits/8)
+	io.ReadFull(rand.Reader, msgKey)
+	cipher, _ := config.PacketCipher(msgKey)
 
 	iv := make([]byte, cipher.BlockSize())
 	io.ReadFull(rand.Reader, iv)
 
-	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, key, iv}
+	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, msgKey, iv}
 
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
@@ -339,555 +368,10 @@ func benchmarkThroughput(b *testing.B, block int) {
 	<-done
 
 	b.StopTimer()
+
+	// Tear down the listener
+	if err := sock.Close(); err != nil {
+		b.Fatalf("failed to terminate session listener: %v.", err)
+	}
 	close(quit)
-}
-
-func BenchmarkOPPEThroughput1Byte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1, 1)
-}
-
-func BenchmarkOPPEThroughput4Byte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4, 1)
-}
-
-func BenchmarkOPPEThroughput16Byte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16, 1)
-}
-
-func BenchmarkOPPEThroughput64Byte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 64, 1)
-}
-
-func BenchmarkOPPEThroughput256Byte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 256, 1)
-}
-
-func BenchmarkOPPEThroughput1KByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1024, 1)
-}
-
-func BenchmarkOPPEThroughput4KByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4096, 1)
-}
-
-func BenchmarkOPPEThroughput16KByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16384, 1)
-}
-
-func BenchmarkOPPEThroughput64KByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 65536, 1)
-}
-
-func BenchmarkOPPEThroughput256KByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 262144, 1)
-}
-
-func BenchmarkOPPEThroughput1MByte1Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1048576, 1)
-}
-
-func BenchmarkOPPEThroughput1Byte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1, 2)
-}
-
-func BenchmarkOPPEThroughput4Byte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4, 2)
-}
-
-func BenchmarkOPPEThroughput16Byte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16, 2)
-}
-
-func BenchmarkOPPEThroughput64Byte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 64, 2)
-}
-
-func BenchmarkOPPEThroughput256Byte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 256, 2)
-}
-
-func BenchmarkOPPEThroughput1KByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1024, 2)
-}
-
-func BenchmarkOPPEThroughput4KByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4096, 2)
-}
-
-func BenchmarkOPPEThroughput16KByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16384, 2)
-}
-
-func BenchmarkOPPEThroughput64KByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 65536, 2)
-}
-
-func BenchmarkOPPEThroughput256KByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 262144, 2)
-}
-
-func BenchmarkOPPEThroughput1MByte2Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1048576, 2)
-}
-
-func BenchmarkOPPEThroughput1Byte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1, 4)
-}
-
-func BenchmarkOPPEThroughput4Byte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4, 4)
-}
-
-func BenchmarkOPPEThroughput16Byte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16, 4)
-}
-
-func BenchmarkOPPEThroughput64Byte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 64, 4)
-}
-
-func BenchmarkOPPEThroughput256Byte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 256, 4)
-}
-
-func BenchmarkOPPEThroughput1KByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1024, 4)
-}
-
-func BenchmarkOPPEThroughput4KByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4096, 4)
-}
-
-func BenchmarkOPPEThroughput16KByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16384, 4)
-}
-
-func BenchmarkOPPEThroughput64KByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 65536, 4)
-}
-
-func BenchmarkOPPEThroughput256KByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 262144, 4)
-}
-
-func BenchmarkOPPEThroughput1MByte4Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1048576, 4)
-}
-
-func BenchmarkOPPEThroughput1Byte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1, 8)
-}
-
-func BenchmarkOPPEThroughput4Byte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4, 8)
-}
-
-func BenchmarkOPPEThroughput16Byte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16, 8)
-}
-
-func BenchmarkOPPEThroughput64Byte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 64, 8)
-}
-
-func BenchmarkOPPEThroughput256Byte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 256, 8)
-}
-
-func BenchmarkOPPEThroughput1KByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1024, 8)
-}
-
-func BenchmarkOPPEThroughput4KByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 4096, 8)
-}
-
-func BenchmarkOPPEThroughput16KByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 16384, 8)
-}
-
-func BenchmarkOPPEThroughput64KByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 65536, 8)
-}
-
-func BenchmarkOPPEThroughput256KByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 262144, 8)
-}
-
-func BenchmarkOPPEThroughput1MByte8Mid(b *testing.B) {
-	benchmarkOPPEThroughput(b, 1048576, 8)
-}
-
-// Benchmarks multi-hop message passing using OPPE mode
-func benchmarkOPPEThroughput(b *testing.B, block int, midpoints int) {
-	// Setup the RSA keys and key stores
-	key, _ := rsa.GenerateKey(rand.Reader, 1024)
-
-	store := make(map[string]*rsa.PublicKey)
-	store["benchmark"] = &key.PublicKey
-
-	// Set up the multi-hop chain
-	addrs := make([]*net.TCPAddr, 0, midpoints+2)
-	sinks := make([]chan *Session, 0, midpoints+2)
-	quits := make([]chan struct{}, 0, midpoints+2)
-
-	apps := make([]chan *proto.Message, 0, midpoints+2)
-	nets := make([]chan *proto.Message, 0, midpoints+2)
-
-	for i := 0; i < midpoints+2; i++ {
-		addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
-		sink, quit, _ := Listen(addr, key, store)
-
-		addrs = append(addrs, addr)
-		sinks = append(sinks, sink)
-		quits = append(quits, quit)
-
-		if i > 0 {
-			// Dial each link
-			cliSes, _ := Dial("localhost", addrs[i-1].Port, "benchmark", key, &key.PublicKey)
-			srvSes := <-sinks[i-1]
-
-			// Create the sender and receiver channels for both session sides
-			cliApp := make(chan *proto.Message, 64)
-			srvApp := make(chan *proto.Message, 64)
-
-			cliNet := cliSes.Communicate(cliApp, quits[i]) // Hack: reuse prev live quit channel
-			srvSes.Communicate(srvApp, quits[i-1])         // Hack: reuse prev live quit channel
-
-			apps = append(apps, srvApp)
-			nets = append(nets, cliNet)
-		}
-	}
-
-	// Generate a large batch of random messages to forward
-	b.SetBytes(int64(block))
-	msgs := make([]proto.Message, b.N)
-	for i := 0; i < b.N; i++ {
-		msgs[i].Data = make([]byte, block)
-		io.ReadFull(rand.Reader, msgs[i].Data)
-	}
-
-	sync := make(chan struct{})
-	done := make(chan struct{})
-
-	// Communication initiator
-	go func() {
-		<-sync
-		for i := 0; i < b.N; i++ {
-			msgs[i].Encrypt()
-			nets[len(nets)-1] <- &msgs[i]
-		}
-		done <- struct{}{}
-	}()
-
-	// Midpoint forwarders
-	for i := 1; i < midpoints+1; i++ {
-		go func(idx int) {
-			<-sync
-			for i := 0; i < b.N; i++ {
-				msg := <-apps[idx]
-				nets[idx-1] <- msg
-			}
-			done <- struct{}{}
-		}(i)
-	}
-
-	// Communication terminator
-	go func() {
-		<-sync
-		for i := 0; i < b.N; i++ {
-			msg := <-apps[0]
-			msg.Decrypt()
-		}
-		done <- struct{}{}
-	}()
-
-	// Start the benchmark
-	b.ResetTimer()
-	for i := 0; i < midpoints+2; i++ {
-		sync <- struct{}{}
-	}
-	for i := 0; i < midpoints+2; i++ {
-		<-done
-	}
-	b.StopTimer()
-
-	for _, quit := range quits {
-		close(quit)
-	}
-	time.Sleep(100 * time.Millisecond)
-}
-
-func BenchmarkPPEThroughput1Byte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1, 1)
-}
-
-func BenchmarkPPEThroughput4Byte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4, 1)
-}
-
-func BenchmarkPPEThroughput16Byte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16, 1)
-}
-
-func BenchmarkPPEThroughput64Byte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 64, 1)
-}
-
-func BenchmarkPPEThroughput256Byte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 256, 1)
-}
-
-func BenchmarkPPEThroughput1KByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1024, 1)
-}
-
-func BenchmarkPPEThroughput4KByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4096, 1)
-}
-
-func BenchmarkPPEThroughput16KByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16384, 1)
-}
-
-func BenchmarkPPEThroughput64KByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 65536, 1)
-}
-
-func BenchmarkPPEThroughput256KByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 262144, 1)
-}
-
-func BenchmarkPPEThroughput1MByte1Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1048576, 1)
-}
-
-func BenchmarkPPEThroughput1Byte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1, 2)
-}
-
-func BenchmarkPPEThroughput4Byte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4, 2)
-}
-
-func BenchmarkPPEThroughput16Byte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16, 2)
-}
-
-func BenchmarkPPEThroughput64Byte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 64, 2)
-}
-
-func BenchmarkPPEThroughput256Byte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 256, 2)
-}
-
-func BenchmarkPPEThroughput1KByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1024, 2)
-}
-
-func BenchmarkPPEThroughput4KByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4096, 2)
-}
-
-func BenchmarkPPEThroughput16KByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16384, 2)
-}
-
-func BenchmarkPPEThroughput64KByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 65536, 2)
-}
-
-func BenchmarkPPEThroughput256KByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 262144, 2)
-}
-
-func BenchmarkPPEThroughput1MByte2Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1048576, 2)
-}
-
-func BenchmarkPPEThroughput1Byte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1, 4)
-}
-
-func BenchmarkPPEThroughput4Byte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4, 4)
-}
-
-func BenchmarkPPEThroughput16Byte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16, 4)
-}
-
-func BenchmarkPPEThroughput64Byte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 64, 4)
-}
-
-func BenchmarkPPEThroughput256Byte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 256, 4)
-}
-
-func BenchmarkPPEThroughput1KByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1024, 4)
-}
-
-func BenchmarkPPEThroughput4KByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4096, 4)
-}
-
-func BenchmarkPPEThroughput16KByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16384, 4)
-}
-
-func BenchmarkPPEThroughput64KByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 65536, 4)
-}
-
-func BenchmarkPPEThroughput256KByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 262144, 4)
-}
-
-func BenchmarkPPEThroughput1MByte4Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1048576, 4)
-}
-
-func BenchmarkPPEThroughput1Byte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1, 8)
-}
-
-func BenchmarkPPEThroughput4Byte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4, 8)
-}
-
-func BenchmarkPPEThroughput16Byte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16, 8)
-}
-
-func BenchmarkPPEThroughput64Byte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 64, 8)
-}
-
-func BenchmarkPPEThroughput256Byte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 256, 8)
-}
-
-func BenchmarkPPEThroughput1KByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1024, 8)
-}
-
-func BenchmarkPPEThroughput4KByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 4096, 8)
-}
-
-func BenchmarkPPEThroughput16KByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 16384, 8)
-}
-
-func BenchmarkPPEThroughput64KByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 65536, 8)
-}
-
-func BenchmarkPPEThroughput256KByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 262144, 8)
-}
-
-func BenchmarkPPEThroughput1MByte8Mid(b *testing.B) {
-	benchmarkPPEThroughput(b, 1048576, 8)
-}
-
-// Benchmarks multi-hop message passing using OPPE mode
-func benchmarkPPEThroughput(b *testing.B, block int, midpoints int) {
-	// Setup the RSA keys and key stores
-	key, _ := rsa.GenerateKey(rand.Reader, 1024)
-
-	store := make(map[string]*rsa.PublicKey)
-	store["benchmark"] = &key.PublicKey
-
-	// Set up the multi-hop chain
-	addrs := make([]*net.TCPAddr, 0, midpoints+2)
-	sinks := make([]chan *Session, 0, midpoints+2)
-	quits := make([]chan struct{}, 0, midpoints+2)
-
-	apps := make([]chan *proto.Message, 0, midpoints+2)
-	nets := make([]chan *proto.Message, 0, midpoints+2)
-
-	for i := 0; i < midpoints+2; i++ {
-		addr, _ := net.ResolveTCPAddr("tcp", "localhost:0")
-		sink, quit, _ := Listen(addr, key, store)
-
-		addrs = append(addrs, addr)
-		sinks = append(sinks, sink)
-		quits = append(quits, quit)
-
-		if i > 0 {
-			// Dial each link
-			cliSes, _ := Dial("localhost", addrs[i-1].Port, "benchmark", key, &key.PublicKey)
-			srvSes := <-sinks[i-1]
-
-			// Create the sender and receiver channels for both session sides
-			cliApp := make(chan *proto.Message, 64)
-			srvApp := make(chan *proto.Message, 64)
-
-			cliNet := cliSes.Communicate(cliApp, quits[i]) // Hack: reuse prev live quit channel
-			srvSes.Communicate(srvApp, quits[i-1])         // Hack: reuse prev live quit channel
-
-			apps = append(apps, srvApp)
-			nets = append(nets, cliNet)
-		}
-	}
-
-	// Generate a large batch of random messages to forward
-	b.SetBytes(int64(block))
-	msgs := make([]proto.Message, b.N)
-	for i := 0; i < b.N; i++ {
-		msgs[i].Head.Meta = make([]byte, block)
-		io.ReadFull(rand.Reader, msgs[i].Head.Meta.([]byte))
-	}
-
-	sync := make(chan struct{})
-	done := make(chan struct{})
-
-	// Communication initiator
-	go func() {
-		<-sync
-		for i := 0; i < b.N; i++ {
-			nets[len(nets)-1] <- &msgs[i]
-		}
-		done <- struct{}{}
-	}()
-
-	// Midpoint forwarders
-	for i := 1; i < midpoints+1; i++ {
-		go func(idx int) {
-			<-sync
-			for i := 0; i < b.N; i++ {
-				msg := <-apps[idx]
-				nets[idx-1] <- msg
-			}
-			done <- struct{}{}
-		}(i)
-	}
-
-	// Communication terminator
-	go func() {
-		<-sync
-		for i := 0; i < b.N; i++ {
-			<-apps[0]
-		}
-		done <- struct{}{}
-	}()
-
-	// Start the benchmark
-	b.ResetTimer()
-	for i := 0; i < midpoints+2; i++ {
-		sync <- struct{}{}
-	}
-	for i := 0; i < midpoints+2; i++ {
-		<-done
-	}
-	b.StopTimer()
-
-	for _, quit := range quits {
-		close(quit)
-	}
-	time.Sleep(100 * time.Millisecond)
 }
