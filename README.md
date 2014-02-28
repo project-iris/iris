@@ -4,7 +4,8 @@
   Releases
 ------------
  * Development:
-    - Synced stream + session listener termination.
+    - Double channeled session (control + data link).
+    - Graceful session tear-down.
     - Fix invalid bootstrap net mask (default -> actual).
     - Fix session handshake infinite wait.
     - Fix thread pool termination wait.

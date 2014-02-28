@@ -147,8 +147,14 @@ var SessionDialTimeout = time.Second
 // Maximum allowed time to handle a session connection.
 var SessionAcceptTimeout = time.Second
 
-// Maximum allowed time to complete a session setup.
+// Maximum allowed time to complete the session control channel setup.
 var SessionShakeTimeout = 3 * time.Second
+
+// Maximum allowed time to complete the session data channel setup.
+var SessionLinkTimeout = time.Second
+
+// Time allowance to gracefully terminate a session link.
+var SessionGraceTimeout = 3 * time.Second
 
 // Symmetric cipher for the temporary message encryption.
 var PacketCipher = aes.NewCipher

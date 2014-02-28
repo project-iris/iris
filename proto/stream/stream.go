@@ -114,7 +114,7 @@ func (l *Listener) accepter(timeout time.Duration) {
 	}
 	// Close upstream stream sink and socket (keep initial error, if any)
 	close(l.Sink)
-	if err := l.socket.Close(); err != nil && errv == nil {
+	if err := l.socket.Close(); errv == nil {
 		errv = err
 	}
 	// Wait for termination sync and return

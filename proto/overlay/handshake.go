@@ -198,7 +198,7 @@ func (o *Overlay) shake(ses *session.Session) {
 	select {
 	case <-time.After(time.Duration(config.OverlayInitTimeout) * time.Millisecond):
 		log.Printf("overlay: session initialization timed out.")
-	case msg, ok := <-p.netIn:
+	case msg, ok := <-p.conn.CtrlLink.Recv:
 		if ok {
 			success = true
 

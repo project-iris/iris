@@ -25,6 +25,7 @@ import (
 	"crypto/rsa"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,45 +52,42 @@ func TestForward(t *testing.T) {
 	}
 	server := <-sock.Sink
 
-	quit := make(chan struct{})
-
-	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *proto.Message, 2)
-	srvApp := make(chan *proto.Message, 2)
-
-	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	srvNet := server.Communicate(srvApp, quit) // Hack: reuse prev live quit channel
+	// Initiate the message transfers
+	client.Start(2)
+	server.Start(2)
 
 	// Generate the messages to transmit
-	msgs := make([]proto.Message, 10)
+	msgs := make([]proto.Message, 1000)
 	for i := 0; i < len(msgs); i++ {
-		key := make([]byte, 20)
-		iv := make([]byte, 20)
-		data := make([]byte, 20)
+		blob := make([]byte, 768)
+		io.ReadFull(rand.Reader, blob)
 
-		io.ReadFull(rand.Reader, key)
-		io.ReadFull(rand.Reader, iv)
-		io.ReadFull(rand.Reader, data)
-		msgs[i] = proto.Message{proto.Header{[]byte("meta"), key, iv}, data}
+		msgs[i] = proto.Message{
+			Head: proto.Header{
+				Meta: []byte("meta"),
+				Key:  blob[0:256],
+				Iv:   blob[256:512],
+			},
+			Data: blob[512:768],
+		}
 	}
 	// Send from client to server
 	go func() {
 		for i := 0; i < len(msgs); i++ {
-			cliNet <- &msgs[i]
+			client.CtrlLink.Send <- &msgs[i]
 		}
 	}()
-	recvs := make([]proto.Message, 10)
+	recvs := make([]proto.Message, len(msgs))
 	for i := 0; i < len(msgs); i++ {
-		timeout := time.Tick(250 * time.Millisecond)
 		select {
-		case msg := <-srvApp:
+		case msg := <-server.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-timeout:
+		case <-time.After(25 * time.Millisecond):
 			t.Errorf("receive timed out")
 			break
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < len(msgs); i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
@@ -98,31 +96,44 @@ func TestForward(t *testing.T) {
 	// Send from server to client
 	go func() {
 		for i := 0; i < len(msgs); i++ {
-			srvNet <- &msgs[i]
+			server.CtrlLink.Send <- &msgs[i]
 		}
 	}()
-	recvs = make([]proto.Message, 10)
+	recvs = make([]proto.Message, len(msgs))
 	for i := 0; i < len(msgs); i++ {
-		timeout := time.Tick(250 * time.Millisecond)
 		select {
-		case msg := <-cliApp:
+		case msg := <-client.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-timeout:
+		case <-time.After(25 * time.Millisecond):
 			t.Errorf("receive timed out")
 			break
 		}
 	}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < len(msgs); i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
 			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
+		}
+	}
+	// Close the client and server sessions (concurrently, as they depend on each other)
+	errc := make(chan error)
+	go func() { errc <- client.Close() }()
+	go func() { errc <- server.Close() }()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errc:
+			if err != nil {
+				t.Fatalf("failed to close a session: %v.", err)
+			}
+		case <-time.After(25 * time.Millisecond):
+			t.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
 		}
 	}
 	// Tear down the listener
 	if err := sock.Close(); err != nil {
 		t.Fatalf("failed to terminate session listener: %v.", err)
 	}
-	close(quit)
 }
 
 func BenchmarkLatency1Byte(b *testing.B) {
@@ -186,14 +197,9 @@ func benchmarkLatency(b *testing.B, block int) {
 	}
 	server := <-sock.Sink
 
-	quit := make(chan struct{})
-
-	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *proto.Message, 64)
-	srvApp := make(chan *proto.Message, 64)
-
-	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	server.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+	// Initiate the message transfers
+	client.Start(64)
+	server.Start(64)
 
 	// Create a header of the right size
 	msgKey := make([]byte, config.PacketCipherBits/8)
@@ -214,42 +220,54 @@ func benchmarkLatency(b *testing.B, block int) {
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
 	// Create the client and server runner routines with a sync channel
-	sync := make(chan struct{})
-	done := make(chan struct{}, 2)
+	syncer := make(chan struct{})
+	var run sync.WaitGroup
 
 	cliRun := func() {
 		for i := 0; i < b.N; i++ {
-			cliNet <- &msgs[i]
-			<-sync
+			client.CtrlLink.Send <- &msgs[i]
+			<-syncer
 		}
-		done <- struct{}{}
+		run.Done()
 	}
 	srvRun := func() {
 		for i := 0; i < b.N; i++ {
-			<-srvApp
-			sync <- struct{}{}
+			<-server.CtrlLink.Recv
+			syncer <- struct{}{}
 		}
-		done <- struct{}{}
+		run.Done()
 	}
 	// Send 1 message through to ensure internal caches are up
-	cliNet <- &msgs[0]
-	<-srvApp
+	client.CtrlLink.Send <- &msgs[0]
+	<-server.CtrlLink.Recv
 
 	// Execute the client and server runners, wait till termination and exit
 	b.ResetTimer()
+	run.Add(2)
 	go cliRun()
 	go srvRun()
-
-	<-done
-	<-done
-
+	run.Wait()
 	b.StopTimer()
 
+	// Close the client and server sessions (concurrently, as they depend on each other)
+	errc := make(chan error)
+	go func() { errc <- client.Close() }()
+	go func() { errc <- server.Close() }()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errc:
+			if err != nil {
+				b.Fatalf("failed to close a session: %v.", err)
+			}
+		case <-time.After(25 * time.Millisecond):
+			b.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
+		}
+	}
 	// Tear down the listener
 	if err := sock.Close(); err != nil {
 		b.Fatalf("failed to terminate session listener: %v.", err)
 	}
-	close(quit)
 }
 
 func BenchmarkThroughput1Byte(b *testing.B) {
@@ -313,14 +331,9 @@ func benchmarkThroughput(b *testing.B, block int) {
 	}
 	server := <-sock.Sink
 
-	quit := make(chan struct{})
-
-	// Create the sender and receiver channels for both session sides
-	cliApp := make(chan *proto.Message, 64)
-	srvApp := make(chan *proto.Message, 64)
-
-	cliNet := client.Communicate(cliApp, quit) // Hack: reuse prev live quit channel
-	server.Communicate(srvApp, quit)           // Hack: reuse prev live quit channel
+	// Initiate the message transfers
+	client.Start(64)
+	server.Start(64)
 
 	// Create a header of the right size
 	msgKey := make([]byte, config.PacketCipherBits/8)
@@ -341,37 +354,49 @@ func benchmarkThroughput(b *testing.B, block int) {
 		io.ReadFull(rand.Reader, msgs[i].Data)
 	}
 	// Create the client and server runner routines
-	done := make(chan struct{}, 2)
+	var run sync.WaitGroup
 
 	cliRun := func() {
 		for i := 0; i < b.N; i++ {
-			cliNet <- &msgs[i]
+			client.CtrlLink.Send <- &msgs[i]
 		}
-		done <- struct{}{}
+		run.Done()
 	}
 	srvRun := func() {
 		for i := 0; i < b.N; i++ {
-			<-srvApp
+			<-server.CtrlLink.Recv
 		}
-		done <- struct{}{}
+		run.Done()
 	}
 	// Send 1 message through to ensure internal caches are up
-	cliNet <- &msgs[0]
-	<-srvApp
+	client.CtrlLink.Send <- &msgs[0]
+	<-server.CtrlLink.Recv
 
 	// Execute the client and server runners, wait till termination and exit
 	b.ResetTimer()
+	run.Add(2)
 	go cliRun()
 	go srvRun()
-
-	<-done
-	<-done
-
+	run.Wait()
 	b.StopTimer()
 
+	// Close the client and server sessions (concurrently, as they depend on each other)
+	errc := make(chan error)
+	go func() { errc <- client.Close() }()
+	go func() { errc <- server.Close() }()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errc:
+			if err != nil {
+				b.Fatalf("failed to close a session: %v.", err)
+			}
+		case <-time.After(25 * time.Millisecond):
+			b.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
+		}
+	}
 	// Tear down the listener
 	if err := sock.Close(); err != nil {
 		b.Fatalf("failed to terminate session listener: %v.", err)
 	}
-	close(quit)
 }

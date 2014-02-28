@@ -9,7 +9,7 @@ Stuff that need implementing, fixing or testing.
     - Iris + Carrier + Overlay
         - Prioritized system messages (otherwise under load they may time out)
     - Carrier + Overlay
-        - Implement proper statictics gathering and reporting mechanism (and remove them from the Boot func)
+        - Implement proper statistics gathering and reporting mechanism (and remove them from the Boot func)
     - Relay + Iris
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Carrier
@@ -19,13 +19,12 @@ Stuff that need implementing, fixing or testing.
         - Send peer close messages (dropSink) without spawning new goroutines
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
-        - Completely rewrite quit mechanism to chan chan error
 - Bugs
     - Relay
         - Race condition if reply and immediate close (needs close sync with finishing ops)
     - Iris
         - Detect dead tunnel (heartbeat or topic-style node monitoring?)
-    - Overlay + Session + Stream
+    - Overlay
         - Proper closing and termination (i.e. try and minimize lost messages when closing)
 - Misc
     - Overlay

@@ -24,13 +24,14 @@ package overlay
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/session"
 	"math/big"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/session"
 )
 
 // Peer state information.
@@ -42,13 +43,12 @@ type peer struct {
 	addrs  []string
 
 	// Connection details
+	conn *session.Session
+
 	laddr string // Local address, flattened
 	raddr string // Remote address, flattened
 	lhost string // Local IP, flattened
 	rhost string // Remote IP, flattened
-
-	netIn  chan *proto.Message // Inbound transport channel
-	netOut chan *proto.Message // Outbound transport channel
 
 	// Overlay state infos
 	time    uint64
@@ -59,30 +59,27 @@ type peer struct {
 	quit chan chan error // Quit channe to synchronize peer termination
 	term chan struct{}   // Termination signaller to prevent new operations
 
-	busy     sync.WaitGroup // Maintains whether sends are in progress or not
-	quitLock sync.Mutex     // Protect concurrent closes
+	quitLock sync.Mutex // Protect concurrent closes
 }
 
-// Creates a new peer structure, ready to begin communicating
+// Creates a new peer structure, ready to begin communicating.
 func (o *Overlay) newPeer(ses *session.Session) (*peer, error) {
-	p := &peer{
+	ses.Start(config.OverlayNetBuffer)
+
+	return &peer{
 		owner: o,
+		conn:  ses,
 
 		// Connection details
-		laddr: ses.Raw().LocalAddr().String(),
-		raddr: ses.Raw().RemoteAddr().String(),
-		lhost: ses.Raw().LocalAddr().(*net.TCPAddr).IP.String(),
-		rhost: ses.Raw().LocalAddr().(*net.TCPAddr).IP.String(),
+		laddr: ses.CtrlLink.Sock().LocalAddr().String(),
+		raddr: ses.CtrlLink.Sock().RemoteAddr().String(),
+		lhost: ses.CtrlLink.Sock().LocalAddr().(*net.TCPAddr).IP.String(),
+		rhost: ses.CtrlLink.Sock().LocalAddr().(*net.TCPAddr).IP.String(),
 
 		// Transport and maintenance channels
-		netIn: make(chan *proto.Message, config.OverlayNetBuffer),
-		quit:  make(chan chan error),
-		term:  make(chan struct{}),
-	}
-	// Set up the outbound data channel
-	p.netOut = ses.Communicate(p.netIn, nil)
-
-	return p, nil
+		quit: make(chan chan error),
+		term: make(chan struct{}),
+	}, nil
 }
 
 // Starts the inbound packet acceptor for the peer connection.
@@ -115,8 +112,7 @@ func (p *peer) Close() error {
 	if !p.init {
 		p.quit = nil
 		close(p.term)
-		close(p.netOut)
-		return nil
+		return p.conn.Close()
 	}
 	// Otherwise do a synced close
 	errc := make(chan error)
@@ -133,17 +129,13 @@ func (p *peer) Close() error {
 
 // Sends a message to the remote peer.
 func (p *peer) send(msg *proto.Message) error {
-	// Ensure sends aren't caught midpoint
-	p.busy.Add(1)
-	defer p.busy.Done()
-
 	// Send the message or time out
 	select {
 	case <-p.term:
 		return fmt.Errorf("closed")
 	case <-time.After(time.Duration(config.OverlaySendTimeout) * time.Millisecond):
 		return fmt.Errorf("timeout")
-	case p.netOut <- msg:
+	case p.conn.CtrlLink.Send <- msg:
 		return nil
 	}
 }
@@ -151,8 +143,10 @@ func (p *peer) send(msg *proto.Message) error {
 // Listens for inbound messages from the peer and routes them into the overlay
 // network.
 func (p *peer) receiver() {
-	// Retrieve messages until termination is requested or the connection fails
 	var errc chan error
+	var errv error
+
+	// Retrieve messages until termination is requested or the connection fails
 	for closed := false; !closed && errc == nil; {
 		select {
 		case <-p.owner.quit:
@@ -162,7 +156,7 @@ func (p *peer) receiver() {
 		case errc = <-p.quit:
 			//go func() { p.owner.dropSink <- p }()
 			break
-		case msg, ok := <-p.netIn:
+		case msg, ok := <-p.conn.CtrlLink.Recv:
 			// Signal the owning overlay in case of a remote error
 			if !ok {
 				// TODO: Is this go routine really necessary?
@@ -178,15 +172,13 @@ func (p *peer) receiver() {
 	// Signal to all that the link is closed
 	close(p.term)
 
-	// Swap out the out-link, wait on swap barrier and close
-	out := p.netOut
-	p.netOut = nil
-	p.busy.Wait()
-	close(out)
-
+	// Terminate the session
+	if err := p.conn.Close(); errv == nil {
+		errv = err
+	}
 	// Report termination result
 	if errc == nil {
 		errc = <-p.quit
 	}
-	errc <- nil
+	errc <- errv
 }
