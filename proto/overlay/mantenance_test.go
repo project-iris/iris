@@ -154,9 +154,6 @@ func TestMaintenance(t *testing.T) {
 
 /*
 func TestMaintenanceDOS(t *testing.T) {
-	// Make sure cleanups terminate before returning
-	defer time.Sleep(3 * time.Second)
-
 	// Make sure there are enough ports to use (use a huge number to simplify test code)
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
@@ -168,28 +165,29 @@ func TestMaintenanceDOS(t *testing.T) {
 
 	// Increment the overlays till the test fails
 	for peers := 4; !t.Failed(); peers++ {
-		fmt.Println("running maintenance for", peers, "peers.")
+		log.Printf("running maintenance for %d peers.", peers)
+
 		// Start the batch of nodes
 		nodes := []*Overlay{}
 		for i := 0; i < peers; i++ {
 			nodes = append(nodes, New(appId, key, nil))
-			if err := nodes[i].Boot(); err != nil {
-				t.Fatalf("failed to boot nodes: %v.", err)
-			}
+			go func(o *Overlay) {
+				if _, err := o.Boot(); err != nil {
+					t.Fatalf("failed to boot nodes: %v.", err)
+				}
+			}(nodes[i])
 		}
 		// Wait a while for the handshakes to complete
 		//		time.Sleep(10 * time.Second)
-		done := time.Tick(10 * time.Second)
-		beat := time.Tick(100 * time.Millisecond)
+		done := time.After(10 * time.Second)
 		for loop := true; loop; {
 			select {
 			case <-done:
 				loop = false
-			case <-beat:
-				fmt.Println("GOS:", runtime.NumGoroutine())
+			case <-time.After(250 * time.Millisecond):
+				log.Printf("Live go routines: %d.", runtime.NumGoroutine())
 			}
 		}
-
 		// Check the routing tables
 		checkRoutes(t, nodes)
 
@@ -197,8 +195,6 @@ func TestMaintenanceDOS(t *testing.T) {
 		for i := 0; i < peers; i++ {
 			nodes[i].Shutdown()
 		}
-		// Make sure leftovers had time to cleanup
-		time.Sleep(3 * time.Second)
 	}
 }
 */

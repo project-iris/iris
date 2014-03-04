@@ -76,7 +76,7 @@ func TestRouting(t *testing.T) {
 	for i := 0; i < peers; i++ {
 		nodes = append(nodes, New(appId, key, apps[i]))
 		if _, err := nodes[i].Boot(); err != nil {
-			t.Errorf("failed to boot nodes: %v.", err)
+			t.Fatalf("failed to boot nodes: %v.", err)
 		}
 		defer nodes[i].Shutdown()
 	}
@@ -105,55 +105,55 @@ func TestRouting(t *testing.T) {
 	time.Sleep(time.Second)
 	for i := 0; i < peers; i++ {
 		if len(apps[i].delivs) != peers {
-			t.Errorf("app #%v: message count mismatch: have %v, want %v.", i, len(apps[i].delivs), peers)
+			t.Fatalf("app #%v: message count mismatch: have %v, want %v.", i, len(apps[i].delivs), peers)
 		} else {
 			for j := 0; j < peers; j++ {
 				// Check contents (a bit reduced, not every field was verified below)
 				if bytes.Compare(meta, apps[j].delivs[i].Head.Meta.([]byte)) != 0 {
-					t.Errorf("send/receive meta mismatch: have %v, want %v.", apps[i].delivs[j].Head.Meta, meta)
+					t.Fatalf("send/receive meta mismatch: have %v, want %v.", apps[i].delivs[j].Head.Meta, meta)
 				}
 				if bytes.Compare(msgs[i][j].Data, apps[j].delivs[i].Data) != 0 {
-					t.Errorf("send/receive data mismatch: have %v, want %v.", apps[i].delivs[j].Data, msgs[j][i].Data)
+					t.Fatalf("send/receive data mismatch: have %v, want %v.", apps[i].delivs[j].Data, msgs[j][i].Data)
 				}
 			}
 		}
 	}
 }
 
-func BenchmarkPassing1Byte(b *testing.B) {
-	benchmarkPassing(b, 1)
+func BenchmarkLatency1Byte(b *testing.B) {
+	benchmarkLatency(b, 1)
 }
 
-func BenchmarkPassing16Byte(b *testing.B) {
-	benchmarkPassing(b, 16)
+func BenchmarkLatency16Byte(b *testing.B) {
+	benchmarkLatency(b, 16)
 }
 
-func BenchmarkPassing256Byte(b *testing.B) {
-	benchmarkPassing(b, 256)
+func BenchmarkLatency256Byte(b *testing.B) {
+	benchmarkLatency(b, 256)
 }
 
-func BenchmarkPassing1KByte(b *testing.B) {
-	benchmarkPassing(b, 1024)
+func BenchmarkLatency1KByte(b *testing.B) {
+	benchmarkLatency(b, 1024)
 }
 
-func BenchmarkPassing4KByte(b *testing.B) {
-	benchmarkPassing(b, 4096)
+func BenchmarkLatency4KByte(b *testing.B) {
+	benchmarkLatency(b, 4096)
 }
 
-func BenchmarkPassing16KByte(b *testing.B) {
-	benchmarkPassing(b, 16384)
+func BenchmarkLatency16KByte(b *testing.B) {
+	benchmarkLatency(b, 16384)
 }
 
-func BenchmarkPassing64KByte(b *testing.B) {
-	benchmarkPassing(b, 65536)
+func BenchmarkLatency64KByte(b *testing.B) {
+	benchmarkLatency(b, 65536)
 }
 
-func BenchmarkPassing256KByte(b *testing.B) {
-	benchmarkPassing(b, 262144)
+func BenchmarkLatency256KByte(b *testing.B) {
+	benchmarkLatency(b, 262144)
 }
 
-func BenchmarkPassing1MByte(b *testing.B) {
-	benchmarkPassing(b, 1048576)
+func BenchmarkLatency1MByte(b *testing.B) {
+	benchmarkLatency(b, 1048576)
 }
 
 // Overlay callback app which will send one message at a time, waiting for delivery
@@ -177,12 +177,20 @@ func (s *sequencer) Forward(msg *proto.Message, key *big.Int) bool {
 	return true
 }
 
-func benchmarkPassing(b *testing.B, block int) {
+func benchmarkLatency(b *testing.B, block int) {
+	// Override the boot and convergence times
+	boot, conv := 250*time.Millisecond, 50*time.Millisecond
+
+	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+
+	defer func() {
+		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+	}()
+
 	b.SetBytes(int64(block))
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
-
-	// Make sure all previously started tests and benchmarks terminate fully
-	time.Sleep(time.Second)
 
 	// Generate a batch of messages to send around
 	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
@@ -208,6 +216,7 @@ func benchmarkPassing(b *testing.B, block int) {
 	b.ResetTimer()
 	recvApp.Deliver(nil, nil)
 	<-recvApp.quit
+	b.StopTimer()
 }
 
 func BenchmarkThroughput1Byte(b *testing.B) {
@@ -263,11 +272,19 @@ func (w *waiter) Forward(msg *proto.Message, key *big.Int) bool {
 }
 
 func benchmarkThroughput(b *testing.B, block int) {
+	// Override the boot and convergence times
+	boot, conv := 250*time.Millisecond, 50*time.Millisecond
+
+	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+
+	defer func() {
+		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+	}()
+
 	b.SetBytes(int64(block))
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
-
-	// Make sure all previously started tests and benchmarks terminate fully
-	time.Sleep(time.Second)
 
 	// Generate a bach of messages to send around
 	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, []byte{0x00, 0x01}, []byte{0x02, 0x03}}
@@ -298,4 +315,5 @@ func benchmarkThroughput(b *testing.B, block int) {
 	b.ResetTimer()
 	go sender()
 	<-wait.quit
+	b.StopTimer()
 }
