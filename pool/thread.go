@@ -25,8 +25,9 @@ package pool
 
 import (
 	"errors"
-	"github.com/karalabe/iris/container/queue"
 	"sync"
+
+	"github.com/karalabe/iris/container/queue"
 )
 
 var ErrTerminating = errors.New("pool terminating")
@@ -104,7 +105,6 @@ func (t *ThreadPool) Schedule(task Task) error {
 	} else {
 		t.tasks.Push(task)
 	}
-
 	return nil
 }
 
@@ -116,6 +116,7 @@ func (t *ThreadPool) Clear() {
 	t.tasks.Reset()
 }
 
+// Runs an initial task, fetching new ones until available.
 func (t *ThreadPool) runner(task Task) {
 	// Make sure the idle count is incremented back even if we panic
 	defer func() {
@@ -130,7 +131,6 @@ func (t *ThreadPool) runner(task Task) {
 			go t.runner(t.tasks.Pop().(Task))
 		}
 		t.mutex.Unlock()
-
 		t.done.Broadcast()
 	}()
 	// Execute all tasks that are available
@@ -139,6 +139,7 @@ func (t *ThreadPool) runner(task Task) {
 	}
 }
 
+// Fetches the next task from the queue.
 func (t *ThreadPool) next() Task {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
