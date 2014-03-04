@@ -23,10 +23,11 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
-	"github.com/karalabe/iris/config"
 	"hash"
 	"math/big"
 	"testing"
+
+	"github.com/karalabe/iris/config"
 )
 
 type spaceTest struct {

@@ -23,10 +23,9 @@
 package overlay
 
 import (
-	"fmt"
+	"errors"
 	"math/big"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/karalabe/iris/config"
@@ -37,14 +36,13 @@ import (
 // Peer state information.
 type peer struct {
 	owner *Overlay
+	conn  *session.Session
 
 	// Virtual id and reachable addresses
 	nodeId *big.Int
 	addrs  []string
 
 	// Connection details
-	conn *session.Session
-
 	laddr string // Local address, flattened
 	raddr string // Remote address, flattened
 	lhost string // Local IP, flattened
@@ -55,17 +53,11 @@ type peer struct {
 	passive bool
 
 	// Maintenance fields
-	init bool            // Specifies whether the receiver was started
-	quit chan chan error // Quit channe to synchronize peer termination
-	term chan struct{}   // Termination signaller to prevent new operations
-
-	quitLock sync.Mutex // Protect concurrent closes
+	quit chan chan error // Synchronizes peer termination
 }
 
-// Creates a new peer structure, ready to begin communicating.
-func (o *Overlay) newPeer(ses *session.Session) (*peer, error) {
-	ses.Start(config.OverlayNetBuffer)
-
+// Creates a new peer instance, ready to begin communicating.
+func (o *Overlay) newPeer(ses *session.Session) *peer {
 	return &peer{
 		owner: o,
 		conn:  ses,
@@ -78,103 +70,92 @@ func (o *Overlay) newPeer(ses *session.Session) (*peer, error) {
 
 		// Transport and maintenance channels
 		quit: make(chan chan error),
-		term: make(chan struct{}),
-	}, nil
+	}
 }
 
-// Starts the inbound packet acceptor for the peer connection.
-func (p *peer) Start() error {
-	// Make sure we haven't been already terminated
-	p.quitLock.Lock()
-	defer p.quitLock.Unlock()
-
-	if p.quit == nil {
-		return fmt.Errorf("closed")
-	}
-	// Sanity check to catch programming bugs
-	if p.init {
-		panic("overlay: peer connection already started")
-	}
-	// Otherwise start the overlay receiver and return success
-	p.init = true
-	go p.receiver()
-	return nil
+// Starts the inbound message processor and router.
+func (p *peer) Start() {
+	go p.processor()
 }
 
-// Terminates a peer connection and sets the quit channel to nil to prevent
-// double close.
+// Terminates a peer connection.
 func (p *peer) Close() error {
-	// Sync between concurrent closes
-	p.quitLock.Lock()
-	defer p.quitLock.Unlock()
+	// Gracefully close the peer session, flushing pending messages
+	res := p.conn.Close()
 
-	// If the link was never up, close and be happy
-	if !p.init {
-		p.quit = nil
-		close(p.term)
-		return p.conn.Close()
-	}
-	// Otherwise do a synced close
+	// Sync the processor termination and return
 	errc := make(chan error)
-	select {
-	case p.quit <- errc:
-		// Clear the quit channel to ensure single close, return result
-		p.quit = nil
-		return <-errc
-	default:
-		// Already closed, return success
-		return nil
+	p.quit <- errc
+	if err := <-errc; res != nil {
+		res = err
 	}
+	return res
 }
 
 // Sends a message to the remote peer.
 func (p *peer) send(msg *proto.Message) error {
-	// Send the message or time out
+	// Select the outbound channel based on message contents
+	link := p.conn.DataLink
+	if len(msg.Data) == 0 {
+		link = p.conn.CtrlLink
+	}
+	// Send the message on the selected channel
 	select {
-	case <-p.term:
-		return fmt.Errorf("closed")
-	case <-time.After(time.Duration(config.OverlaySendTimeout) * time.Millisecond):
-		return fmt.Errorf("timeout")
-	case p.conn.CtrlLink.Send <- msg:
+	case link.Send <- msg:
 		return nil
+	case <-time.After(config.OverlaySendTimeout):
+		return errors.New("timeout")
 	}
 }
 
-// Listens for inbound messages from the peer and routes them into the overlay
-// network.
-func (p *peer) receiver() {
+// Accepts inbound messages and routes them into the overlay.
+func (p *peer) processor() {
 	var errc chan error
 	var errv error
 
-	// Retrieve messages until termination is requested or the connection fails
+	// Retrieve messages until connection is torn down or termination is requested
+	// Note, channels are prioritized, with control first and data second
 	for closed := false; !closed && errc == nil; {
 		select {
-		case <-p.owner.quit:
-			// TODO: Fix this up properly, HACK HACK HACK
-			closed = true
-			break
 		case errc = <-p.quit:
-			//go func() { p.owner.dropSink <- p }()
-			break
+			// This should not happen often (graceful close on the recv channel instead)
+			continue
 		case msg, ok := <-p.conn.CtrlLink.Recv:
-			// Signal the owning overlay in case of a remote error
 			if !ok {
-				// TODO: Is this go routine really necessary?
-				// TODO: Sync this up with overlay close logic!
-				go func() { p.owner.dropSink <- p }()
+				// Connection went down (gracefully or not, dunno)
 				closed = true
-				break
+				continue
 			}
-			// Check whether it's a close request
+			// Route the control message
 			p.owner.route(p, msg)
+		default:
+			// No control events, allow data events too
+			select {
+			case errc = <-p.quit:
+				// This should not happen often (graceful close on the recv channel instead)
+				continue
+			case msg, ok := <-p.conn.CtrlLink.Recv:
+				if !ok {
+					// Connection went down (gracefully or not, dunno)
+					closed = true
+					continue
+				}
+				// Route the control message
+				p.owner.route(p, msg)
+			case msg, ok := <-p.conn.DataLink.Recv:
+				if !ok {
+					// Connection went down (gracefully or not, dunno)
+					closed = true
+					continue
+				}
+				// Route the data message
+				p.owner.route(p, msg)
+			}
 		}
 	}
-	// Signal to all that the link is closed
-	close(p.term)
-
-	// Terminate the session
-	if err := p.conn.Close(); errv == nil {
-		errv = err
+	// Signal the overlay of the connection drop
+	if errc == nil {
+		p.owner.drop(p)
 	}
 	// Report termination result
 	if errc == nil {

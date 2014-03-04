@@ -19,8 +19,9 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/proto"
 	"math/big"
+
+	"github.com/karalabe/iris/proto"
 )
 
 // 512 bit RSA key in DER format

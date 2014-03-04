@@ -51,23 +51,18 @@ func init() {
 
 // Starts up the overlay networking on a specified interface and fans in all the
 // inbound connections into the overlay-global channels.
-func (o *Overlay) acceptor(ipnet *net.IPNet) {
-	// Listen for incomming session on the given interface and random port.
+func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
+	// Listen for incoming session on the given interface and random port.
 	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
 	}
-	sock, err := session.Listen(addr, o.lkey)
+	sock, err := session.Listen(addr, o.authKey)
 	if err != nil {
 		panic(fmt.Sprintf("failed to start session listener: %v.", err))
 	}
 	sock.Accept(config.OverlayAcceptTimout)
 
-	defer func() {
-		if err := sock.Close(); err != nil {
-			log.Printf("overlay: failed to terminate session listener: %v.", err)
-		}
-	}()
 	// Save the new listener address into the local (sorted) address list
 	o.lock.Lock()
 	o.addrs = append(o.addrs, addr.String())
@@ -75,34 +70,46 @@ func (o *Overlay) acceptor(ipnet *net.IPNet) {
 	o.lock.Unlock()
 
 	// Start the bootstrapper on the specified interface
-	booter, bootSink, err := bootstrap.New(ipnet, []byte(o.overId), o.nodeId, addr.Port)
+	boot, discover, err := bootstrap.New(ipnet, []byte(o.authId), o.nodeId, addr.Port)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create bootstrapper: %v.", err))
 	}
-	if err := booter.Boot(); err != nil {
+	if err := boot.Boot(); err != nil {
 		panic(fmt.Sprintf("failed to boot bootstrapper: %v.", err))
 	}
-	defer booter.Terminate()
-
-	// Processes the incoming connections
-	for {
+	// Process incoming connection until termination is requested
+	var errc chan error
+	for errc == nil {
 		select {
-		case <-o.quit:
-			return
-		case boot := <-bootSink:
-			// Discard bootstrap requests (prevent simultaneous double connecting)
-			if !boot.Resp {
-				break
+		case errc = <-quit:
+			// Terminating, close and return
+			continue
+		case node := <-discover:
+			// Discard bootstrap requests, and only react to responses (prevent simultaneous double connecting)
+			if !node.Resp {
+				continue
 			}
 			// If the peer id is desirable, dial and authenticate
-			if !o.filter(boot.Peer) {
-				o.auther.Schedule(func() { o.dial([]*net.TCPAddr{boot.Addr}) })
+			if !o.filter(node.Peer) {
+				o.authInit.Schedule(func() { o.dial([]*net.TCPAddr{node.Addr}) })
 			}
 		case ses := <-sock.Sink:
 			// Agree upon overlay states
-			go o.shake(ses)
+			o.authAccept.Schedule(func() { o.shake(ses) })
 		}
 	}
+	// Terminate the bootstrapper and peer listener
+	errv := boot.Terminate()
+	if errv != nil {
+		log.Printf("overlay: failed to terminate bootstrapper: %v.", errv)
+	}
+	if err := sock.Close(); err != nil {
+		log.Printf("overlay: failed to terminate session listener: %v.", err)
+		if errv == nil {
+			errv = err
+		}
+	}
+	errc <- errv
 }
 
 // Checks whether a bootstrap-located peer fits into the local routing table or
@@ -112,7 +119,7 @@ func (o *Overlay) filter(id *big.Int) bool {
 	defer o.lock.RUnlock()
 
 	// Discard already connected nodes
-	if _, ok := o.pool[id.String()]; ok {
+	if _, ok := o.livePeers[id.String()]; ok {
 		return true
 	}
 
@@ -156,11 +163,11 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 	}
 	// Dial away, trying interfaces one after the other until connection succeeds
 	for _, addr := range addrs {
-		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.lkey); err == nil {
+		if ses, err := session.Dial(addr.IP.String(), addr.Port, o.authKey); err == nil {
 			o.shake(ses)
 			return
 		} else {
-			log.Printf("overlay: failed to dial remote peer %v, at %v: %v.", o.overId, addr, err)
+			log.Printf("overlay: failed to dial remote peer at %v: %v.", addr, err)
 		}
 	}
 }
@@ -170,11 +177,10 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 // connections. To prevent resource exhaustion, a timeout is attached to the
 // handshake, the violation of which results in a dropped connection.
 func (o *Overlay) shake(ses *session.Session) {
-	p, err := o.newPeer(ses)
-	if err != nil {
-		log.Printf("overlay: failed to create peer: %v.", err)
-		return
-	}
+	// Start the message transfers and create the peer
+	ses.Start(config.OverlayNetBuffer)
+	p := o.newPeer(ses)
+
 	// Send an init packet to the remote peer
 	pkt := new(initPacket)
 	pkt.Id = new(big.Int).Set(o.nodeId)
@@ -188,20 +194,20 @@ func (o *Overlay) shake(ses *session.Session) {
 	msg.Head.Meta = pkt
 	if err := p.send(msg); err != nil {
 		log.Printf("overlay: failed to send init packet: %v.", err)
-		if err := p.Close(); err != nil {
-			log.Printf("overlay: failed to close peer connection: %v.", err)
+		if err := ses.Close(); err != nil {
+			log.Printf("overlay: failed to close uninited session: %v.", err)
 		}
 		return
 	}
 	// Wait for an incoming init packet
-	success := false
 	select {
-	case <-time.After(time.Duration(config.OverlayInitTimeout) * time.Millisecond):
+	case <-time.After(config.OverlayInitTimeout):
 		log.Printf("overlay: session initialization timed out.")
+		if err := ses.Close(); err != nil {
+			log.Printf("overlay: failed to close unacked session: %v.", err)
+		}
 	case msg, ok := <-p.conn.CtrlLink.Recv:
 		if ok {
-			success = true
-
 			pkt = msg.Head.Meta.(*initPacket)
 			p.nodeId = pkt.Id
 			p.addrs = pkt.Addrs
@@ -210,26 +216,26 @@ func (o *Overlay) shake(ses *session.Session) {
 			o.dedup(p)
 		}
 	}
-	// Make sure we release anything associated with a failed connection
-	if !success {
-		if err := p.Close(); err != nil {
-			log.Printf("overlay: failed to close peer connection: %v.", err)
-		}
-	}
 }
 
-// Filters a new peer connection to ensure there are no duplicates. In case one
-// already exists, either the old or the new is dropped:
+// Filters a new peer connection to ensure there are no duplicates.
 //  - Same network, same direction: keep the lower client
 //  - Same network, diff direction: keep the lower server
 //  - Diff network:                 keep the lower network
 func (o *Overlay) dedup(p *peer) {
+	// Even though p might be a duplicate, parallel dedups might run in an inverse
+	// order at the remote side, thus it might start routing messages before being
+	// deduped too. To ensure racy messages don't get lost silently, start the peer
+	// anyways and gracefully close it if not needed.
+	p.Start()
+
+	var dump *peer // The peer to dump, if any
 	o.lock.Lock()
 
 	// Keep only one active connection
-	old, ok := o.pool[p.nodeId.String()]
+	old, ok := o.livePeers[p.nodeId.String()]
+	keep := false
 	if ok {
-		keep := true
 		switch {
 		// Same network, same direction
 		case old.laddr == p.laddr:
@@ -249,38 +255,37 @@ func (o *Overlay) dedup(p *peer) {
 		default:
 			keep = old.lhost < p.lhost
 		}
-		if keep {
-			o.lock.Unlock() // There's one more release point!
-			if err := p.Close(); err != nil {
-				log.Printf("overlay: failed to close peer connection: %v.", err)
-			}
-			return
+	}
+	// If the new connection is accepted, swap out old one if any
+	var stat status
+	if !keep {
+		// Swap out the old peer connection
+		o.livePeers[p.nodeId.String()] = p
+		for _, addr := range p.addrs {
+			o.trans[addr] = p.nodeId
+		}
+		dump = old
+
+		// Decide whether to send a join request or a state exchange to the new
+		stat = o.stat
+		if o.stat == none {
+			o.stat = join
+		}
+	} else {
+		dump = p
+	}
+	o.lock.Unlock()
+
+	// Initialize the new peer if needed
+	if !keep {
+		if stat == none {
+			o.sendJoin(p)
+		} else if stat == done {
+			o.sendState(p, false)
 		}
 	}
-	// Connections is accepted, start the data handlers
-	o.pool[p.nodeId.String()] = p
-	for _, addr := range p.addrs {
-		o.trans[addr] = p.nodeId
-	}
-	if err := p.Start(); err != nil {
-		log.Printf("overlay: failed to start peer receiver: %v.", err)
-	}
-	// If we swapped, terminate the old directly
-	if old != nil {
-		if err := old.Close(); err != nil {
-			log.Printf("overlay: failed to close peer connection: %v.", err)
-		}
-	}
-	// Decide whether to send a join request or a state exchange
-	status := o.stat
-	if o.stat == none {
-		o.stat = join
-	}
-	// Release lock before proceeding with state exchanges
-	o.lock.Unlock() // There's one more release point!
-	if status == none {
-		o.sendJoin(p)
-	} else if o.stat == done {
-		o.sendState(p, false)
+	// Terminate the duplicate if any
+	if dump != nil {
+		o.drop(dump)
 	}
 }

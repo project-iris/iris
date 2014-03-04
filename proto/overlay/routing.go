@@ -26,10 +26,11 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/proto"
 	"log"
 	"math/big"
 	"net"
+
+	"github.com/karalabe/iris/proto"
 )
 
 // Pastry routing algorithm.
@@ -110,7 +111,7 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 	if head.State != nil {
 		// Overlay system message, process and forward
 		o.process(src, head.Dest, head.State)
-		if p, ok := o.pool[id.String()]; ok {
+		if p, ok := o.livePeers[id.String()]; ok {
 			o.send(msg, p)
 		}
 		return
@@ -123,7 +124,7 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 
 	// Forwarding was allowed, repack headers and send
 	if allow {
-		if p, ok := o.pool[id.String()]; ok {
+		if p, ok := o.livePeers[id.String()]; ok {
 			head.Meta = msg.Head.Meta
 			msg.Head.Meta = head
 			o.send(msg, p)
@@ -141,8 +142,8 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 		if o.nodeId.Cmp(dst) == 0 {
 			return
 		}
-		// Node joining into current's responsability list
-		if p, ok := o.pool[dst.String()]; !ok {
+		// Node joining into currents responsibility list
+		if p, ok := o.livePeers[dst.String()]; !ok {
 			// Connect new peers and let the handshake do the state exchange
 			peerAddrs := make([]*net.TCPAddr, 0, len(s.Addrs[dst.String()]))
 			for _, a := range s.Addrs[dst.String()] {
@@ -152,7 +153,7 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 					peerAddrs = append(peerAddrs, addr)
 				}
 			}
-			o.auther.Schedule(func() { o.dial(peerAddrs) })
+			o.authInit.Schedule(func() { o.dial(peerAddrs) })
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either
 			if o.stat != done {
@@ -170,13 +171,13 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 			}
 			// Make sure we don't cause a deadlock if blocked
 			o.lock.RUnlock()
-			o.upSink <- s
+			o.exch(src, s)
 			o.lock.RLock()
 		}
 		// Connection filtering: drop after two requests and if local is idle too
 		if src.passive && s.Passive && !o.active(src.nodeId) {
 			o.lock.RUnlock()
-			o.dropSink <- src
+			o.drop(src)
 			o.lock.RLock()
 		} else {
 			// Save passive state for next beat

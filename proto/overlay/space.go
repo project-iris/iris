@@ -24,9 +24,10 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/config"
 	"io"
 	"math/big"
+
+	"github.com/karalabe/iris/config"
 )
 
 var modulo = new(big.Int).SetBit(new(big.Int), config.OverlaySpace, 1)

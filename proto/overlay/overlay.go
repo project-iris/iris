@@ -53,68 +53,82 @@ type Callback interface {
 
 // Internal structure for the overlay state information.
 type Overlay struct {
-	app Callback
+	app Callback // Upstream application callback
 
-	// Local and remote keys to authorize
-	lkey  *rsa.PrivateKey
-	rkeys map[string]*rsa.PublicKey
+	authId  string          // Iris network id
+	authKey *rsa.PrivateKey // Iris authentication key
 
-	// Global overlay id, local peer id and local listener addresses
-	overId string
-	nodeId *big.Int
-	addrs  []string
+	nodeId *big.Int // Pastry peer id
+	addrs  []string // Listener addresses
 
 	// The active connection pool, ip to id translations and routing table with modification timestamp
-	pool  map[string]*peer
-	trans map[string]*big.Int
+	livePeers map[string]*peer
+	trans     map[string]*big.Int
 
 	routes *table
 	time   uint64
 	stat   status
 
 	// Fan-in sinks for state update and connection drop events + quit channel
-	upSink   chan *state
-	dropSink chan *peer
-	quit     chan struct{}
+	upSink2 chan *state
+	quit    chan struct{}
+
+	acceptQuit []chan chan error // Quit sync channels for the acceptors
+	maintQuit  chan chan error   // Quit sync channel for the maintenance routine
 
 	// Miscellaneous fields
-	auther *pool.ThreadPool // Limits thread proliferation
-	stable sync.WaitGroup   // Syncer for reaching convergence
-	lock   sync.RWMutex     // Syncer for state mods after booting
+	authInit   *pool.ThreadPool // Locally initiated authentication pool
+	authAccept *pool.ThreadPool // Remotely initiated authentication pool
+
+	exchSet map[*peer]*state   // State exchanges pending merging
+	dropSet map[*peer]struct{} // Peers pending dropping
+
+	eventLock   sync.Mutex     // Lock protecting overlay events
+	eventPend   sync.WaitGroup // Syncer to wait till event reports finish
+	eventNotify chan struct{}  // Notifier for event changes
+
+	stable sync.WaitGroup // Syncer for reaching convergence
+	lock   sync.RWMutex   // Syncer for state mods after booting
 }
 
 // Creates a new overlay structure with all internal state initialized, ready to
-// be booted. Self is used as the id used for discovering similar peers, and key
-// for the security.
-func New(self string, key *rsa.PrivateKey, app Callback) *Overlay {
-	o := new(Overlay)
-	o.app = app
-
-	o.lkey = key
-	o.rkeys = make(map[string]*rsa.PublicKey)
-	o.rkeys[self] = &key.PublicKey
-
-	id := make([]byte, config.OverlaySpace/8)
-	if n, err := io.ReadFull(rand.Reader, id); n < len(id) || err != nil {
+// be booted.
+func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
+	// Generate the random node id for this overlay peer
+	peerId := make([]byte, config.OverlaySpace/8)
+	if n, err := io.ReadFull(rand.Reader, peerId); n < len(peerId) || err != nil {
 		panic(fmt.Sprintf("failed to generate node id: %v", err))
 	}
-	o.nodeId = new(big.Int).SetBytes(id)
-	o.overId = self
-	o.addrs = []string{}
+	nodeId := new(big.Int).SetBytes(peerId)
 
-	o.pool = make(map[string]*peer)
-	o.trans = make(map[string]*big.Int)
+	// Assemble and return the overlay instance
+	return &Overlay{
+		app: app,
 
-	o.routes = newTable(o.nodeId)
-	o.time = 1
+		authId:  id,
+		authKey: key,
 
-	o.upSink = make(chan *state)
-	o.dropSink = make(chan *peer)
-	o.quit = make(chan struct{})
+		nodeId: nodeId,
+		addrs:  []string{},
 
-	o.auther = pool.NewThreadPool(config.OverlayAuthThreads)
+		livePeers: make(map[string]*peer),
+		trans:     make(map[string]*big.Int),
 
-	return o
+		routes: newTable(nodeId),
+		time:   1,
+
+		quit: make(chan struct{}),
+
+		acceptQuit: []chan chan error{},
+		maintQuit:  make(chan chan error),
+
+		authInit:   pool.NewThreadPool(config.OverlayAuthThreads),
+		authAccept: pool.NewThreadPool(config.OverlayAuthThreads),
+
+		exchSet:     make(map[*peer]*state),
+		dropSet:     make(map[*peer]struct{}),
+		eventNotify: make(chan struct{}, 1), // Buffer one notification
+	}
 }
 
 // Boots the overlay network: it starts up boostrappers and connection acceptors
@@ -129,7 +143,10 @@ func (o *Overlay) Boot() (int, error) {
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok {
 			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				go o.acceptor(ipnet)
+				// Create a quit channel and start the acceptor
+				quit := make(chan chan error)
+				o.acceptQuit = append(o.acceptQuit, quit)
+				go o.acceptor(ipnet, quit)
 			}
 		}
 	}
@@ -137,7 +154,9 @@ func (o *Overlay) Boot() (int, error) {
 	o.stable.Add(1)
 	go o.manager()
 	go o.beater()
-	o.auther.Start()
+
+	o.authInit.Start()
+	o.authAccept.Start()
 
 	// Wait for convergence and report remote connections
 	o.stable.Wait()
@@ -146,7 +165,7 @@ func (o *Overlay) Boot() (int, error) {
 	defer o.lock.RUnlock()
 
 	peers := 0
-	for _, p := range o.pool {
+	for _, p := range o.livePeers {
 		if o.active(p.nodeId) {
 			peers++
 		}
@@ -155,9 +174,44 @@ func (o *Overlay) Boot() (int, error) {
 }
 
 // Sends a termination signal to all the go routines part of the overlay.
-func (o *Overlay) Shutdown() {
+func (o *Overlay) Shutdown() error {
+	errs := []error{}
+	errc := make(chan error)
+
+	// Close the peer listeners to prevent new connections
+	for _, quit := range o.acceptQuit {
+		quit <- errc
+	}
+	for i := 0; i < len(o.acceptQuit); i++ {
+		if err := <-errc; err != nil {
+			errs = append(errs, err)
+		}
+	}
+	// Wait for all pending handshakes to finish
+	o.authAccept.Terminate()
+	o.authInit.Terminate()
+
+	// Broadcast a termination to all active peers
+	// TODO
+	// Wait for remote peers to acknowledge overlay shutdown
+	// TODO
+
+	// Terminate the maintainer and all peer connections with it
+	o.maintQuit <- errc
+	if err := <-errc; err != nil {
+		errs = append(errs, err)
+	}
 	close(o.quit)
-	o.auther.Terminate()
+
+	// Report the errors and return
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return fmt.Errorf("%v", errs)
+	}
 }
 
 // Returns the overlay node's identifier.

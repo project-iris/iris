@@ -30,16 +30,17 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/ext/mathext"
-	"github.com/karalabe/iris/ext/sortext"
-	"github.com/karalabe/iris/pool"
 	"log"
 	"math/big"
 	"net"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/ext/mathext"
+	"github.com/karalabe/iris/ext/sortext"
+	"github.com/karalabe/iris/pool"
 )
 
 // Listens for incoming state merge requests, assembles new routing tables based
@@ -57,9 +58,10 @@ func (o *Overlay) manager() {
 
 	// Mark the overlay as unstable
 	stable := false
-	stableTime := time.Duration(config.OverlayBootTimeout)
+	stableTime := config.OverlayBootTimeout
 
-	for {
+	var errc chan error
+	for errc == nil {
 		// Copy the existing routing table if required
 		if routes == nil {
 			o.lock.RLock()
@@ -67,80 +69,73 @@ func (o *Overlay) manager() {
 			o.lock.RUnlock()
 		}
 		addrs := make(map[string][]string)
+		exchs := make(map[*peer]*state)
 		drops := make(map[*peer]struct{})
 
-		// Block till an update or drop arrives
-		for idle := true; idle; {
-			idle = false
-			select {
-			case <-o.quit:
-				return
-			case s := <-o.upSink:
-				o.merge(routes, addrs, s)
-			case d := <-o.dropSink:
-				drops[d] = struct{}{}
-			case <-time.After(stableTime * time.Millisecond):
-				// No update arrived for a while, consider stable
-				idle = true
-				if !stable {
-					stable = true
-					o.stable.Done()
-				}
+		// Block till an event arrives
+		select {
+		case errc = <-o.maintQuit:
+			// Termination requested
+			continue
+		case <-o.eventNotify:
+			// Wait until all pending events are gathered
+			o.eventPend.Wait()
+
+			// Swap out the collectors
+			o.eventLock.Lock()
+			o.exchSet, exchs = exchs, o.exchSet
+			o.dropSet, drops = drops, o.dropSet
+			o.eventLock.Unlock()
+
+			// If stale notification, loop
+			if len(exchs) == 0 && len(drops) == 0 {
+				continue
+			}
+		case <-time.After(stableTime):
+			// No update arrived for a while, consider stable
+			if !stable {
+				stable = true
+				o.stable.Done()
 			}
 		}
-		// Mark overlay as unstable again and set a reduced convergence timeout
+		// Mark overlay as unstable and set a reduced convergence time
 		if stable {
 			stable = false
 			o.stable.Add(1)
 		}
-		stableTime = time.Duration(config.OverlayConvTimeout)
+		stableTime = config.OverlayConvTimeout
 
-		// Cascade merges, drops and new connections until nobody else wants in or out
-		for cascade := true; cascade; {
-			cascade = false
-			for idle := false; !idle; {
-				select {
-				case <-o.quit:
-					return
-				case s := <-o.upSink:
-					o.merge(routes, addrs, s)
-					cascade = true
-				case d := <-o.dropSink:
-					drops[d] = struct{}{}
-					cascade = true
-				default:
-					idle = true
-				}
-			}
-			// Drop all uneeded nodes
-			o.drop(drops)
+		// Merge all state exchanges into the temporary routing table and drop unneeded nodes
+		for _, s := range exchs {
+			o.merge(routes, addrs, s)
+		}
+		o.dropAll(drops)
 
-			// Check the new table for discovered peers and dial each
-			if peers := o.discover(routes); len(peers) != 0 {
-				for _, id := range peers {
-					// Collect all the network interfaces
-					peerAddrs := make([]*net.TCPAddr, 0, len(addrs[id.String()]))
-					for _, a := range addrs[id.String()] {
-						if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-							log.Printf("failed to resolve address %v: %v.", a, err)
-						} else {
-							peerAddrs = append(peerAddrs, addr)
-						}
+		// Check the new table for discovered peers and dial each
+		if peers := o.discover(routes); len(peers) != 0 {
+			for _, id := range peers {
+				// Collect all the network interfaces
+				peerAddrs := make([]*net.TCPAddr, 0, len(addrs[id.String()]))
+				for _, address := range addrs[id.String()] {
+					if addr, err := net.ResolveTCPAddr("tcp", address); err != nil {
+						log.Printf("overlay: failed to resolve address %v: %v.", address, err)
+					} else {
+						peerAddrs = append(peerAddrs, addr)
 					}
-					// Initiate a connection to the remote peer
-					pending.Add(1)
-					o.auther.Schedule(func() {
-						defer pending.Done()
-						o.dial(peerAddrs)
-					})
 				}
-				// Wait till all outbound connections either complete or timeout
-				pending.Wait()
+				// Initiate a connection to the remote peer
+				pending.Add(1)
+				o.authInit.Schedule(func() {
+					defer pending.Done()
+					o.dial(peerAddrs)
+				})
+			}
+			// Wait till all outbound connections either complete or timeout
+			pending.Wait()
 
-				// Do another round of discovery to find broken links and revert/remove those entries
-				if downs := o.discover(routes); len(downs) != 0 {
-					o.revoke(routes, downs)
-				}
+			// Do another round of discovery to find broken links and revert/remove those entries
+			if downs := o.discover(routes); len(downs) != 0 {
+				o.revoke(routes, downs)
 			}
 		}
 		// Swap and broadcast if anything changed
@@ -154,32 +149,85 @@ func (o *Overlay) manager() {
 			// Revert to read lock (don't hold up reads) and broadcast state
 			o.lock.RLock()
 			exchPool.Clear()
-			for _, peer := range o.pool {
-				p := peer // Copy for closure!
+			for _, p := range o.livePeers {
+				p := p // Copy for closure!
 				exchPool.Schedule(func() { o.sendState(p, rep) })
 			}
 			o.lock.RUnlock()
 		}
 	}
+	// Manager is terminating, drop all peer connections (not synced, no mods allowed)
+	terms := new(sync.WaitGroup)
+	for _, p := range o.livePeers {
+		terms.Add(1)
+		go func(p *peer) {
+			defer terms.Done()
+			if err := p.Close(); err != nil {
+				log.Printf("overlay: failed to close peer during termination: %v.", err)
+			}
+		}(p)
+	}
+	terms.Wait()
+
+	errc <- nil
+}
+
+// Inserts a state exchange into the exchange queue
+func (o *Overlay) exch(p *peer, s *state) {
+	// Insert the state exchange
+	o.eventPend.Add(1)
+	o.eventLock.Lock()
+	o.exchSet[p] = s
+	o.eventLock.Unlock()
+	o.eventPend.Done()
+
+	// Wake the manager if blocking
+	select {
+	case o.eventNotify <- struct{}{}:
+		// Notification sent
+	default:
+		// Notification already pending
+	}
+}
+
+// Inserts a peer into the drop queue.
+func (o *Overlay) drop(p *peer) {
+	// Insert the drop request
+	o.eventPend.Add(1)
+	o.eventLock.Lock()
+	o.dropSet[p] = struct{}{}
+	o.eventLock.Unlock()
+	o.eventPend.Done()
+
+	// Wake the manager if blocking
+	select {
+	case o.eventNotify <- struct{}{}:
+		// Notification sent
+	default:
+		// Notification already pending
+	}
 }
 
 // Drops an active peer connection due to either a failure or uselessness.
-func (o *Overlay) drop(peers map[*peer]struct{}) {
+func (o *Overlay) dropAll(peers map[*peer]struct{}) {
 	// Make sure there's actually something to remove
 	if len(peers) == 0 {
 		return
 	}
-	// Close the peer connections
+	// Close the peer connections (new thread, since close might block a while)
+	// TODO: double close is possible here, if after closing another drop is requested
 	for d, _ := range peers {
-		if err := d.Close(); err != nil {
-			log.Printf("overlay: failed to close peer connection: %v.", err)
-		}
+		go func(p *peer) {
+			if err := p.Close(); err != nil {
+				log.Printf("overlay: failed to close peer connection: %v.", err)
+			}
+		}(d)
 	}
 	// Fast track expensive write lock is possible
 	change := false
 	o.lock.RLock()
 	for d, _ := range peers {
-		if p, ok := o.pool[d.nodeId.String()]; ok && p == d {
+		if p, ok := o.livePeers[d.nodeId.String()]; ok && p == d {
 			change = true
 			break
 		}
@@ -193,8 +241,8 @@ func (o *Overlay) drop(peers map[*peer]struct{}) {
 
 		for d, _ := range peers {
 			id := d.nodeId.String()
-			if p, ok := o.pool[id]; ok && p == d {
-				delete(o.pool, id)
+			if p, ok := o.livePeers[id]; ok && p == d {
+				delete(o.livePeers, id)
 				for _, addr := range d.addrs {
 					delete(o.trans, addr)
 				}
@@ -203,9 +251,9 @@ func (o *Overlay) drop(peers map[*peer]struct{}) {
 	}
 }
 
-// Merges the recieved state into the provided routing table according to the
-// pastry specs (neighborhood unimplemented for the moment). Also each peer's
-// network address is saved for later use.
+// Merges the received state into the provided routing table according to the
+// reduced pastry specs (no neighborhood sets). Also each peer's network address
+// is saved for later use.
 func (o *Overlay) merge(t *table, a map[string][]string, s *state) {
 	// Extract the ids from the state exchange
 	ids := make([]*big.Int, 0, len(s.Addrs))
@@ -262,7 +310,7 @@ func (o *Overlay) discover(t *table) []*big.Int {
 	ids := []*big.Int{}
 	for _, id := range t.leaves {
 		if id.Cmp(o.nodeId) != 0 {
-			if _, ok := o.pool[id.String()]; !ok {
+			if _, ok := o.livePeers[id.String()]; !ok {
 				ids = append(ids, id)
 			}
 		}
@@ -270,7 +318,7 @@ func (o *Overlay) discover(t *table) []*big.Int {
 	for _, row := range t.routes {
 		for _, id := range row {
 			if id != nil {
-				if _, ok := o.pool[id.String()]; !ok {
+				if _, ok := o.livePeers[id.String()]; !ok {
 					ids = append(ids, id)
 				}
 			}
@@ -298,8 +346,8 @@ func (o *Overlay) revoke(t *table, downs []*big.Int) {
 	if !intact {
 		// Repair the leafset as best as possible from the pool of active connections
 		o.lock.RLock()
-		all := make([]*big.Int, 0, len(o.pool))
-		for _, p := range o.pool {
+		all := make([]*big.Int, 0, len(o.livePeers))
+		for _, p := range o.livePeers {
 			all = append(all, p.nodeId)
 		}
 		o.lock.RUnlock()
@@ -314,7 +362,7 @@ func (o *Overlay) revoke(t *table, downs []*big.Int) {
 					// Try and fix routing entry from connection pool
 					t.routes[r][i] = nil
 					o.lock.RLock()
-					for _, p := range o.pool {
+					for _, p := range o.livePeers {
 						if pre, dig := prefix(o.nodeId, p.nodeId); pre == r && dig == i {
 							t.routes[r][i] = p.nodeId
 							break
@@ -359,7 +407,7 @@ func (o *Overlay) changed(t *table) (ch bool, rep bool) {
 	return
 }
 
-// Periodically sends a heatbeat to all existing connections, tagging them
+// Periodically sends a heartbeat to all existing connections, tagging them
 // whether they are active (i.e. in the routing) table or not.
 func (o *Overlay) beater() {
 	tick := time.Tick(time.Duration(config.OverlayBeatPeriod) * time.Millisecond)
@@ -369,7 +417,7 @@ func (o *Overlay) beater() {
 			return
 		case <-tick:
 			o.lock.RLock()
-			for _, p := range o.pool {
+			for _, p := range o.livePeers {
 				go o.sendBeat(p, !o.active(p.nodeId))
 			}
 			o.lock.RUnlock()

@@ -27,8 +27,9 @@ package overlay
 
 import (
 	"encoding/gob"
-	"github.com/karalabe/iris/proto"
 	"math/big"
+
+	"github.com/karalabe/iris/proto"
 )
 
 // Overlay connection operation code type.
@@ -64,7 +65,7 @@ func init() {
 // Simple wrapper around the peer send method, to handle errors by dropping.
 func (o *Overlay) send(msg *proto.Message, p *peer) {
 	if err := p.send(msg); err != nil {
-		go func() { o.dropSink <- p }()
+		o.drop(p)
 	}
 }
 
@@ -113,7 +114,7 @@ func (o *Overlay) sendState(p *peer, repair bool) {
 	for _, id := range o.routes.leaves {
 		if id.Cmp(o.nodeId) != 0 {
 			sid := id.String()
-			if node, ok := o.pool[sid]; ok {
+			if node, ok := o.livePeers[sid]; ok {
 				s.Addrs[sid] = node.addrs
 			}
 		}
@@ -122,7 +123,7 @@ func (o *Overlay) sendState(p *peer, repair bool) {
 	for _, id := range o.routes.routes[idx] {
 		if id != nil {
 			sid := id.String()
-			if node, ok := o.pool[sid]; ok {
+			if node, ok := o.livePeers[sid]; ok {
 				s.Addrs[sid] = node.addrs
 			}
 		}

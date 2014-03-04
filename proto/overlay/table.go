@@ -22,8 +22,9 @@
 package overlay
 
 import (
-	"github.com/karalabe/iris/config"
 	"math/big"
+
+	"github.com/karalabe/iris/config"
 )
 
 // Simplified Pastry routing table.

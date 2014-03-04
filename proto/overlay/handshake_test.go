@@ -21,8 +21,13 @@ package overlay
 
 import (
 	"crypto/x509"
+	"io/ioutil"
+	"log"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/karalabe/iris/config"
 )
 
 // Another private key to check security negotiation
@@ -73,74 +78,93 @@ var privKeyDerBad = []byte{
 var appIdBad = "overlay.test.bad"
 
 func TestHandshake(t *testing.T) {
-	// Make sure cleanups terminate before returning
-	defer time.Sleep(3 * time.Second)
+	// Override the boot and convergence times
+	boot, conv := 250*time.Millisecond, 50*time.Millisecond
 
+	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+
+	defer func() {
+		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+	}()
+
+	// Load the valid and invalid private keys
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 	bad, _ := x509.ParsePKCS1PrivateKey(privKeyDerBad)
 
 	// Start first overlay node
 	alice := New(appId, key, new(nopCallback))
 	if _, err := alice.Boot(); err != nil {
-		t.Errorf("failed to boot alice: %v.", err)
+		t.Fatalf("failed to boot alice: %v.", err)
 	}
-	defer alice.Shutdown()
-
+	defer func() {
+		if err := alice.Shutdown(); err != nil {
+			t.Fatalf("failed to shutdown alice: %v.", err)
+		}
+	}()
 	// Start second overlay node
 	bob := New(appId, key, new(nopCallback))
 	if _, err := bob.Boot(); err != nil {
-		t.Errorf("failed to boot bob: %v.", err)
+		t.Fatalf("failed to boot bob: %v.", err)
 	}
-	defer bob.Shutdown()
-
+	defer func() {
+		if err := bob.Shutdown(); err != nil {
+			t.Fatalf("failed to shutdown bob: %v.", err)
+		}
+	}()
 	// Verify that they found each other
-	if size := len(alice.pool); size != 1 {
-		t.Errorf("invalid pool size for alice: have %v, want %v.", size, 1)
-	} else if _, ok := alice.pool[bob.nodeId.String()]; !ok {
-		t.Errorf("bob (%v) missing from the pool of alice: %v.", bob.nodeId, alice.pool)
+	if size := len(alice.livePeers); size != 1 {
+		t.Fatalf("invalid pool size for alice: have %v, want %v.", size, 1)
+	} else if _, ok := alice.livePeers[bob.nodeId.String()]; !ok {
+		t.Fatalf("bob (%v) missing from the pool of alice: %v.", bob.nodeId, alice.livePeers)
 	}
-	if size := len(bob.pool); size != 1 {
-		t.Errorf("invalid pool size for bob: have %v, want %v.", size, 1)
-	} else if _, ok := bob.pool[alice.nodeId.String()]; !ok {
-		t.Errorf("alice (%v) missing from the pool of bob: %v.", alice.nodeId, bob.pool)
+	if size := len(bob.livePeers); size != 1 {
+		t.Fatalf("invalid pool size for bob: have %v, want %v.", size, 1)
+	} else if _, ok := bob.livePeers[alice.nodeId.String()]; !ok {
+		t.Fatalf("alice (%v) missing from the pool of bob: %v.", alice.nodeId, bob.livePeers)
 	}
 
 	// Start a second application
 	eve := New(appIdBad, key, new(nopCallback))
 	if _, err := eve.Boot(); err != nil {
-		t.Errorf("failed to boot eve: %v.", err)
+		t.Fatalf("failed to boot eve: %v.", err)
 	}
-
 	// Ensure that eve hasn't been added (app filtering)
-	if len(eve.pool) != 0 {
-		t.Errorf("invalid pool contents for eve: %v.", eve.pool)
+	if len(eve.livePeers) != 0 {
+		t.Fatalf("invalid pool contents for eve: %v.", eve.livePeers)
 	}
-	if _, ok := alice.pool[eve.nodeId.String()]; ok {
-		t.Errorf("eve (%v) found in the pool of alice: %v.", eve.nodeId, alice.pool)
+	if _, ok := alice.livePeers[eve.nodeId.String()]; ok {
+		t.Fatalf("eve (%v) found in the pool of alice: %v.", eve.nodeId, alice.livePeers)
 	}
-	if _, ok := bob.pool[eve.nodeId.String()]; ok {
-		t.Errorf("eve (%v) found in the pool of bob: %v.", eve.nodeId, bob.pool)
+	if _, ok := bob.livePeers[eve.nodeId.String()]; ok {
+		t.Fatalf("eve (%v) found in the pool of bob: %v.", eve.nodeId, bob.livePeers)
 	}
-
-	// Terminate eve and wait a while to finish
-	eve.Shutdown()
-	time.Sleep(time.Second)
+	if err := eve.Shutdown(); err != nil {
+		t.Fatalf("failed to shutdown eve: %v.", err)
+	}
 
 	// Start a malicious node impersonating the app but invalid key
+	log.SetOutput(ioutil.Discard)
+	defer log.SetOutput(os.Stderr)
+
 	mallory := New(appId, bad, new(nopCallback))
 	if _, err := mallory.Boot(); err != nil {
-		t.Errorf("failed to boot mallory: %v.", err)
+		t.Fatalf("failed to boot mallory: %v.", err)
 	}
-	defer mallory.Shutdown()
-
+	defer func() {
+		if err := mallory.Shutdown(); err != nil {
+			t.Fatalf("failed to shutdown mallory: %v.", err)
+		}
+	}()
 	// Ensure that mallory hasn't been added (invalid security key)
-	if len(mallory.pool) != 0 {
-		t.Errorf("invalid pool contents for mallory: %v.", mallory.pool)
+	if len(mallory.livePeers) != 0 {
+		t.Fatalf("invalid pool contents for mallory: %v.", mallory.livePeers)
 	}
-	if _, ok := alice.pool[mallory.nodeId.String()]; ok {
-		t.Errorf("mallory (%v) found in the pool of alice: %v.", mallory.nodeId, alice.pool)
+	if _, ok := alice.livePeers[mallory.nodeId.String()]; ok {
+		t.Fatalf("mallory (%v) found in the pool of alice: %v.", mallory.nodeId, alice.livePeers)
 	}
-	if _, ok := bob.pool[mallory.nodeId.String()]; ok {
-		t.Errorf("mallory (%v) found in the pool of bob: %v.", mallory.nodeId, bob.pool)
+	if _, ok := bob.livePeers[mallory.nodeId.String()]; ok {
+		t.Fatalf("mallory (%v) found in the pool of bob: %v.", mallory.nodeId, bob.livePeers)
 	}
 }

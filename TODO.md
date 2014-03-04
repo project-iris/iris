@@ -14,9 +14,6 @@ Stuff that need implementing, fixing or testing.
         - Remove goroutine / pending request (either limit max requests or completely refactor proto/iris)
     - Carrier
         - Exchange topic load report only for app groups, not topics
-    - Overlay
-        - Limit number of parallel incoming STS handshakes (CPU exhaustion)
-        - Send peer close messages (dropSink) without spawning new goroutines
     - Session
         - Memory pool to reduce GC overhead (maybe will need larger refactor)
 - Bugs

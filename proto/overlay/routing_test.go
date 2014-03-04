@@ -23,12 +23,13 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/x509"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
 	"io"
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
 )
 
 type collector struct {
@@ -44,8 +45,16 @@ func (c *collector) Forward(msg *proto.Message, key *big.Int) bool {
 }
 
 func TestRouting(t *testing.T) {
-	// Make sure cleanups terminate before returning
-	defer time.Sleep(3 * time.Second)
+	// Override the boot and convergence times
+	boot, conv := 250*time.Millisecond, 50*time.Millisecond
+
+	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+
+	defer func() {
+		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+	}()
 
 	// Make sure there are enough ports to use
 	peers := 4
@@ -89,7 +98,7 @@ func TestRouting(t *testing.T) {
 	for i, src := range nodes {
 		for j, dst := range nodes {
 			src.Send(dst.nodeId, &msgs[i][j])
-			time.Sleep(250 * time.Millisecond) // Makes the deliver order verifyable
+			time.Sleep(250 * time.Millisecond) // Makes the deliver order verifiable
 		}
 	}
 	// Sleep a bit and verify

@@ -21,12 +21,13 @@ package overlay
 
 import (
 	"crypto/x509"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/ext/mathext"
 	"math/big"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/ext/mathext"
 )
 
 func checkRoutes(t *testing.T, nodes []*Overlay) {
@@ -35,7 +36,7 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 	for i, o := range nodes {
 		ids[i] = o.nodeId
 	}
-	// Assemble the leafset of each node and veirfy
+	// Assemble the leafset of each node and verify
 	for _, o := range nodes {
 		sort.Sort(idSlice{o.nodeId, ids})
 		origin := 0
@@ -47,11 +48,11 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 		leaves := ids[min:max]
 
 		if len(leaves) != len(o.routes.leaves) {
-			t.Errorf("overlay %v: leafset mismatch: have %v, want %v.", o.nodeId, o.routes.leaves, leaves)
+			t.Fatalf("overlay %v: leafset mismatch: have %v, want %v.", o.nodeId, o.routes.leaves, leaves)
 		} else {
 			for i, leaf := range leaves {
 				if leaf.Cmp(o.routes.leaves[i]) != 0 {
-					t.Errorf("overlay %v: leafset mismatch: have %v, want %v.", o.nodeId, o.routes.leaves, leaves)
+					t.Fatalf("overlay %v: leafset mismatch: have %v, want %v.", o.nodeId, o.routes.leaves, leaves)
 					break
 				}
 			}
@@ -66,14 +67,14 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 					for _, id := range ids {
 						if id.Cmp(o.nodeId) != 0 {
 							if pre, dig := prefix(o.nodeId, id); pre == r && dig == c {
-								t.Errorf("overlay %v: entry {%v, %v} missing: %v.", o.nodeId, r, c, id)
+								t.Fatalf("overlay %v: entry {%v, %v} missing: %v.", o.nodeId, r, c, id)
 							}
 						}
 					}
 				} else {
 					// Check that the id is valid and indeed not some leftover
 					if pre, dig := prefix(o.nodeId, p); pre != r || dig != c {
-						t.Errorf("overlay %v: entry {%v, %v} invalid: %v.", o.nodeId, r, c, p)
+						t.Fatalf("overlay %v: entry {%v, %v} invalid: %v.", o.nodeId, r, c, p)
 					}
 					alive := false
 					for _, id := range ids {
@@ -83,18 +84,25 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 						}
 					}
 					if !alive {
-						t.Errorf("overlay %v: entry {%v, %v} already dead: %v.", o.nodeId, r, c, p)
+						t.Fatalf("overlay %v: entry {%v, %v} already dead: %v.", o.nodeId, r, c, p)
 					}
 				}
 			}
 		}
 	}
-	// TODO: neighborhood check eventually
 }
 
 func TestMaintenance(t *testing.T) {
-	// Make sure cleanups terminate before returning
-	defer time.Sleep(3 * time.Second)
+	// Override the boot and convergence times
+	boot, conv := 250*time.Millisecond, 50*time.Millisecond
+
+	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+
+	defer func() {
+		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
+		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
+	}()
 
 	originals := 3
 	additions := 2
@@ -102,6 +110,7 @@ func TestMaintenance(t *testing.T) {
 	// Make sure there are enough ports to use
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
+
 	for i := 0; i < originals+additions; i++ {
 		config.BootPorts = append(config.BootPorts, 65520+i)
 	}
@@ -113,7 +122,7 @@ func TestMaintenance(t *testing.T) {
 	for i := 0; i < originals; i++ {
 		nodes = append(nodes, New(appId, key, new(nopCallback)))
 		if _, err := nodes[i].Boot(); err != nil {
-			t.Errorf("failed to boot nodes: %v.", err)
+			t.Fatalf("failed to boot nodes: %v.", err)
 		}
 		defer nodes[i].Shutdown()
 	}
@@ -124,7 +133,7 @@ func TestMaintenance(t *testing.T) {
 	for i := 0; i < additions; i++ {
 		nodes = append(nodes, New(appId, key, new(nopCallback)))
 		if _, err := nodes[len(nodes)-1].Boot(); err != nil {
-			t.Errorf("failed to boot nodes: %v.", err)
+			t.Fatalf("failed to boot nodes: %v.", err)
 		}
 	}
 	// Check the routing tables
@@ -137,7 +146,7 @@ func TestMaintenance(t *testing.T) {
 	nodes = nodes[:originals]
 
 	// Wait a while for state updates to propagate
-	time.Sleep(10 * time.Second)
+	time.Sleep(time.Second)
 
 	// Check the routing tables
 	checkRoutes(t, nodes)
@@ -165,7 +174,7 @@ func TestMaintenanceDOS(t *testing.T) {
 		for i := 0; i < peers; i++ {
 			nodes = append(nodes, New(appId, key, nil))
 			if err := nodes[i].Boot(); err != nil {
-				t.Errorf("failed to boot nodes: %v.", err)
+				t.Fatalf("failed to boot nodes: %v.", err)
 			}
 		}
 		// Wait a while for the handshakes to complete

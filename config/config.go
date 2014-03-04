@@ -189,11 +189,11 @@ var OverlayLeaves = 8
 // Hash for mapping external ids into the overlay id space.
 var OverlayResolver = md5.New
 
-// Time after booting to consider the overlay a single node in the network (ms).
-var OverlayBootTimeout = 10000
+// Time after booting to consider the overlay a single node in the network.
+var OverlayBootTimeout = 10 * time.Second
 
-// Idle time after which to consider the overlay converged (ms).
-var OverlayConvTimeout = 3000
+// Idle time after which to consider the overlay converged.
+var OverlayConvTimeout = 3 * time.Second
 
 // Heartbeat period to ensure connections are alive and tear down unused ones (ms).
 var OverlayBeatPeriod = 10000
@@ -201,16 +201,16 @@ var OverlayBeatPeriod = 10000
 // Maximum time to queue an authenticated session connection before dropping it.
 var OverlayAcceptTimout = time.Second
 
-// Time to wait after session setup for the init packet (ms).
-var OverlayInitTimeout = 5000
+// Time to wait after session setup for the init packet.
+var OverlayInitTimeout = 5 * time.Second
 
-// Time limit for sending a message before the connection is dropped (ms).
-var OverlaySendTimeout = 3000
+// Time limit for sending a message before the connection is dropped.
+var OverlaySendTimeout = 3 * time.Second
 
 // Messages to buffer to and from the network.
 var OverlayNetBuffer = 64
 
-// Maximum number of authentications allowed concurrently.
+// Maximum number of authentications allowed concurrently (per half duplex).
 var OverlayAuthThreads = 8
 
 // Maximum number of state exchanges allowed concurrently.
