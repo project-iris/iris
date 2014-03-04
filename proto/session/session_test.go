@@ -82,15 +82,15 @@ func TestForward(t *testing.T) {
 		select {
 		case msg := <-server.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-time.After(25 * time.Millisecond):
-			t.Errorf("receive timed out")
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("receive timed out")
 			break
 		}
 	}
 	for i := 0; i < len(msgs); i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
-			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
+			t.Fatalf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
 	// Send from server to client
@@ -104,15 +104,15 @@ func TestForward(t *testing.T) {
 		select {
 		case msg := <-client.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-time.After(25 * time.Millisecond):
-			t.Errorf("receive timed out")
+		case <-time.After(50 * time.Millisecond):
+			t.Fatalf("receive timed out")
 			break
 		}
 	}
 	for i := 0; i < len(msgs); i++ {
 		if bytes.Compare(msgs[i].Data, recvs[i].Data) != 0 || bytes.Compare(msgs[i].Head.Key, recvs[i].Head.Key) != 0 ||
 			bytes.Compare(msgs[i].Head.Iv, recvs[i].Head.Iv) != 0 || bytes.Compare(msgs[i].Head.Meta.([]byte), []byte("meta")) != 0 {
-			t.Errorf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
+			t.Fatalf("send/receive mismatch: have %v, want %v.", recvs[i], msgs[i])
 		}
 	}
 	// Close the client and server sessions (concurrently, as they depend on each other)
