@@ -20,7 +20,9 @@ package overlay
 
 import (
 	"math/big"
+	"time"
 
+	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
 )
 
@@ -70,6 +72,15 @@ var privKeyDer = []byte{
 
 // Id for connection filtering
 var appId = "overlay.test"
+
+// Setter and reverter of convergence times
+var bootAllowance = 500 * time.Millisecond
+var convAllowance = 250 * time.Millisecond
+
+func swapConvLimits() {
+	config.OverlayBootTimeout, bootAllowance = bootAllowance, config.OverlayBootTimeout
+	config.OverlayConvTimeout, convAllowance = convAllowance, config.OverlayConvTimeout
+}
 
 // No-op overlay callback
 type nopCallback struct {

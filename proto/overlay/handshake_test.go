@@ -25,9 +25,6 @@ import (
 	"log"
 	"os"
 	"testing"
-	"time"
-
-	"github.com/karalabe/iris/config"
 )
 
 // Another private key to check security negotiation
@@ -79,15 +76,8 @@ var appIdBad = "overlay.test.bad"
 
 func TestHandshake(t *testing.T) {
 	// Override the boot and convergence times
-	boot, conv := 250*time.Millisecond, 50*time.Millisecond
-
-	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
-	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
-
-	defer func() {
-		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
-		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
-	}()
+	swapConvLimits()
+	defer swapConvLimits()
 
 	// Load the valid and invalid private keys
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)

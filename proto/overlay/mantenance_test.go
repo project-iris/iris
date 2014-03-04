@@ -94,15 +94,8 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 
 func TestMaintenance(t *testing.T) {
 	// Override the boot and convergence times
-	boot, conv := 250*time.Millisecond, 50*time.Millisecond
-
-	config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
-	config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
-
-	defer func() {
-		config.OverlayBootTimeout, boot = boot, config.OverlayBootTimeout
-		config.OverlayConvTimeout, conv = conv, config.OverlayConvTimeout
-	}()
+	swapConvLimits()
+	defer swapConvLimits()
 
 	originals := 3
 	additions := 2
