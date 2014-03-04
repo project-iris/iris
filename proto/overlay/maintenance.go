@@ -214,7 +214,6 @@ func (o *Overlay) dropAll(peers map[*peer]struct{}, pending *sync.WaitGroup) {
 		return
 	}
 	// Close the peer connections (new thread, since close might block a while)
-	// TODO: double close is possible here, if after closing another drop is requested
 	for d, _ := range peers {
 		pending.Add(1)
 		go func(p *peer) {

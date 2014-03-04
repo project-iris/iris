@@ -94,6 +94,11 @@ func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
 				o.authInit.Schedule(func() { o.dial([]*net.TCPAddr{node.Addr}) })
 			}
 		case ses := <-sock.Sink:
+			// There's a hidden panic possibility here: the listener socket can fail
+			// if the system is overloaded with open connections. Alas, solving it is
+			// not trivial as it would require restarting the whole listener. Figure it
+			// out eventually.
+
 			// Agree upon overlay states
 			o.authAccept.Schedule(func() { o.shake(ses) })
 		}
