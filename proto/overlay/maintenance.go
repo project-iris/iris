@@ -109,7 +109,7 @@ func (o *Overlay) manager() {
 		for _, s := range exchs {
 			o.merge(routes, addrs, s)
 		}
-		o.dropAll(drops)
+		o.dropAll(drops, &pending)
 
 		// Check the new table for discovered peers and dial each
 		if peers := o.discover(routes); len(peers) != 0 {
@@ -157,17 +157,16 @@ func (o *Overlay) manager() {
 		}
 	}
 	// Manager is terminating, drop all peer connections (not synced, no mods allowed)
-	terms := new(sync.WaitGroup)
 	for _, p := range o.livePeers {
-		terms.Add(1)
+		pending.Add(1)
 		go func(p *peer) {
-			defer terms.Done()
+			defer pending.Done()
 			if err := p.Close(); err != nil {
 				log.Printf("overlay: failed to close peer during termination: %v.", err)
 			}
 		}(p)
 	}
-	terms.Wait()
+	pending.Wait()
 
 	errc <- nil
 }
@@ -209,7 +208,7 @@ func (o *Overlay) drop(p *peer) {
 }
 
 // Drops an active peer connection due to either a failure or uselessness.
-func (o *Overlay) dropAll(peers map[*peer]struct{}) {
+func (o *Overlay) dropAll(peers map[*peer]struct{}, pending *sync.WaitGroup) {
 	// Make sure there's actually something to remove
 	if len(peers) == 0 {
 		return
@@ -217,7 +216,9 @@ func (o *Overlay) dropAll(peers map[*peer]struct{}) {
 	// Close the peer connections (new thread, since close might block a while)
 	// TODO: double close is possible here, if after closing another drop is requested
 	for d, _ := range peers {
+		pending.Add(1)
 		go func(p *peer) {
+			defer pending.Done()
 			if err := p.Close(); err != nil {
 				log.Printf("overlay: failed to close peer connection: %v.", err)
 			}

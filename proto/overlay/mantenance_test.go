@@ -158,7 +158,7 @@ func TestMaintenanceDOS(t *testing.T) {
 
 	// Increment the overlays till the test fails
 	for peers := 4; !t.Failed(); peers++ {
-		log.Printf("running maintenance for %d peers.", peers)
+		log.Printf("Live go routines before starting %d peers: %d.", peers, runtime.NumGoroutine())
 
 		// Start the batch of nodes
 		nodes := []*Overlay{}
@@ -171,23 +171,23 @@ func TestMaintenanceDOS(t *testing.T) {
 			}(nodes[i])
 		}
 		// Wait a while for the handshakes to complete
-		//		time.Sleep(10 * time.Second)
 		done := time.After(10 * time.Second)
 		for loop := true; loop; {
 			select {
 			case <-done:
 				loop = false
-			case <-time.After(250 * time.Millisecond):
+			case <-time.After(500 * time.Millisecond):
 				log.Printf("Live go routines: %d.", runtime.NumGoroutine())
 			}
 		}
 		// Check the routing tables
 		checkRoutes(t, nodes)
 
-		// Terminate all nodes, irrelevent of their state
+		// Terminate all nodes, irrelevant of their state
 		for i := 0; i < peers; i++ {
 			nodes[i].Shutdown()
 		}
+		log.Printf("Live go routines after cleanup: %d.", runtime.NumGoroutine())
 	}
 }
 */

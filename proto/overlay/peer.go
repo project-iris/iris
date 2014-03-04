@@ -26,6 +26,7 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/karalabe/iris/config"
@@ -54,6 +55,8 @@ type peer struct {
 
 	// Maintenance fields
 	quit chan chan error // Synchronizes peer termination
+	term bool            // Specifies whether the peer terminated already or not
+	lock sync.Mutex      // Lock to protect the close mechanism
 }
 
 // Creates a new peer instance, ready to begin communicating.
@@ -80,6 +83,15 @@ func (p *peer) Start() {
 
 // Terminates a peer connection.
 func (p *peer) Close() error {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	// If the peer was already closed, return
+	if p.term {
+		return nil
+	}
+	p.term = true
+
 	// Gracefully close the peer session, flushing pending messages
 	res := p.conn.Close()
 
