@@ -60,22 +60,17 @@ type Overlay struct {
 	nodeId *big.Int // Pastry peer id
 	addrs  []string // Listener addresses
 
-	// The active connection pool, ip to id translations and routing table with modification timestamp
-	livePeers map[string]*peer
-	trans     map[string]*big.Int
+	livePeers map[string]*peer // Active connection pool
 
 	routes *table
 	time   uint64
 	stat   status
 
-	// Fan-in sinks for state update and connection drop events + quit channel
-	upSink2 chan *state
-	quit    chan struct{}
+	quit chan struct{}
 
 	acceptQuit []chan chan error // Quit sync channels for the acceptors
 	maintQuit  chan chan error   // Quit sync channel for the maintenance routine
 
-	// Miscellaneous fields
 	authInit   *pool.ThreadPool // Locally initiated authentication pool
 	authAccept *pool.ThreadPool // Remotely initiated authentication pool
 
@@ -111,10 +106,8 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 		addrs:  []string{},
 
 		livePeers: make(map[string]*peer),
-		trans:     make(map[string]*big.Int),
-
-		routes: newTable(nodeId),
-		time:   1,
+		routes:    newTable(nodeId),
+		time:      1,
 
 		quit: make(chan struct{}),
 

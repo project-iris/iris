@@ -148,7 +148,7 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 			peerAddrs := make([]*net.TCPAddr, 0, len(s.Addrs[dst.String()]))
 			for _, a := range s.Addrs[dst.String()] {
 				if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
-					log.Printf("failed to resolve address %v: %v.", a, err)
+					log.Printf("pastry: failed to resolve address %v: %v.", a, err)
 				} else {
 					peerAddrs = append(peerAddrs, addr)
 				}

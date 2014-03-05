@@ -106,10 +106,10 @@ func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
 	// Terminate the bootstrapper and peer listener
 	errv := boot.Terminate()
 	if errv != nil {
-		log.Printf("overlay: failed to terminate bootstrapper: %v.", errv)
+		log.Printf("pastry: failed to terminate bootstrapper: %v.", errv)
 	}
 	if err := sock.Close(); err != nil {
-		log.Printf("overlay: failed to terminate session listener: %v.", err)
+		log.Printf("pastry: failed to terminate session listener: %v.", err)
 		if errv == nil {
 			errv = err
 		}
@@ -161,7 +161,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 	for _, ownAddr := range o.addrs {
 		for _, peerAddr := range addrs {
 			if peerAddr.String() == ownAddr {
-				log.Printf("overlay: self connection not allowed: %v.", o.nodeId)
+				log.Printf("pastry: self connection not allowed: %v.", o.nodeId)
 				return
 			}
 		}
@@ -172,7 +172,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 			o.shake(ses)
 			return
 		} else {
-			log.Printf("overlay: failed to dial remote peer at %v: %v.", addr, err)
+			log.Printf("pastry: failed to dial remote peer at %v: %v.", addr, err)
 		}
 	}
 }
@@ -198,18 +198,18 @@ func (o *Overlay) shake(ses *session.Session) {
 	msg := new(proto.Message)
 	msg.Head.Meta = pkt
 	if err := p.send(msg); err != nil {
-		log.Printf("overlay: failed to send init packet: %v.", err)
+		log.Printf("pastry: failed to send init packet: %v.", err)
 		if err := ses.Close(); err != nil {
-			log.Printf("overlay: failed to close uninited session: %v.", err)
+			log.Printf("pastry: failed to close uninited session: %v.", err)
 		}
 		return
 	}
 	// Wait for an incoming init packet
 	select {
 	case <-time.After(config.OverlayInitTimeout):
-		log.Printf("overlay: session initialization timed out.")
+		log.Printf("pastry: session initialization timed out.")
 		if err := ses.Close(); err != nil {
-			log.Printf("overlay: failed to close unacked session: %v.", err)
+			log.Printf("pastry: failed to close unacked session: %v.", err)
 		}
 	case msg, ok := <-p.conn.CtrlLink.Recv:
 		if ok {
@@ -266,9 +266,6 @@ func (o *Overlay) dedup(p *peer) {
 	if !keep {
 		// Swap out the old peer connection
 		o.livePeers[p.nodeId.String()] = p
-		for _, addr := range p.addrs {
-			o.trans[addr] = p.nodeId
-		}
 		dump = old
 
 		// Decide whether to send a join request or a state exchange to the new
