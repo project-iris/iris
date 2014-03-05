@@ -219,6 +219,11 @@ func (o *Overlay) shake(ses *session.Session) {
 
 			// Everything ok, accept connection
 			o.dedup(p)
+		} else {
+			log.Printf("pastry: session closed before init arrived.")
+			if err := ses.Close(); err != nil {
+				log.Printf("pastry: failed to close dropped session: %v.", err)
+			}
 		}
 	}
 }

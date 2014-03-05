@@ -162,9 +162,12 @@ func TestMaintenanceDOS(t *testing.T) {
 
 		// Start the batch of nodes
 		nodes := []*Overlay{}
+		boots := new(sync.WaitGroup)
 		for i := 0; i < peers; i++ {
 			nodes = append(nodes, New(appId, key, nil))
+			boots.Add(1)
 			go func(o *Overlay) {
+				defer boots.Done()
 				if _, err := o.Boot(); err != nil {
 					t.Fatalf("failed to boot nodes: %v.", err)
 				}
@@ -183,13 +186,17 @@ func TestMaintenanceDOS(t *testing.T) {
 		// Check the routing tables
 		checkRoutes(t, nodes)
 
+		// Make sure boots finished
+		boots.Wait()
+
 		// Terminate all nodes, irrelevant of their state
+		log.Printf("Shutting down overlays...")
 		for i := 0; i < peers; i++ {
 			nodes[i].Shutdown()
 		}
 		log.Printf("Live go routines after cleanup: %d.", runtime.NumGoroutine())
 
-		if runtime.NumGoroutine() != 4 {
+		if runtime.NumGoroutine() > 5 {
 			panic("leaked")
 		}
 	}
