@@ -20,9 +20,11 @@
 package pastry
 
 import (
+	"crypto/x509"
 	"math/big"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/ext/mathext"
@@ -90,7 +92,6 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 	}
 }
 
-/*
 func TestMaintenance(t *testing.T) {
 	// Override the boot and convergence times
 	swapConvLimits()
@@ -144,6 +145,7 @@ func TestMaintenance(t *testing.T) {
 	checkRoutes(t, nodes)
 }
 
+/*
 func TestMaintenanceDOS(t *testing.T) {
 	// Make sure there are enough ports to use (use a huge number to simplify test code)
 	olds := config.BootPorts
@@ -155,7 +157,7 @@ func TestMaintenanceDOS(t *testing.T) {
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 
 	// Increment the overlays till the test fails
-	for peers := 16; !t.Failed(); peers++ {
+	for peers := 19; !t.Failed(); peers++ {
 		log.Printf("Live go routines before starting %d peers: %d.", peers, runtime.NumGoroutine())
 
 		// Start the batch of nodes
@@ -186,6 +188,10 @@ func TestMaintenanceDOS(t *testing.T) {
 			nodes[i].Shutdown()
 		}
 		log.Printf("Live go routines after cleanup: %d.", runtime.NumGoroutine())
+
+		if runtime.NumGoroutine() != 4 {
+			panic("leaked")
+		}
 	}
 }
 */

@@ -36,7 +36,6 @@ import (
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/ext/mathext"
 	"github.com/karalabe/iris/ext/sortext"
-	"github.com/karalabe/iris/pool"
 )
 
 // Listens for incoming state merge requests, assembles new routing tables based
@@ -50,11 +49,6 @@ func (o *Overlay) manager() {
 	addrs := make(map[string][]string)
 	exchs := make(map[*peer]*state)
 	drops := make(map[*peer]struct{})
-
-	// Start the exchange limiter
-	exchPool := pool.NewThreadPool(config.OverlayExchThreads)
-	exchPool.Start()
-	defer exchPool.Terminate()
 
 	// Mark the overlay as unstable
 	stable := false
@@ -155,10 +149,10 @@ func (o *Overlay) manager() {
 
 			// Revert to read lock (don't hold up reads) and broadcast state
 			o.lock.RLock()
-			exchPool.Clear()
+			o.stateExch.Clear()
 			for _, p := range o.livePeers {
 				p := p // Copy for closure!
-				exchPool.Schedule(func() { o.sendState(p, rep) })
+				o.stateExch.Schedule(func() { o.sendState(p, rep) })
 			}
 			o.lock.RUnlock()
 		}

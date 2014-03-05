@@ -72,6 +72,7 @@ type Overlay struct {
 
 	authInit   *pool.ThreadPool // Locally initiated authentication pool
 	authAccept *pool.ThreadPool // Remotely initiated authentication pool
+	stateExch  *pool.ThreadPool // Pool for limiting active state exchanges
 
 	exchSet map[*peer]*state   // State exchanges pending merging
 	dropSet map[*peer]struct{} // Peers pending dropping
@@ -113,6 +114,7 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 
 		authInit:   pool.NewThreadPool(config.OverlayAuthThreads),
 		authAccept: pool.NewThreadPool(config.OverlayAuthThreads),
+		stateExch:  pool.NewThreadPool(config.OverlayExchThreads),
 
 		exchSet:     make(map[*peer]*state),
 		dropSet:     make(map[*peer]struct{}),
@@ -148,6 +150,7 @@ func (o *Overlay) Boot() (int, error) {
 
 	o.authInit.Start()
 	o.authAccept.Start()
+	o.stateExch.Start()
 
 	// Wait for convergence and report remote connections
 	o.stable.Wait()
@@ -191,6 +194,9 @@ func (o *Overlay) Shutdown() error {
 	if err := o.heart.terminate(); err != nil {
 		errs = append(errs, err)
 	}
+	// Wait for all state exchanges to finish
+	o.stateExch.Terminate()
+
 	// Terminate the maintainer and all peer connections with it
 	o.maintQuit <- errc
 	if err := <-errc; err != nil {

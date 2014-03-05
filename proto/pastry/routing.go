@@ -160,7 +160,7 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either
 			if o.stat != done {
-				go o.sendState(p, false)
+				o.stateExch.Schedule(func() { o.sendState(p, false) })
 			}
 		}
 	} else {
@@ -170,7 +170,7 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 
 			// Respond to any repair requests
 			if s.Repair {
-				go o.sendState(src, false)
+				o.stateExch.Schedule(func() { o.sendState(src, false) })
 			}
 			// Make sure we don't cause a deadlock if blocked
 			o.lock.RUnlock()
