@@ -61,6 +61,7 @@ type Overlay struct {
 	addrs  []string // Listener addresses
 
 	livePeers map[string]*peer // Active connection pool
+	heart     *heartbeat       // Beater for the active peers
 
 	routes *table
 	time   uint64
@@ -68,7 +69,6 @@ type Overlay struct {
 
 	acceptQuit []chan chan error // Quit sync channels for the acceptors
 	maintQuit  chan chan error   // Quit sync channel for the maintenance routine
-	beatQuit   chan chan error   // Quit sync channel for the heartbeat routine
 
 	authInit   *pool.ThreadPool // Locally initiated authentication pool
 	authAccept *pool.ThreadPool // Remotely initiated authentication pool
@@ -95,7 +95,7 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 	nodeId := new(big.Int).SetBytes(peerId)
 
 	// Assemble and return the overlay instance
-	return &Overlay{
+	o := &Overlay{
 		app: app,
 
 		authId:  id,
@@ -110,7 +110,6 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 
 		acceptQuit: []chan chan error{},
 		maintQuit:  make(chan chan error),
-		beatQuit:   make(chan chan error),
 
 		authInit:   pool.NewThreadPool(config.OverlayAuthThreads),
 		authAccept: pool.NewThreadPool(config.OverlayAuthThreads),
@@ -119,6 +118,8 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 		dropSet:     make(map[*peer]struct{}),
 		eventNotify: make(chan struct{}, 1), // Buffer one notification
 	}
+	o.heart = newHeart(o)
+	return o
 }
 
 // Boots the overlay network: it starts up boostrappers and connection acceptors
@@ -143,7 +144,7 @@ func (o *Overlay) Boot() (int, error) {
 	// Start the overlay processes
 	o.stable.Add(1)
 	go o.manager()
-	go o.beater()
+	o.heart.start()
 
 	o.authInit.Start()
 	o.authAccept.Start()
@@ -187,8 +188,7 @@ func (o *Overlay) Shutdown() error {
 	// TODO
 
 	// Terminate the heartbeat mechanism
-	o.beatQuit <- errc
-	if err := <-errc; err != nil {
+	if err := o.heart.terminate(); err != nil {
 		errs = append(errs, err)
 	}
 	// Terminate the maintainer and all peer connections with it

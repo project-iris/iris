@@ -137,6 +137,9 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 // if newer, also always replying if a repair request was included. Finally the
 // heartbeat messages are checked and two-way idle connections dropped.
 func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
+	// Notify the heartbeat mechanism that src is alive
+	o.heart.heart.Ping(src.nodeId)
+
 	if s.Updated == 0 {
 		// Join request, discard self joins (rare race condition during update)
 		if o.nodeId.Cmp(dst) == 0 {

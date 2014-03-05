@@ -239,31 +239,31 @@ func (o *Overlay) dedup(p *peer) {
 
 	// Keep only one active connection
 	old, ok := o.livePeers[p.nodeId.String()]
-	keep := false
+	keepOld := false
 	if ok {
 		switch {
 		// Same network, same direction
 		case old.laddr == p.laddr:
-			keep = old.raddr < p.raddr
+			keepOld = old.raddr < p.raddr
 		case old.raddr == p.raddr:
-			keep = old.laddr < p.laddr
+			keepOld = old.laddr < p.laddr
 
 		// Same network, different direction
 		case old.lhost == p.lhost:
 			if i := sort.SearchStrings(o.addrs, p.laddr); i < len(o.addrs) && o.addrs[i] == p.laddr {
 				// We're the server in 'p', remote is the server in 'old'
-				keep = old.raddr < p.laddr
+				keepOld = old.raddr < p.laddr
 			} else {
-				keep = old.laddr < p.raddr
+				keepOld = old.laddr < p.raddr
 			}
 		// Different network
 		default:
-			keep = old.lhost < p.lhost
+			keepOld = old.lhost < p.lhost
 		}
 	}
 	// If the new connection is accepted, swap out old one if any
 	var stat status
-	if !keep {
+	if !keepOld {
 		// Swap out the old peer connection
 		o.livePeers[p.nodeId.String()] = p
 		dump = old
@@ -279,11 +279,15 @@ func (o *Overlay) dedup(p *peer) {
 	o.lock.Unlock()
 
 	// Initialize the new peer if needed
-	if !keep {
+	if !keepOld {
 		if stat == none {
 			o.sendJoin(p)
 		} else if stat == done {
 			o.sendState(p, false)
+		}
+		// If brand new peer, start monitoring it
+		if old == nil {
+			o.heart.heart.Monitor(p.nodeId)
 		}
 	}
 	// Terminate the duplicate if any

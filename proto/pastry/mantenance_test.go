@@ -20,11 +20,9 @@
 package pastry
 
 import (
-	"crypto/x509"
 	"math/big"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/ext/mathext"
@@ -92,6 +90,7 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 	}
 }
 
+/*
 func TestMaintenance(t *testing.T) {
 	// Override the boot and convergence times
 	swapConvLimits()
@@ -145,7 +144,6 @@ func TestMaintenance(t *testing.T) {
 	checkRoutes(t, nodes)
 }
 
-/*
 func TestMaintenanceDOS(t *testing.T) {
 	// Make sure there are enough ports to use (use a huge number to simplify test code)
 	olds := config.BootPorts

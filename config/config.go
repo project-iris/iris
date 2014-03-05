@@ -198,6 +198,9 @@ var OverlayConvTimeout = 3 * time.Second
 // Heartbeat period to ensure connections are alive and tear down unused ones.
 var OverlayBeatPeriod = 3 * time.Second
 
+// Number of missed heartbeats after which to consider a node down.
+var OverlayKillCount = 3
+
 // Maximum time to queue an authenticated session connection before dropping it.
 var OverlayAcceptTimout = time.Second
 

@@ -4,8 +4,8 @@
   Releases
 ------------
  * Development:
-    - Double channeled session (control + data link).
-    - Graceful peer session tear-down.
+    - Separate control and data connections for prioritized system messages.
+    - Graceful session tear-down.
     - Fix invalid bootstrap net mask (default -> actual).
     - Fix session handshake infinite wait.
     - Fix thread pool termination wait.

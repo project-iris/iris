@@ -6,8 +6,6 @@ Stuff that need implementing, fixing or testing.
 - Planned
     - Gather and display statistics (small web server + stats publish)
 - Features
-    - Iris + Carrier + Overlay
-        - Prioritized system messages (otherwise under load they may time out)
     - Carrier + Overlay
         - Implement proper statistics gathering and reporting mechanism (and remove them from the Boot func)
     - Relay + Iris
