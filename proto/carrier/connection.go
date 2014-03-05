@@ -23,12 +23,13 @@ package carrier
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/overlay"
 	"log"
 	"math/big"
 	"math/rand"
 	"sync"
+
+	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/pastry"
 )
 
 // A remote application address.
@@ -85,7 +86,7 @@ func (c *Connection) Close() {
 	// Unsubscribe all active subscriptions
 	c.subLock.RLock()
 	for _, topic := range c.subLive {
-		c.carrier.handleUnsubscribe(c.id, overlay.Resolve(topic), true)
+		c.carrier.handleUnsubscribe(c.id, pastry.Resolve(topic), true)
 	}
 	c.subLive = nil
 	c.subLock.RUnlock()
@@ -98,7 +99,7 @@ func (c *Connection) Close() {
 // messages will arrive.
 func (c *Connection) Subscribe(topic string) error {
 	// Resolve the topic id and its string form
-	key := overlay.Resolve(topic)
+	key := pastry.Resolve(topic)
 	skey := key.String()
 
 	// Create a subscription mapping if new
@@ -120,7 +121,7 @@ func (c *Connection) Subscribe(topic string) error {
 // Removes the subscription from topic.
 func (c *Connection) Unsubscribe(topic string) {
 	// Remove the carrier subscription
-	key := overlay.Resolve(topic)
+	key := pastry.Resolve(topic)
 	c.carrier.handleUnsubscribe(c.id, key, true)
 
 	// Clean up the application
@@ -137,7 +138,7 @@ func (c *Connection) Publish(topic string, msg *proto.Message) {
 	if err := msg.Encrypt(); err != nil {
 		log.Printf("carrier: failed to encrypt publish message: %v.\n", err)
 	}
-	c.carrier.sendPublish(c.id, overlay.Resolve(topic), msg)
+	c.carrier.sendPublish(c.id, pastry.Resolve(topic), msg)
 }
 
 // Delivers a message to a subscribed node, balancing amongst all subscriptions.
@@ -145,7 +146,7 @@ func (c *Connection) Balance(topic string, msg *proto.Message) {
 	if err := msg.Encrypt(); err != nil {
 		log.Printf("carrier: failed to encrypt balance message: %v.\n", err)
 	}
-	c.carrier.sendBalance(c.id, overlay.Resolve(topic), msg)
+	c.carrier.sendBalance(c.id, pastry.Resolve(topic), msg)
 }
 
 // Sends a direct message to a known app on a known node.

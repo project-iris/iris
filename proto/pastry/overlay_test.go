@@ -16,7 +16,8 @@
 // author(s).
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
-package overlay
+
+package pastry
 
 import (
 	"math/big"

@@ -17,10 +17,9 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Package overlay contains the peer-to-peer virtual transport network. It is
-// currently based on a simplified version of Pastry, where proximity is not
-// taken into consideration (i.e. no neighbor set).
-package overlay
+// Package pastry contains a simplified version of Pastry, where proximity is
+// not taken into consideration (i.e. no neighbor set).
+package pastry
 
 import (
 	"crypto/rand"

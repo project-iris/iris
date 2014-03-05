@@ -21,7 +21,7 @@
 // overlay network: delta and distance calculation between two ids, and the
 // common prefix + next digit extraction for the pastry routing tables.
 
-package overlay
+package pastry
 
 import (
 	"io"

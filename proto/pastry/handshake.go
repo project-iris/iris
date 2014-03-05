@@ -17,11 +17,11 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// This file contains the overlay session listener and negotiation. For every
+// This file contains the pastry session listener and negotiation. For every
 // network interface a separate bootstrapper and session acceptor is started,
-// each conencting nodes and executing the overlay handshake.
+// each conencting nodes and executing the pastry handshake.
 
-package overlay
+package pastry
 
 import (
 	"encoding/gob"

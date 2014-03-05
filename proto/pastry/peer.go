@@ -20,7 +20,7 @@
 // Contains the peer connection state information and the related maintenance
 // operations.
 
-package overlay
+package pastry
 
 import (
 	"errors"

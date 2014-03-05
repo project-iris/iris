@@ -17,17 +17,17 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Contains the overlay and routing table management functionality: one manager
+// Contains the pastry and routing table management functionality: one manager
 // go-routine which processes state updates from all connected peers, merging
 // them into the local state and connecting discovered nodes. It is also the one
 // responsible for dropping failed and passive connections, while ensuring a
 // valid routing table.
 //
-// The overlay heartbeat mechanism is also implemented here: a beater thread
+// The pastry heartbeat mechanism is also implemented here: a beater thread
 // which periodically pings all connected nodes (also adding whether they are
 // considered active).
 
-package overlay
+package pastry
 
 import (
 	"log"

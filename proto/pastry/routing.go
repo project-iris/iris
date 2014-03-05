@@ -23,7 +23,7 @@
 //
 // Beside the above, it also contains the system event processing logic.
 
-package overlay
+package pastry
 
 import (
 	"log"

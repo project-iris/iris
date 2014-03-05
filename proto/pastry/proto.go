@@ -23,7 +23,7 @@
 // from the application channel to the network socket. Network errors are
 // detected by the receiver, which notifies the overlay.
 
-package overlay
+package pastry
 
 import (
 	"encoding/gob"

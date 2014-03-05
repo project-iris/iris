@@ -19,7 +19,7 @@
 
 // Contains the routing table definition and a handful of utility functions.
 
-package overlay
+package pastry
 
 import (
 	"math/big"

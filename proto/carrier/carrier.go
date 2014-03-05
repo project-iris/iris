@@ -24,13 +24,14 @@ package carrier
 
 import (
 	"crypto/rsa"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/heart"
-	"github.com/karalabe/iris/proto/carrier/topic"
-	"github.com/karalabe/iris/proto/overlay"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/heart"
+	"github.com/karalabe/iris/proto/carrier/topic"
+	"github.com/karalabe/iris/proto/pastry"
 )
 
 // The carrier interface to route all messages to desired topics.
@@ -43,8 +44,8 @@ type Carrier interface {
 // The real carrier implementation, receiving the overlay events and processing
 // them according to the protocol.
 type carrier struct {
-	transport *overlay.Overlay // Overlay network to route the messages
-	heart     *heart.Heart     // Heartbeat mechanism
+	transport *pastry.Overlay // Overlay network to route the messages
+	heart     *heart.Heart    // Heartbeat mechanism
 
 	topics map[string]*topic.Topic // Locally active topics
 	conns  map[string]*Connection  // Locally active connections
@@ -59,7 +60,7 @@ func New(overId string, key *rsa.PrivateKey) Carrier {
 		topics: make(map[string]*topic.Topic),
 		conns:  make(map[string]*Connection),
 	}
-	c.transport = overlay.New(overId, key, c)
+	c.transport = pastry.New(overId, key, c)
 	c.heart = heart.New(time.Duration(config.CarrierBeatPeriod)*time.Millisecond, config.CarrierKillCount, c)
 	return c
 }
