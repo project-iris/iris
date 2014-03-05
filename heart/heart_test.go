@@ -45,7 +45,7 @@ func TestHeart(t *testing.T) {
 	bob := big.NewInt(241)
 
 	// Heartbeat parameters
-	beat := time.Duration(50 * time.Millisecond)
+	beat := time.Duration(10 * time.Millisecond)
 	kill := 3
 	call := &testCallback{dead: []*big.Int{}}
 
@@ -63,7 +63,7 @@ func TestHeart(t *testing.T) {
 	}
 	// Start the beater and check for beat events
 	heart.Start()
-	time.Sleep(10 * time.Millisecond) // Go out of sync with beater
+	time.Sleep(3 * time.Millisecond) // Go out of sync with beater
 
 	time.Sleep(beat)
 	if n := call.beat; n != 1 {
@@ -106,7 +106,9 @@ func TestHeart(t *testing.T) {
 		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
 	}
 	// Terminate beater and ensure no more events are fired
-	heart.Terminate()
+	if err := heart.Terminate(); err != nil {
+		t.Fatalf("failed to terminate beater: %v.", err)
+	}
 	time.Sleep(beat)
 	if n := call.beat; n != 4 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)

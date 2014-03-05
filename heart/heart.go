@@ -44,8 +44,8 @@ type Heart struct {
 
 	call Callback // Application callback to notify of events
 
-	quit chan struct{}
-	lock sync.Mutex
+	quit chan chan error // Quit synchronizer to ensure cleanup
+	lock sync.Mutex      // Lock protecting the state
 }
 
 // Creates and returns a new heartbeat mechanism beating once every beat,
@@ -56,7 +56,7 @@ func New(beat time.Duration, kill int, handler Callback) *Heart {
 		beat: beat,
 		kill: kill,
 		call: handler,
-		quit: make(chan struct{}),
+		quit: make(chan chan error),
 	}
 }
 
@@ -66,8 +66,10 @@ func (h *Heart) Start() {
 }
 
 // Terminates the heartbeat mechanism.
-func (h *Heart) Terminate() {
-	close(h.quit)
+func (h *Heart) Terminate() error {
+	errc := make(chan error)
+	h.quit <- errc
+	return <-errc
 }
 
 // Registers a new entity for the beater to monitor.
@@ -80,7 +82,6 @@ func (h *Heart) Monitor(id *big.Int) error {
 	if idx < len(h.mems) && h.mems[idx].id.Cmp(id) == 0 {
 		return fmt.Errorf("duplicate entry")
 	}
-
 	h.mems = append(h.mems, &entity{id: id, tick: h.tick})
 	sort.Sort(h.mems)
 	return nil
@@ -121,14 +122,18 @@ func (h *Heart) Ping(id *big.Int) error {
 // Beater function meant to run as a separate go routine to keep pinging each
 // monitored entity and report when some fail to respond within alloted time.
 func (h *Heart) beater() {
+	// Create the ticker to fire the beat events
 	beat := time.NewTicker(h.beat)
 	defer beat.Stop()
 
 	dead := []*big.Int{}
-	for {
+
+	var errc chan error
+	for errc == nil {
 		select {
-		case <-h.quit:
-			return
+		case errc = <-h.quit:
+			// Termination requested
+			continue
 		case <-beat.C:
 			// Beat cycle: update tick and collect dead entries
 			h.lock.Lock()
@@ -148,4 +153,6 @@ func (h *Heart) beater() {
 			}
 		}
 	}
+	// Signal the requester of successful termination
+	errc <- nil
 }
