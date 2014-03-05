@@ -209,7 +209,15 @@ func (l *Listener) serverHandle(strm *stream.Stream, timeout time.Duration) {
 		l.pendLock.Unlock()
 
 		if ok {
-			res <- strm
+			select {
+			case res <- strm:
+				// Ok, link succeeded
+			default:
+				log.Printf("session: established data stream not handled.")
+				if err := strm.Close(); err != nil {
+					log.Printf("session: failed to close established data stream: %v.", err)
+				}
+			}
 		}
 	}
 }
@@ -322,7 +330,7 @@ func (l *Listener) serverLink(sess *Session) error {
 	var err error
 
 	// Create the a temporary channel to retrieve the data stream
-	id, data := rng.Int63(), make(chan *stream.Stream, 1) // Cap 1 removes block when finalizing
+	id, data := rng.Int63(), make(chan *stream.Stream)
 	l.pendLock.Lock()
 	l.pends[id] = data
 	l.pendLock.Unlock()
