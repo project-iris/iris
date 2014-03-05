@@ -119,7 +119,8 @@ func TestMaintenance(t *testing.T) {
 		}
 		defer nodes[i].Shutdown()
 	}
-	// Check the routing tables
+	// Wait a while for state updates to propagate and check the routing table
+	time.Sleep(100 * time.Millisecond)
 	checkRoutes(t, nodes)
 
 	// Start some additional nodes and ensure still valid routing state
@@ -129,7 +130,8 @@ func TestMaintenance(t *testing.T) {
 			t.Fatalf("failed to boot nodes: %v.", err)
 		}
 	}
-	// Check the routing tables
+	// Wait a while for state updates to propagate and check the routing table
+	time.Sleep(100 * time.Millisecond)
 	checkRoutes(t, nodes)
 
 	// Terminate some nodes, and ensure still valid routing state
@@ -138,10 +140,8 @@ func TestMaintenance(t *testing.T) {
 	}
 	nodes = nodes[:originals]
 
-	// Wait a while for state updates to propagate
-	time.Sleep(time.Second)
-
-	// Check the routing tables
+	// Wait a while for state updates to propagate and check the routing table
+	time.Sleep(100 * time.Millisecond)
 	checkRoutes(t, nodes)
 }
 
@@ -150,14 +150,14 @@ func TestMaintenanceDOS(t *testing.T) {
 	// Make sure there are enough ports to use (use a huge number to simplify test code)
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 24; i++ {
 		config.BootPorts = append(config.BootPorts, 40000+i)
 	}
 	// Parse encryption key
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 
 	// Increment the overlays till the test fails
-	for peers := 4; !t.Failed(); peers++ {
+	for peers := 16; !t.Failed(); peers++ {
 		log.Printf("Live go routines before starting %d peers: %d.", peers, runtime.NumGoroutine())
 
 		// Start the batch of nodes
