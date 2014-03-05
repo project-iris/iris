@@ -66,10 +66,9 @@ type Overlay struct {
 	time   uint64
 	stat   status
 
-	quit chan struct{}
-
 	acceptQuit []chan chan error // Quit sync channels for the acceptors
 	maintQuit  chan chan error   // Quit sync channel for the maintenance routine
+	beatQuit   chan chan error   // Quit sync channel for the heartbeat routine
 
 	authInit   *pool.ThreadPool // Locally initiated authentication pool
 	authAccept *pool.ThreadPool // Remotely initiated authentication pool
@@ -109,10 +108,9 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 		routes:    newTable(nodeId),
 		time:      1,
 
-		quit: make(chan struct{}),
-
 		acceptQuit: []chan chan error{},
 		maintQuit:  make(chan chan error),
+		beatQuit:   make(chan chan error),
 
 		authInit:   pool.NewThreadPool(config.OverlayAuthThreads),
 		authAccept: pool.NewThreadPool(config.OverlayAuthThreads),
@@ -188,13 +186,16 @@ func (o *Overlay) Shutdown() error {
 	// Wait for remote peers to acknowledge overlay shutdown
 	// TODO
 
+	// Terminate the heartbeat mechanism
+	o.beatQuit <- errc
+	if err := <-errc; err != nil {
+		errs = append(errs, err)
+	}
 	// Terminate the maintainer and all peer connections with it
 	o.maintQuit <- errc
 	if err := <-errc; err != nil {
 		errs = append(errs, err)
 	}
-	close(o.quit)
-
 	// Report the errors and return
 	switch len(errs) {
 	case 0:

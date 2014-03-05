@@ -195,8 +195,8 @@ var OverlayBootTimeout = 10 * time.Second
 // Idle time after which to consider the overlay converged.
 var OverlayConvTimeout = 3 * time.Second
 
-// Heartbeat period to ensure connections are alive and tear down unused ones (ms).
-var OverlayBeatPeriod = 10000
+// Heartbeat period to ensure connections are alive and tear down unused ones.
+var OverlayBeatPeriod = 3 * time.Second
 
 // Maximum time to queue an authenticated session connection before dropping it.
 var OverlayAcceptTimout = time.Second
@@ -216,7 +216,7 @@ var OverlayAuthThreads = 8
 // Maximum number of state exchanges allowed concurrently.
 var OverlayExchThreads = 128
 
-// Heartbeat period to distribute current cpu load and also check liveliness (ms).
+// Heartbeat period to distribute current CPU load and also check liveliness (ms).
 var CarrierBeatPeriod = 750
 
 // Number of missed heartbeats after which to consider a node down.

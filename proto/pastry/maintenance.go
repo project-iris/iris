@@ -429,34 +429,51 @@ func (o *Overlay) changed(t *table) (bool, bool) {
 // Periodically sends a heartbeat to all existing connections, tagging them
 // whether they are active (i.e. in the routing) table or not.
 func (o *Overlay) beater() {
-	tick := time.Tick(time.Duration(config.OverlayBeatPeriod) * time.Millisecond)
-	for {
+	var beats sync.WaitGroup
+
+	// Create the ticker for the heartbeat events
+	tick := time.Tick(config.OverlayBeatPeriod)
+
+	// Loop until termination is requested
+	var errc chan error
+	for errc == nil {
 		select {
-		case <-o.quit:
-			return
+		case errc = <-o.beatQuit:
+			// Termination requested
+			continue
 		case <-tick:
 			o.lock.RLock()
 			for _, p := range o.livePeers {
-				go o.sendBeat(p, !o.active(p.nodeId))
+				beats.Add(1)
+				go func(p *peer) {
+					defer beats.Done()
+					o.sendBeat(p, !o.active(p.nodeId))
+				}(p)
 			}
 			o.lock.RUnlock()
 		}
 	}
+	// Wait for all the beaters to finish and return
+	beats.Wait()
+	errc <- nil
 }
 
 // Returns whether a connection is active or passive.
-func (o *Overlay) active(p *big.Int) bool {
-	for _, id := range o.routes.leaves {
-		if p.Cmp(id) == 0 {
+func (o *Overlay) active(id *big.Int) bool {
+	o.lock.RLock()
+	defer o.lock.RUnlock()
+
+	// Check whether id is an active leaf
+	for _, leaf := range o.routes.leaves {
+		if id.Cmp(leaf) == 0 {
 			return true
 		}
 	}
+	// Check whether id is an active table cell
 	for _, row := range o.routes.routes {
-		for _, id := range row {
-			if id != nil {
-				if p.Cmp(id) == 0 {
-					return true
-				}
+		for _, cell := range row {
+			if cell != nil && id.Cmp(cell) == 0 {
+				return true
 			}
 		}
 	}
