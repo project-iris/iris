@@ -97,8 +97,8 @@ func TestMaintenance(t *testing.T) {
 	swapConfigs()
 	defer swapConfigs()
 
-	originals := 4
-	additions := 4
+	originals := 3
+	additions := 3
 
 	// Make sure there are enough ports to use
 	olds := config.BootPorts
