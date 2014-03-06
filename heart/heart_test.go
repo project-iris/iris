@@ -45,7 +45,7 @@ func TestHeart(t *testing.T) {
 	bob := big.NewInt(241)
 
 	// Heartbeat parameters
-	beat := time.Duration(10 * time.Millisecond)
+	beat := time.Duration(25 * time.Millisecond)
 	kill := 3
 	call := &testCallback{dead: []*big.Int{}}
 
@@ -63,7 +63,7 @@ func TestHeart(t *testing.T) {
 	}
 	// Start the beater and check for beat events
 	heart.Start()
-	time.Sleep(3 * time.Millisecond) // Go out of sync with beater
+	time.Sleep(10 * time.Millisecond) // Go out of sync with beater
 
 	time.Sleep(beat)
 	if n := call.beat; n != 1 {
