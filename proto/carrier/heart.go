@@ -23,9 +23,10 @@
 package carrier
 
 import (
-	"github.com/karalabe/iris/config"
 	"log"
 	"math/big"
+
+	"github.com/karalabe/iris/config"
 )
 
 // Load report between two carrier nodes.
@@ -36,19 +37,19 @@ type report struct {
 
 // Adds the node within the topic to the list of monitored entities.
 func (c *carrier) monitor(topic *big.Int, node *big.Int) error {
-	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
 	return c.heart.Monitor(id)
 }
 
 // Remove the node of a specific topic from the list of monitored entities.
 func (c *carrier) unmonitor(topic *big.Int, node *big.Int) error {
-	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
 	return c.heart.Unmonitor(id)
 }
 
 // Updates the last ping time of a node within a topic.
 func (c *carrier) ping(topic *big.Int, node *big.Int) error {
-	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.OverlaySpace)), node)
+	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
 	return c.heart.Ping(id)
 }
 
@@ -96,8 +97,8 @@ func (c *carrier) Beat() {
 // topic member nodes.
 func (c *carrier) Dead(id *big.Int) {
 	// Split the id into topic and node parts
-	topic := new(big.Int).Rsh(id, uint(config.OverlaySpace))
-	node := new(big.Int).Sub(id, new(big.Int).Lsh(topic, uint(config.OverlaySpace)))
+	topic := new(big.Int).Rsh(id, uint(config.PastrySpace))
+	node := new(big.Int).Sub(id, new(big.Int).Lsh(topic, uint(config.PastrySpace)))
 
 	// Depending on whether it was the topic parent or a child reown or unsub
 	c.lock.RLock()

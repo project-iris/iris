@@ -98,26 +98,26 @@ func TestPack(t *testing.T) {
 	}
 }
 
-func TestOverlay(t *testing.T) {
+func TestPastry(t *testing.T) {
 	// Ensure pastry space is reduced size (at least issue a warning)
-	if OverlaySpace != 40 {
-		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", OverlaySpace, 40)
+	if PastrySpace != 40 {
+		t.Errorf("config (overlay): address space is invalid: have %v, want %v.", PastrySpace, 40)
 	}
-	if size := OverlayResolver().Size() * 8; size < OverlaySpace {
-		t.Errorf("config (overlay): resolver does not output enough bits for space: have %v, want %v.", size, OverlaySpace)
+	if size := PastryResolver().Size() * 8; size < PastrySpace {
+		t.Errorf("config (overlay): resolver does not output enough bits for space: have %v, want %v.", size, PastrySpace)
 	}
 	// Do some sanity checks on the parameters
-	if OverlayBase < 1 {
-		t.Errorf("config (overlay): invalid base bits: have %v, want min 1.", OverlayBase)
+	if PastryBase < 1 {
+		t.Errorf("config (overlay): invalid base bits: have %v, want min 1.", PastryBase)
 	}
-	if OverlaySpace%OverlayBase != 0 {
-		t.Errorf("config (overlay): address space is not divisible into bases: %v %% %v != 0", OverlaySpace, OverlayBase)
+	if PastrySpace%PastryBase != 0 {
+		t.Errorf("config (overlay): address space is not divisible into bases: %v %% %v != 0", PastrySpace, PastryBase)
 	}
-	if OverlayLeaves != 1<<uint(OverlayBase-1) && OverlayLeaves != 1<<uint(OverlayBase) {
-		t.Errorf("config (overlay): invalid leave set size: have %v, want %v or %v.", OverlayLeaves, 1<<uint(OverlayBase-1), 1<<uint(OverlayBase))
+	if PastryLeaves != 1<<uint(PastryBase-1) && PastryLeaves != 1<<uint(PastryBase) {
+		t.Errorf("config (overlay): invalid leave set size: have %v, want %v or %v.", PastryLeaves, 1<<uint(PastryBase-1), 1<<uint(PastryBase))
 	}
 	// Make some trivial checks for the tuning parameters
-	if OverlayNetBuffer < 16 || OverlayNetBuffer > 128 {
-		t.Errorf("config (overlay): strange network buffer size: have %v, want from [16..128].", OverlayNetBuffer)
+	if PastryNetBuffer < 16 || PastryNetBuffer > 128 {
+		t.Errorf("config (overlay): strange network buffer size: have %v, want from [16..128].", PastryNetBuffer)
 	}
 }
