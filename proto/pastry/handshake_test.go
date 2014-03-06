@@ -75,9 +75,9 @@ var privKeyDerBad = []byte{
 var appIdBad = "overlay.test.bad"
 
 func TestHandshake(t *testing.T) {
-	// Override the boot and convergence times
-	swapConvLimits()
-	defer swapConvLimits()
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
 
 	// Load the valid and invalid private keys
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)

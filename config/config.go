@@ -178,46 +178,46 @@ var BootSlowProbe = 1000
 var BootScan = 100
 
 // Virtual address space (bits).
-var OverlaySpace = 40
+var PastrySpace = 40
 
 // Number of matching bits for the next hop.
-var OverlayBase = 4
+var PastryBase = 4
 
 // Number of closest nodes to track in the virtual network.
-var OverlayLeaves = 8
+var PastryLeaves = 8
 
 // Hash for mapping external ids into the overlay id space.
-var OverlayResolver = md5.New
+var PastryResolver = md5.New
 
 // Time after booting to consider the overlay a single node in the network.
-var OverlayBootTimeout = 10 * time.Second
+var PastryBootTimeout = 10 * time.Second
 
 // Idle time after which to consider the overlay converged.
-var OverlayConvTimeout = 3 * time.Second
+var PastryConvTimeout = 3 * time.Second
 
 // Heartbeat period to ensure connections are alive and tear down unused ones.
-var OverlayBeatPeriod = 3 * time.Second
+var PastryBeatPeriod = 3 * time.Second
 
 // Number of missed heartbeats after which to consider a node down.
-var OverlayKillCount = 3
+var PastryKillCount = 3
 
 // Maximum time to queue an authenticated session connection before dropping it.
-var OverlayAcceptTimout = time.Second
+var PastryAcceptTimout = time.Second
 
 // Time to wait after session setup for the init packet.
-var OverlayInitTimeout = 5 * time.Second
+var PastryInitTimeout = 5 * time.Second
 
 // Time limit for sending a message before the connection is dropped.
-var OverlaySendTimeout = 3 * time.Second
+var PastrySendTimeout = 3 * time.Second
 
 // Messages to buffer to and from the network.
-var OverlayNetBuffer = 64
+var PastryNetBuffer = 64
 
 // Maximum number of authentications allowed concurrently (per half duplex).
-var OverlayAuthThreads = 8
+var PastryAuthThreads = 8
 
 // Maximum number of state exchanges allowed concurrently.
-var OverlayExchThreads = 128
+var PastryExchThreads = 128
 
 // Heartbeat period to distribute current CPU load and also check liveliness (ms).
 var CarrierBeatPeriod = 750

@@ -74,13 +74,15 @@ var privKeyDer = []byte{
 // Id for connection filtering
 var appId = "overlay.test"
 
-// Setter and reverter of convergence times
-var bootAllowance = 500 * time.Millisecond
-var convAllowance = 250 * time.Millisecond
+// Configuration values for the pastry tests.
+var bootTimeout = 500 * time.Millisecond
+var convTimeout = 250 * time.Millisecond
+var pastryLeaves = 4
 
-func swapConvLimits() {
-	config.OverlayBootTimeout, bootAllowance = bootAllowance, config.OverlayBootTimeout
-	config.OverlayConvTimeout, convAllowance = convAllowance, config.OverlayConvTimeout
+func swapConfigs() {
+	config.PastryBootTimeout, bootTimeout = bootTimeout, config.PastryBootTimeout
+	config.PastryConvTimeout, convTimeout = convTimeout, config.PastryConvTimeout
+	config.PastryLeaves, pastryLeaves = pastryLeaves, config.PastryLeaves
 }
 
 // No-op overlay callback

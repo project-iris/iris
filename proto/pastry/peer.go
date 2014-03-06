@@ -115,7 +115,7 @@ func (p *peer) send(msg *proto.Message) error {
 	select {
 	case link.Send <- msg:
 		return nil
-	case <-time.After(config.OverlaySendTimeout):
+	case <-time.After(config.PastrySendTimeout):
 		return errors.New("timeout")
 	}
 }

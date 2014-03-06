@@ -45,9 +45,9 @@ func (c *collector) Forward(msg *proto.Message, key *big.Int) bool {
 }
 
 func TestRouting(t *testing.T) {
-	// Override the boot and convergence times
-	swapConvLimits()
-	defer swapConvLimits()
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
 
 	// Make sure there are enough ports to use
 	peers := 4
@@ -171,9 +171,9 @@ func (s *sequencer) Forward(msg *proto.Message, key *big.Int) bool {
 }
 
 func benchmarkLatency(b *testing.B, block int) {
-	// Override the boot and convergence times
-	swapConvLimits()
-	defer swapConvLimits()
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
 
 	b.SetBytes(int64(block))
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
@@ -258,9 +258,9 @@ func (w *waiter) Forward(msg *proto.Message, key *big.Int) bool {
 }
 
 func benchmarkThroughput(b *testing.B, block int) {
-	// Override the boot and convergence times
-	swapConvLimits()
-	defer swapConvLimits()
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
 
 	b.SetBytes(int64(block))
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)

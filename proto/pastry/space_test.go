@@ -44,16 +44,16 @@ var one = big.NewInt(1)
 // The tests assume the default 4 bit digits!
 var spaceTests = []spaceTest{
 	// Simple startup cases
-	{big.NewInt(0), big.NewInt(15), big.NewInt(15), big.NewInt(15), config.OverlaySpace/config.OverlayBase - 1, 15},
-	{big.NewInt(15), big.NewInt(0), big.NewInt(-15), big.NewInt(15), config.OverlaySpace/config.OverlayBase - 1, 0},
-	{big.NewInt(0), big.NewInt(127), big.NewInt(127), big.NewInt(127), config.OverlaySpace/config.OverlayBase - 2, 7},
-	{big.NewInt(127), big.NewInt(0), big.NewInt(-127), big.NewInt(127), config.OverlaySpace/config.OverlayBase - 2, 0},
-	{big.NewInt(128), big.NewInt(256), big.NewInt(128), big.NewInt(128), config.OverlaySpace/config.OverlayBase - 3, 1},
-	{big.NewInt(256), big.NewInt(128), big.NewInt(-128), big.NewInt(128), config.OverlaySpace/config.OverlayBase - 3, 0},
+	{big.NewInt(0), big.NewInt(15), big.NewInt(15), big.NewInt(15), config.PastrySpace/config.PastryBase - 1, 15},
+	{big.NewInt(15), big.NewInt(0), big.NewInt(-15), big.NewInt(15), config.PastrySpace/config.PastryBase - 1, 0},
+	{big.NewInt(0), big.NewInt(127), big.NewInt(127), big.NewInt(127), config.PastrySpace/config.PastryBase - 2, 7},
+	{big.NewInt(127), big.NewInt(0), big.NewInt(-127), big.NewInt(127), config.PastrySpace/config.PastryBase - 2, 0},
+	{big.NewInt(128), big.NewInt(256), big.NewInt(128), big.NewInt(128), config.PastrySpace/config.PastryBase - 3, 1},
+	{big.NewInt(256), big.NewInt(128), big.NewInt(-128), big.NewInt(128), config.PastrySpace/config.PastryBase - 3, 0},
 
 	// Boring cases
-	{big.NewInt(65536), big.NewInt(262144), big.NewInt(196608), big.NewInt(196608), config.OverlaySpace/config.OverlayBase - 5, 4},
-	{big.NewInt(262144), big.NewInt(65536), big.NewInt(-196608), big.NewInt(196608), config.OverlaySpace/config.OverlayBase - 5, 1},
+	{big.NewInt(65536), big.NewInt(262144), big.NewInt(196608), big.NewInt(196608), config.PastrySpace/config.PastryBase - 5, 4},
+	{big.NewInt(262144), big.NewInt(65536), big.NewInt(-196608), big.NewInt(196608), config.PastrySpace/config.PastryBase - 5, 1},
 
 	// Circular wrapping
 	{new(big.Int).Sub(modulo, one), big.NewInt(0), big.NewInt(1), big.NewInt(1), 0, 0},
@@ -116,13 +116,13 @@ var resolveTests = []resolveTest{
 
 func TestResolve(t *testing.T) {
 	// Save the previous config values
-	s, h := config.OverlaySpace, config.OverlayResolver
-	defer func() { config.OverlaySpace, config.OverlayResolver = s, h }()
+	s, h := config.PastrySpace, config.PastryResolver
+	defer func() { config.PastrySpace, config.PastryResolver = s, h }()
 
 	// Run the tests
 	for i, tt := range resolveTests {
-		config.OverlaySpace = tt.bitlen
-		config.OverlayResolver = tt.hasher
+		config.PastrySpace = tt.bitlen
+		config.PastryResolver = tt.hasher
 		if id := Resolve(tt.text); id.Cmp(new(big.Int).SetBytes(tt.id)) != 0 {
 			t.Errorf("test %d: resolution mismatch: have %v, want %v.", i, id.Bytes(), tt.id)
 		}

@@ -61,7 +61,7 @@ func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
 	if err != nil {
 		panic(fmt.Sprintf("failed to start session listener: %v.", err))
 	}
-	sock.Accept(config.OverlayAcceptTimout)
+	sock.Accept(config.PastryAcceptTimout)
 
 	// Save the new listener address into the local (sorted) address list
 	o.lock.Lock()
@@ -133,10 +133,10 @@ func (o *Overlay) filter(id *big.Int) bool {
 	// Check for empty slot in leaf set
 	for i, leaf := range table.leaves {
 		if leaf.Cmp(o.nodeId) == 0 {
-			if delta(id, leaf).Sign() >= 0 && i < config.OverlayLeaves/2 {
+			if delta(id, leaf).Sign() >= 0 && i < config.PastryLeaves/2 {
 				return false
 			}
-			if delta(leaf, id).Sign() >= 0 && len(table.leaves)-i < config.OverlayLeaves/2 {
+			if delta(leaf, id).Sign() >= 0 && len(table.leaves)-i < config.PastryLeaves/2 {
 				return false
 			}
 			break
@@ -183,7 +183,7 @@ func (o *Overlay) dial(addrs []*net.TCPAddr) {
 // handshake, the violation of which results in a dropped connection.
 func (o *Overlay) shake(ses *session.Session) {
 	// Start the message transfers and create the peer
-	ses.Start(config.OverlayNetBuffer)
+	ses.Start(config.PastryNetBuffer)
 	p := o.newPeer(ses)
 
 	// Send an init packet to the remote peer
@@ -206,7 +206,7 @@ func (o *Overlay) shake(ses *session.Session) {
 	}
 	// Wait for an incoming init packet
 	select {
-	case <-time.After(config.OverlayInitTimeout):
+	case <-time.After(config.PastryInitTimeout):
 		log.Printf("pastry: session initialization timed out.")
 		if err := ses.Close(); err != nil {
 			log.Printf("pastry: failed to close unacked session: %v.", err)

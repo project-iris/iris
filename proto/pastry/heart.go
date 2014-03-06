@@ -45,7 +45,7 @@ func newHeart(o *Overlay) *heartbeat {
 		owner: o,
 	}
 	// Insert the internal beater and return
-	h.heart = heart.New(config.OverlayBeatPeriod, config.OverlayKillCount, h)
+	h.heart = heart.New(config.PastryBeatPeriod, config.PastryKillCount, h)
 
 	return h
 }

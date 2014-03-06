@@ -52,7 +52,7 @@ func (o *Overlay) manager() {
 
 	// Mark the overlay as unstable
 	stable := false
-	stableTime := config.OverlayBootTimeout
+	stableTime := config.PastryBootTimeout
 
 	var errc chan error
 	for errc == nil {
@@ -104,7 +104,7 @@ func (o *Overlay) manager() {
 			stable = false
 			o.stable.Add(1)
 		}
-		stableTime = config.OverlayConvTimeout
+		stableTime = config.PastryConvTimeout
 
 		// Merge all state exchanges into the temporary routing table and drop unneeded nodes
 		for _, s := range exchs {
@@ -297,8 +297,8 @@ func (o *Overlay) mergeLeaves(a, b []*big.Int) []*big.Int {
 		origin++
 	}
 	// Fetch the nearest nodes in both directions
-	min := mathext.MaxInt(0, origin-config.OverlayLeaves/2)
-	max := mathext.MinInt(len(res), origin+config.OverlayLeaves/2)
+	min := mathext.MaxInt(0, origin-config.PastryLeaves/2)
+	max := mathext.MinInt(len(res), origin+config.PastryLeaves/2)
 	return res[min:max]
 }
 

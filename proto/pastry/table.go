@@ -38,13 +38,13 @@ func newTable(origin *big.Int) *table {
 	res := new(table)
 
 	// Create the leaf set with only the origin point inside
-	res.leaves = make([]*big.Int, 1, config.OverlayLeaves)
+	res.leaves = make([]*big.Int, 1, config.PastryLeaves)
 	res.leaves[0] = origin
 
 	// Create the empty routing table of predefined size
-	res.routes = make([][]*big.Int, config.OverlaySpace/config.OverlayBase)
+	res.routes = make([][]*big.Int, config.PastrySpace/config.PastryBase)
 	for i := 0; i < len(res.routes); i++ {
-		res.routes[i] = make([]*big.Int, 1<<uint(config.OverlayBase))
+		res.routes[i] = make([]*big.Int, 1<<uint(config.PastryBase))
 	}
 	return res
 }
@@ -54,7 +54,7 @@ func (t *table) Copy() *table {
 	res := new(table)
 
 	// Copy the leafset
-	res.leaves = make([]*big.Int, len(t.leaves), config.OverlayLeaves)
+	res.leaves = make([]*big.Int, len(t.leaves), config.PastryLeaves)
 	copy(res.leaves, t.leaves)
 
 	// Copy the routing table

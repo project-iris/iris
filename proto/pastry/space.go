@@ -30,7 +30,7 @@ import (
 	"github.com/karalabe/iris/config"
 )
 
-var modulo = new(big.Int).SetBit(new(big.Int), config.OverlaySpace, 1)
+var modulo = new(big.Int).SetBit(new(big.Int), config.PastrySpace, 1)
 var posmid = new(big.Int).Rsh(modulo, 1)
 var negmid = new(big.Int).Mul(posmid, big.NewInt(-1))
 
@@ -77,15 +77,15 @@ func distance(a, b *big.Int) *big.Int {
 // Calculate the length of the common prefix of two ids and the differing digit.
 func prefix(a, b *big.Int) (int, int) {
 	p := 0
-	for bit := config.OverlaySpace - 1; bit >= 0; bit-- {
+	for bit := config.PastrySpace - 1; bit >= 0; bit-- {
 		if a.Bit(bit) != b.Bit(bit) {
-			p = (config.OverlaySpace - 1 - bit) / config.OverlayBase
+			p = (config.PastrySpace - 1 - bit) / config.PastryBase
 			break
 		}
 	}
 	d := uint(0)
-	for bit := 0; bit < config.OverlayBase; bit++ {
-		d |= b.Bit(config.OverlaySpace-(p+1)*config.OverlayBase+bit) << uint(bit)
+	for bit := 0; bit < config.PastryBase; bit++ {
+		d |= b.Bit(config.PastrySpace-(p+1)*config.PastryBase+bit) << uint(bit)
 	}
 	return p, int(d)
 }
@@ -93,13 +93,13 @@ func prefix(a, b *big.Int) (int, int) {
 // Converts a string id into an overlay id.
 func Resolve(id string) *big.Int {
 	// Hash the textual id
-	h := config.OverlayResolver()
+	h := config.PastryResolver()
 	io.WriteString(h, id)
 	sum := h.Sum(nil)
 
 	// Extract enough bits, and clear overflows
-	raw := sum[:(config.OverlaySpace+7)/8]
-	for i := 0; i < len(raw)*8-config.OverlaySpace; i++ {
+	raw := sum[:(config.PastrySpace+7)/8]
+	for i := 0; i < len(raw)*8-config.PastrySpace; i++ {
 		raw[0] &= ^byte(1 << (7 - uint(i)))
 	}
 	// Return the new id

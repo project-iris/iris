@@ -43,8 +43,8 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 		for o.nodeId.Cmp(ids[origin]) != 0 {
 			origin++
 		}
-		min := mathext.MaxInt(0, origin-config.OverlayLeaves/2)
-		max := mathext.MinInt(len(ids), origin+config.OverlayLeaves/2)
+		min := mathext.MaxInt(0, origin-config.PastryLeaves/2)
+		max := mathext.MinInt(len(ids), origin+config.PastryLeaves/2)
 		leaves := ids[min:max]
 
 		if len(leaves) != len(o.routes.leaves) {
@@ -93,12 +93,12 @@ func checkRoutes(t *testing.T, nodes []*Overlay) {
 }
 
 func TestMaintenance(t *testing.T) {
-	// Override the boot and convergence times
-	swapConvLimits()
-	defer swapConvLimits()
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
 
-	originals := 3
-	additions := 2
+	originals := 4
+	additions := 4
 
 	// Make sure there are enough ports to use
 	olds := config.BootPorts
@@ -147,6 +147,10 @@ func TestMaintenance(t *testing.T) {
 
 /*
 func TestMaintenanceDOS(t *testing.T) {
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
+
 	// Make sure there are enough ports to use (use a huge number to simplify test code)
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
@@ -157,7 +161,7 @@ func TestMaintenanceDOS(t *testing.T) {
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 
 	// Increment the overlays till the test fails
-	for peers := 19; !t.Failed(); peers++ {
+	for peers := 16; !t.Failed(); peers++ {
 		log.Printf("Live go routines before starting %d peers: %d.", peers, runtime.NumGoroutine())
 
 		// Start the batch of nodes

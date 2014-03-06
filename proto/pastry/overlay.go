@@ -89,7 +89,7 @@ type Overlay struct {
 // be booted.
 func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 	// Generate the random node id for this overlay peer
-	peerId := make([]byte, config.OverlaySpace/8)
+	peerId := make([]byte, config.PastrySpace/8)
 	if n, err := io.ReadFull(rand.Reader, peerId); n < len(peerId) || err != nil {
 		panic(fmt.Sprintf("failed to generate node id: %v", err))
 	}
@@ -112,9 +112,9 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 		acceptQuit: []chan chan error{},
 		maintQuit:  make(chan chan error),
 
-		authInit:   pool.NewThreadPool(config.OverlayAuthThreads),
-		authAccept: pool.NewThreadPool(config.OverlayAuthThreads),
-		stateExch:  pool.NewThreadPool(config.OverlayExchThreads),
+		authInit:   pool.NewThreadPool(config.PastryAuthThreads),
+		authAccept: pool.NewThreadPool(config.PastryAuthThreads),
+		stateExch:  pool.NewThreadPool(config.PastryExchThreads),
 
 		exchSet:     make(map[*peer]*state),
 		dropSet:     make(map[*peer]struct{}),
