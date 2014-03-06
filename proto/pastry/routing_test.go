@@ -94,8 +94,8 @@ func TestRouting(t *testing.T) {
 	for i, src := range nodes {
 		for j, dst := range nodes {
 			src.Send(dst.nodeId, &msgs[i][j])
+			time.Sleep(250 * time.Millisecond) // Makes the deliver order verifiable
 		}
-		time.Sleep(250 * time.Millisecond) // Makes the deliver order verifiable
 	}
 	// Sleep a bit and verify
 	time.Sleep(time.Second)
