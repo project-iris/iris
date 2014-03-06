@@ -49,40 +49,43 @@ func TestRouting(t *testing.T) {
 	swapConfigs()
 	defer swapConfigs()
 
+	originals := 4
+	additions := 1
+
 	// Make sure there are enough ports to use
-	peers := 4
 	olds := config.BootPorts
 	defer func() { config.BootPorts = olds }()
-	for i := 0; i < peers; i++ {
-		config.BootPorts = append(config.BootPorts, 65520+i)
+	for i := 0; i < originals+additions; i++ {
+		config.BootPorts = append(config.BootPorts, 65500+i)
 	}
 	// Parse encryption key
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
 
 	// Create the callbacks to listen on incoming messages
 	apps := []*collector{}
-	for i := 0; i < peers; i++ {
+	for i := 0; i < originals; i++ {
 		apps = append(apps, &collector{[]*proto.Message{}})
 	}
 	// Start handful of nodes and ensure valid routing state
 	nodes := []*Overlay{}
-	for i := 0; i < peers; i++ {
+	for i := 0; i < originals; i++ {
 		nodes = append(nodes, New(appId, key, apps[i]))
 		if _, err := nodes[i].Boot(); err != nil {
-			t.Fatalf("failed to boot nodes: %v.", err)
+			t.Fatalf("failed to boot original node: %v.", err)
 		}
 		defer nodes[i].Shutdown()
 	}
+	time.Sleep(time.Second)
 
 	// Create the messages to pass around
 	meta := []byte{0x99, 0x98, 0x97, 0x96}
 	head := proto.Header{make([]byte, len(meta)), []byte{0x00, 0x01}, []byte{0x02, 0x03}}
 	copy(head.Meta.([]byte), meta)
 
-	msgs := make([][]proto.Message, peers)
-	for i := 0; i < peers; i++ {
-		msgs[i] = make([]proto.Message, peers)
-		for j := 0; j < peers; j++ {
+	msgs := make([][]proto.Message, originals)
+	for i := 0; i < originals; i++ {
+		msgs[i] = make([]proto.Message, originals)
+		for j := 0; j < originals; j++ {
 			msgs[i][j].Head = head
 			msgs[i][j].Data = []byte(nodes[i].nodeId.String() + nodes[j].nodeId.String())
 		}
@@ -91,24 +94,83 @@ func TestRouting(t *testing.T) {
 	for i, src := range nodes {
 		for j, dst := range nodes {
 			src.Send(dst.nodeId, &msgs[i][j])
-			time.Sleep(250 * time.Millisecond) // Makes the deliver order verifiable
 		}
+		time.Sleep(250 * time.Millisecond) // Makes the deliver order verifiable
 	}
 	// Sleep a bit and verify
 	time.Sleep(time.Second)
-	for i := 0; i < peers; i++ {
-		if len(apps[i].delivs) != peers {
-			t.Fatalf("app #%v: message count mismatch: have %v, want %v.", i, len(apps[i].delivs), peers)
+	for i := 0; i < originals; i++ {
+		if len(apps[i].delivs) != originals {
+			t.Fatalf("app #%v: message count mismatch: have %v, want %v.", i, len(apps[i].delivs), originals)
 		} else {
-			for j := 0; j < peers; j++ {
+			for j := 0; j < originals; j++ {
 				// Check contents (a bit reduced, not every field was verified below)
 				if bytes.Compare(meta, apps[j].delivs[i].Head.Meta.([]byte)) != 0 {
-					t.Fatalf("send/receive meta mismatch: have %v, want %v.", apps[i].delivs[j].Head.Meta, meta)
+					t.Fatalf("send/receive meta mismatch: have %v, want %v.", apps[j].delivs[i].Head.Meta, meta)
 				}
 				if bytes.Compare(msgs[i][j].Data, apps[j].delivs[i].Data) != 0 {
-					t.Fatalf("send/receive data mismatch: have %v, want %v.", apps[i].delivs[j].Data, msgs[j][i].Data)
+					t.Fatalf("send/receive data mismatch: have %v, want %v.", apps[j].delivs[i].Data, msgs[i][j].Data)
 				}
 			}
+		}
+	}
+	// Clear out all the collectors
+	for i := 0; i < len(apps); i++ {
+		apps[i].delivs = apps[i].delivs[:0]
+	}
+	// Start a load of parallel transfers
+	sent := make([][]int, originals)
+	quit := make([]chan chan struct{}, originals)
+	for i := 0; i < originals; i++ {
+		sent[i] = make([]int, originals)
+		quit[i] = make(chan chan struct{})
+	}
+	for i, src := range nodes[0:originals] {
+		go func(idx int, quit chan chan struct{}) {
+			for {
+				// Send a message to all original nodes
+				for j, dst := range nodes[0:originals] {
+					src.Send(dst.nodeId, &msgs[idx][j])
+					sent[idx][j]++
+					select {
+					case q := <-quit:
+						q <- struct{}{}
+						return
+					default:
+						// Repeat
+					}
+				}
+			}
+		}(i, quit[i])
+	}
+	// Boot a few more nodes and shut them down afterwards
+	for i := 0; i < additions; i++ {
+		nodes = append(nodes, New(appId, key, new(nopCallback)))
+		if _, err := nodes[originals+i].Boot(); err != nil {
+			t.Fatalf("failed to boot additional node: %v.", err)
+		}
+	}
+	for i := 0; i < additions; i++ {
+		if err := nodes[originals+i].Shutdown(); err != nil {
+			t.Fatalf("failed to terminate additional node: %v.", err)
+		}
+	}
+	// Terminate all the senders
+	for i := 0; i < len(quit); i++ {
+		q := make(chan struct{})
+		quit[i] <- q
+		<-q
+	}
+	time.Sleep(time.Second)
+
+	// Verify send/receive count
+	for i := 0; i < originals; i++ {
+		count := 0
+		for j := 0; j < originals; j++ {
+			count += sent[j][i]
+		}
+		if len(apps[i].delivs) != count {
+			t.Fatalf("send/receive count mismatch: have %v, want %v.", len(apps[i].delivs), count)
 		}
 	}
 }
