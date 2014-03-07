@@ -36,8 +36,7 @@ import (
 // Pastry routing algorithm.
 func (o *Overlay) route(src *peer, msg *proto.Message) {
 	// Sync the routing table
-	o.lock.RLock()
-	defer o.lock.RUnlock()
+	o.lock.RLock() // Note, unlock is in deliver and forward!!!
 
 	// Extract some vars for easier access
 	tab := o.routes
@@ -93,14 +92,14 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 // Delivers a message to the application layer or processes it if a system message.
 func (o *Overlay) deliver(src *peer, msg *proto.Message) {
 	head := msg.Head.Meta.(*header)
-	if head.State != nil {
-		o.process(src, head.Dest, head.State)
+	if head.Op != opNop {
+		o.process(src, head)
+		o.lock.RUnlock()
 	} else {
 		// Remove all overlay infos from the message and send upwards
 		o.lock.RUnlock()
 		msg.Head.Meta = head.Meta
 		o.app.Deliver(msg, head.Dest)
-		o.lock.RLock()
 	}
 }
 
@@ -108,10 +107,13 @@ func (o *Overlay) deliver(src *peer, msg *proto.Message) {
 // if it's a system message.
 func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 	head := msg.Head.Meta.(*header)
-	if head.State != nil {
+	if head.Op != opNop {
 		// Overlay system message, process and forward
-		o.process(src, head.Dest, head.State)
-		if p, ok := o.livePeers[id.String()]; ok {
+		o.process(src, head)
+		p, ok := o.livePeers[id.String()]
+		o.lock.RUnlock()
+
+		if ok {
 			o.send(msg, p)
 		}
 		return
@@ -120,11 +122,14 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 	o.lock.RUnlock()
 	msg.Head.Meta = head.Meta
 	allow := o.app.Forward(msg, head.Dest)
-	o.lock.RLock()
 
 	// Forwarding was allowed, repack headers and send
 	if allow {
-		if p, ok := o.livePeers[id.String()]; ok {
+		o.lock.RLock()
+		p, ok := o.livePeers[id.String()]
+		o.lock.RUnlock()
+
+		if ok {
 			head.Meta = msg.Head.Meta
 			msg.Head.Meta = head
 			o.send(msg, p)
@@ -136,20 +141,24 @@ func (o *Overlay) forward(src *peer, msg *proto.Message, id *big.Int) {
 // local state, whilst for state updates if verifies the timestamps and merges
 // if newer, also always replying if a repair request was included. Finally the
 // heartbeat messages are checked and two-way idle connections dropped.
-func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
-	// Notify the heartbeat mechanism that src is alive
+func (o *Overlay) process(src *peer, head *header) {
+	// Notify the heartbeat mechanism that source is alive
 	o.heart.heart.Ping(src.nodeId)
 
-	if s.Updated == 0 {
-		// Join request, discard self joins (rare race condition during update)
-		if o.nodeId.Cmp(dst) == 0 {
+	// Extract the remote id and state
+	remId, remState := head.Dest.String(), head.State
+
+	switch head.Op {
+	case opJoin:
+		// Discard self joins (rare race condition during update)
+		if o.nodeId.Cmp(head.Dest) == 0 {
 			return
 		}
 		// Node joining into currents responsibility list
-		if p, ok := o.livePeers[dst.String()]; !ok {
+		if p, ok := o.livePeers[remId]; !ok {
 			// Connect new peers and let the handshake do the state exchange
-			peerAddrs := make([]*net.TCPAddr, 0, len(s.Addrs[dst.String()]))
-			for _, a := range s.Addrs[dst.String()] {
+			peerAddrs := make([]*net.TCPAddr, 0, len(remState.Addrs[remId]))
+			for _, a := range remState.Addrs[remId] {
 				if addr, err := net.ResolveTCPAddr("tcp", a); err != nil {
 					log.Printf("pastry: failed to resolve address %v: %v.", a, err)
 				} else {
@@ -160,31 +169,36 @@ func (o *Overlay) process(src *peer, dst *big.Int, s *state) {
 		} else {
 			// Handshake should have already sent state, unless local isn't joined either
 			if o.stat != done {
-				o.stateExch.Schedule(func() { o.sendState(p, false) })
+				o.stateExch.Schedule(func() { o.sendState(p) })
 			}
 		}
-	} else {
-		// State update, merge into local if new
-		if s.Updated > src.time {
-			src.time = s.Updated
+	case opRepair:
+		// Respond to any repair requests
+		o.stateExch.Schedule(func() { o.sendState(src) })
 
-			// Respond to any repair requests
-			if s.Repair {
-				o.stateExch.Schedule(func() { o.sendState(src, false) })
-			}
-			// Make sure we don't cause a deadlock if blocked
-			o.lock.RUnlock()
-			o.exch(src, s)
-			o.lock.RLock()
-		}
-		// Connection filtering: drop after two requests and if local is idle too
-		if src.passive && s.Passive && !o.active(src.nodeId) {
+	case opActive:
+		// Ensure the peer is set to an active state
+		src.passive = false
+
+	case opPassive:
+		// If remote connection reported passive after being already registered as
+		// such locally too, drop the connection.
+		if src.passive && !o.active(src.nodeId) {
 			o.lock.RUnlock()
 			o.drop(src)
 			o.lock.RLock()
-		} else {
-			// Save passive state for next beat
-			src.passive = s.Passive
 		}
+	case opExchage:
+		// State update, merge into local if new
+		if remState.Version > src.time {
+			src.time = remState.Version
+
+			// Make sure we don't cause a deadlock if blocked
+			o.lock.RUnlock()
+			o.exch(src, remState)
+			o.lock.RLock()
+		}
+	default:
+		log.Printf("pastry: unknown system message: %+v", head)
 	}
 }

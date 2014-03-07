@@ -33,8 +33,8 @@ type table struct {
 	routes [][]*big.Int
 }
 
-// Creates a new empty routing table
-func newTable(origin *big.Int) *table {
+// Creates a new empty routing table.
+func newRoutingTable(origin *big.Int) *table {
 	res := new(table)
 
 	// Create the leaf set with only the origin point inside
@@ -50,7 +50,7 @@ func newTable(origin *big.Int) *table {
 }
 
 // Creates a copy of the routing table
-func (t *table) Copy() *table {
+func (t *table) copy() *table {
 	res := new(table)
 
 	// Copy the leafset

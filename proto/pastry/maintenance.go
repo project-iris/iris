@@ -59,7 +59,7 @@ func (o *Overlay) manager() {
 		// Copy the existing routing table if required
 		if routes == nil {
 			o.lock.RLock()
-			routes = o.routes.Copy()
+			routes = o.routes.copy()
 			o.lock.RUnlock()
 		}
 		// Reset any used temporary notification sets
@@ -152,7 +152,11 @@ func (o *Overlay) manager() {
 			o.stateExch.Clear()
 			for _, p := range o.livePeers {
 				p := p // Copy for closure!
-				o.stateExch.Schedule(func() { o.sendState(p, rep) })
+				if rep {
+					o.stateExch.Schedule(func() { o.sendRepair(p) })
+				} else {
+					o.stateExch.Schedule(func() { o.sendState(p) })
+				}
 			}
 			o.lock.RUnlock()
 		}

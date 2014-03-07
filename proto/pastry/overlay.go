@@ -106,7 +106,7 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 		addrs:  []string{},
 
 		livePeers: make(map[string]*peer),
-		routes:    newTable(nodeId),
+		routes:    newRoutingTable(nodeId),
 		time:      1,
 
 		acceptQuit: []chan chan error{},

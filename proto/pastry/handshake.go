@@ -288,7 +288,7 @@ func (o *Overlay) dedup(p *peer) {
 		if stat == none {
 			o.sendJoin(p)
 		} else if stat == done {
-			o.sendState(p, false)
+			o.sendState(p)
 		}
 		// If brand new peer, start monitoring it
 		if old == nil {

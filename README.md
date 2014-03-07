@@ -6,6 +6,7 @@
  * Development:
     - Separate control and data connections for prioritized system messages.
     - Graceful session tear-down.
+    - Fix pastry state exchange loopback.
     - Fix invalid bootstrap net mask (default -> actual).
     - Fix session handshake infinite wait.
     - Fix thread pool termination wait.

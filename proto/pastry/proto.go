@@ -17,11 +17,7 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// File containing the inter-node communication methods. For every connection
-// two separate go routines are started: a receiver that accepts inbound packets
-// executing the routing on the same thread and a sender which moves messages
-// from the application channel to the network socket. Network errors are
-// detected by the receiver, which notifies the overlay.
+// Contains the wire protocol for the pastry overlay communication.
 
 package pastry
 
@@ -32,21 +28,24 @@ import (
 	"github.com/karalabe/iris/proto"
 )
 
-// Overlay connection operation code type.
+// Pastry operation code type.
 type opcode uint8
 
-// Overlay connection operation types.
+// Pastry operation types.
 const (
-	opNop   opcode = iota // No-operation, placeholder for refactor
-	opClose               // Signal peer connection termination
+	opNop     opcode = iota // Application layer message
+	opJoin                  // Join request
+	opRepair                // Routing table repair request
+	opActive                // Heartbeat for an active peer
+	opPassive               // Heartbeat for a passive peer
+	opExchage               // Pastry state exchange
+	opClose                 // Leave request
 )
 
-// Routing state exchange message (leaves, neighbors and common row).
+// Routing state exchange message.
 type state struct {
-	Addrs   map[string][]string
-	Updated uint64
-	Repair  bool
-	Passive bool
+	Addrs   map[string][]string // Known peers and their network addresses
+	Version uint64              // Version counter to skip old messages
 }
 
 // Extra headers for the overlay.
@@ -69,57 +68,66 @@ func (o *Overlay) send(msg *proto.Message, p *peer) {
 	}
 }
 
-// Simple utility function to wrap the contents of a system message into the
-// wire format.
-func (o *Overlay) sendWrap(s *state, dest *big.Int, p *peer) {
+// Envelopes a pastry header into the generic packet container and sends it to
+// its destination via the peer connection.
+func (o *Overlay) sendPacket(dest *peer, head *header) {
+	// Assemble and send the final message
 	msg := &proto.Message{
 		Head: proto.Header{
-			Meta: &header{
-				Dest:  dest,
-				State: s,
-			},
+			Meta: head,
 		},
 	}
-	o.send(msg, p)
+	if err := dest.send(msg); err != nil {
+		o.drop(dest)
+	}
 }
 
-// Sends an overlay join message to the remote peer, which is a simple state
-// package having 0 as the update time and containing only the local addresses.
-func (o *Overlay) sendJoin(p *peer) {
-	s := new(state)
-	s.Addrs = make(map[string][]string)
-
-	// Ensure nodes can contact joining peer
-	o.lock.RLock()
-	s.Addrs[o.nodeId.String()] = o.addrs
-	o.lock.RUnlock()
-
-	o.sendWrap(s, o.nodeId, p)
+// Assembles an overlay join message, consisting of the join opcode and local
+// network addresses, sending it towards the destination node.
+func (o *Overlay) sendJoin(dest *peer) {
+	state := &state{
+		Addrs: map[string][]string{o.nodeId.String(): o.addrs},
+	}
+	o.sendPacket(dest, &header{Op: opJoin, Dest: o.nodeId, State: state})
 }
 
-// Sends an overlay state message to the remote peer and optionally may request a
-// state update in response (route repair).
-func (o *Overlay) sendState(p *peer, repair bool) {
-	s := new(state)
-	s.Addrs = make(map[string][]string)
-	s.Repair = repair
+// Assembles an overlay repair request, consisting of the repair opcode and
+// sends it towards the destination node.
+func (o *Overlay) sendRepair(dest *peer) {
+	o.sendPacket(dest, &header{Op: opRepair, Dest: o.nodeId})
+}
 
+// Assembles an overlay heartbeat message, consisting of the beat opcode and
+// tagged whether the connection is an active route entry or not, sending it
+// towards the destination node.
+func (o *Overlay) sendBeat(dest *peer, passive bool) {
+	if passive {
+		o.sendPacket(dest, &header{Op: opPassive, Dest: dest.nodeId})
+	} else {
+		o.sendPacket(dest, &header{Op: opActive, Dest: dest.nodeId})
+	}
+}
+
+// Assembles an overlay state message, consisting of the exchange opcode, the
+// current version of the routing table and the peer addresses deemed needed,
+// sending it towards the destination.
+func (o *Overlay) sendState(dest *peer) {
 	o.lock.RLock()
-	s.Updated = o.time
 
-	// Serialize the leaf set, common row and neighbor list into the address map.
-	// Make sure all entries are checked for existence to avoid a race condition
-	// with node dropping vs. table updates.
+	s := &state{
+		Addrs:   make(map[string][]string),
+		Version: o.time,
+	}
+
+	// Serialize our own addresses, the leaf set and common row
 	s.Addrs[o.nodeId.String()] = o.addrs
 	for _, id := range o.routes.leaves {
-		if id.Cmp(o.nodeId) != 0 {
-			sid := id.String()
-			if node, ok := o.livePeers[sid]; ok {
-				s.Addrs[sid] = node.addrs
-			}
+		sid := id.String()
+		if node, ok := o.livePeers[sid]; ok {
+			s.Addrs[sid] = node.addrs
 		}
 	}
-	idx, _ := prefix(o.nodeId, p.nodeId)
+	idx, _ := prefix(o.nodeId, dest.nodeId)
 	for _, id := range o.routes.routes[idx] {
 		if id != nil {
 			sid := id.String()
@@ -130,18 +138,6 @@ func (o *Overlay) sendState(p *peer, repair bool) {
 	}
 	o.lock.RUnlock()
 
-	o.sendWrap(s, o.nodeId, p)
-}
-
-// Sends a heartbeat message, tagging whether the connection is an active route
-// entry or not.
-func (o *Overlay) sendBeat(p *peer, passive bool) {
-	s := new(state)
-	s.Passive = passive
-
-	o.lock.RLock()
-	s.Updated = o.time
-	o.lock.RUnlock()
-
-	o.sendWrap(s, p.nodeId, p)
+	// Send the state exchange
+	o.sendPacket(dest, &header{Op: opExchage, Dest: dest.nodeId, State: s})
 }
