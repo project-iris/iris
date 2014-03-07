@@ -141,3 +141,9 @@ func (o *Overlay) sendState(dest *peer) {
 	// Send the state exchange
 	o.sendPacket(dest, &header{Op: opExchage, Dest: dest.nodeId, State: s})
 }
+
+// Assembles an overlay leave message, consisting of the close opcode and sends
+// it towards the destination.
+func (o *Overlay) sendClose(dest *peer) {
+	o.sendPacket(dest, &header{Op: opClose, Dest: dest.nodeId})
+}

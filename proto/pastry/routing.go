@@ -40,16 +40,16 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 
 	// Extract some vars for easier access
 	tab := o.routes
-	dst := msg.Head.Meta.(*header).Dest
+	dest := msg.Head.Meta.(*header).Dest
 
 	// Check the leaf set for direct delivery
-	// TODO: corner cases with if only handful of nodes
+	// TODO: corner cases with if only handful of nodes?
 	// TODO: binary search with idSlice could be used (worthwhile?)
-	if delta(tab.leaves[0], dst).Sign() >= 0 && delta(dst, tab.leaves[len(tab.leaves)-1]).Sign() >= 0 {
+	if delta(tab.leaves[0], dest).Sign() >= 0 && delta(dest, tab.leaves[len(tab.leaves)-1]).Sign() >= 0 {
 		best := tab.leaves[0]
-		dist := distance(best, dst)
+		dist := distance(best, dest)
 		for _, leaf := range tab.leaves[1:] {
-			if d := distance(leaf, dst); d.Cmp(dist) < 0 {
+			if d := distance(leaf, dest); d.Cmp(dist) < 0 {
 				best, dist = leaf, d
 			}
 		}
@@ -62,15 +62,15 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 		return
 	}
 	// Check the routing table for indirect delivery
-	pre, col := prefix(o.nodeId, dst)
+	pre, col := prefix(o.nodeId, dest)
 	if best := tab.routes[pre][col]; best != nil {
 		o.forward(src, msg, best)
 		return
 	}
 	// Route to anybody closer than the local node
-	dist := distance(o.nodeId, dst)
+	dist := distance(o.nodeId, dest)
 	for _, peer := range tab.leaves {
-		if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
+		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
@@ -78,7 +78,7 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 	for _, row := range tab.routes {
 		for _, peer := range row {
 			if peer != nil {
-				if p, _ := prefix(peer, dst); p >= pre && distance(peer, dst).Cmp(dist) < 0 {
+				if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
 					o.forward(src, msg, peer)
 					return
 				}
@@ -198,6 +198,12 @@ func (o *Overlay) process(src *peer, head *header) {
 			o.exch(src, remState)
 			o.lock.RLock()
 		}
+	case opClose:
+		// Remote side requested a graceful close
+		o.lock.RUnlock()
+		o.drop(src)
+		o.lock.RLock()
+
 	default:
 		log.Printf("pastry: unknown system message: %+v", head)
 	}

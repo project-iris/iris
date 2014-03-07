@@ -103,7 +103,7 @@ func TestThreadPool(t *testing.T) {
 		}
 	}
 	time.Sleep(10 * time.Millisecond)
-	pool.Terminate()
+	pool.Terminate(true)
 	time.Sleep(150 * time.Millisecond)
 	if count != 3 {
 		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 3)
@@ -206,44 +206,50 @@ func TestClear(t *testing.T) {
 func TestTerminate(t *testing.T) {
 	t.Parallel()
 
-	mutex := new(sync.Mutex)
-	started := 0
-	workers := 32
+	// Test termination with both clear flags
+	for _, clear := range []bool{false, true} {
+		mutex := new(sync.Mutex)
+		started := 0
+		workers := 32
 
-	// Create the pool and schedule more work than workers
-	pool := NewThreadPool(workers)
-	for i := 0; i < workers*8; i++ {
-		err := pool.Schedule(func() {
-			mutex.Lock()
-			started++
-			mutex.Unlock()
+		// Create the pool and schedule more work than workers
+		pool := NewThreadPool(workers)
+		for i := 0; i < workers*8; i++ {
+			err := pool.Schedule(func() {
+				mutex.Lock()
+				started++
+				mutex.Unlock()
 
-			time.Sleep(10 * time.Millisecond)
-		})
-		if err != nil {
-			t.Fatalf("failed to schedule task: %v.", err)
+				time.Sleep(10 * time.Millisecond)
+			})
+			if err != nil {
+				t.Fatalf("failed to schedule task: %v.", err)
+			}
 		}
-	}
-	pool.Start()
+		pool.Start()
 
-	// Launch a number of terminations to ensure correct blocking and no deadlocks (issue #7)
-	for i := 0; i < 16; i++ {
-		go pool.Terminate()
-	}
-	pool.Terminate() // main terminator
+		// Launch a number of terminations to ensure correct blocking and no deadlocks (issue #7)
+		for i := 0; i < 16; i++ {
+			go pool.Terminate(clear)
+		}
+		pool.Terminate(clear) // main terminator
 
-	// Ensure terminate blocked until current workers have finished
-	if started != workers {
-		t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
-	}
-	// Ensure that no more tasks can be scheduled
-	if err := pool.Schedule(func() {}); err == nil {
-		t.Fatalf("task scheduling succeeded, shouldn't have.")
-	}
-	time.Sleep(20 * time.Millisecond)
-
-	// No extra tasks should finish
-	if started != workers {
-		t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
+		// Ensure terminate blocked until current workers have finished
+		if clear && started != workers {
+			t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
+		} else if !clear && started != workers*8 {
+			t.Fatalf("task completion mismatch: have %d, want %d.", started, workers*8)
+		}
+		// Ensure that no more tasks can be scheduled
+		if err := pool.Schedule(func() {}); err == nil {
+			t.Fatalf("task scheduling succeeded, shouldn't have.")
+		}
+		// Verify whether the pool was cleared or not before termination
+		time.Sleep(20 * time.Millisecond)
+		if clear && started != workers {
+			t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
+		} else if !clear && started != workers*8 {
+			t.Fatalf("task completion mismatch: have %d, want %d.", started, workers*8)
+		}
 	}
 }

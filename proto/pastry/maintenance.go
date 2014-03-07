@@ -33,6 +33,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/karalabe/iris/pool"
+
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/ext/mathext"
 	"github.com/karalabe/iris/ext/sortext"
@@ -124,12 +126,15 @@ func (o *Overlay) manager() {
 						peerAddrs = append(peerAddrs, addr)
 					}
 				}
-				// Initiate a connection to the remote peer
+				// Initiate a connection to the remote peer (make sure the lock is not lost)
 				pending.Add(1)
-				o.authInit.Schedule(func() {
+				err := o.authInit.Schedule(func() {
 					defer pending.Done()
 					o.dial(peerAddrs)
 				})
+				if err == pool.ErrTerminating {
+					pending.Done()
+				}
 			}
 			// Wait till all outbound connections either complete or timeout
 			pending.Wait()
@@ -166,6 +171,16 @@ func (o *Overlay) manager() {
 		pending.Add(1)
 		go func(p *peer) {
 			defer pending.Done()
+			// Send a pastry leave to the remote node and wait
+			o.sendClose(p)
+
+			// Wait a while for remote tear-down
+			select {
+			case <-p.drop:
+			case <-time.After(time.Second):
+				log.Printf("pastry: graceful session close timed out.")
+			}
+			// Success or not, close the session
 			if err := p.Close(); err != nil {
 				log.Printf("pastry: failed to close peer during termination: %v.", err)
 			}

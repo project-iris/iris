@@ -80,11 +80,13 @@ func (h *heartbeat) Beat() {
 // Implements heat.Callback.Dead, handling the event of a remote peer missing
 // all its beats. The peers is reported dead and dropped.
 func (h *heartbeat) Dead(id *big.Int) {
-	h.owner.lock.RLock()
-	defer h.owner.lock.RUnlock()
-
 	log.Printf("pastry: remote peer reported dead: %v.", id)
-	if p, ok := h.owner.livePeers[id.String()]; ok {
-		h.owner.drop(p)
+
+	h.owner.lock.RLock()
+	dead, ok := h.owner.livePeers[id.String()]
+	h.owner.lock.RUnlock()
+
+	if ok {
+		h.owner.drop(dead)
 	}
 }

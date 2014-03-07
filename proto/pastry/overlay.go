@@ -182,20 +182,15 @@ func (o *Overlay) Shutdown() error {
 		}
 	}
 	// Wait for all pending handshakes to finish
-	o.authAccept.Terminate()
-	o.authInit.Terminate()
-
-	// Broadcast a termination to all active peers
-	// TODO
-	// Wait for remote peers to acknowledge overlay shutdown
-	// TODO
+	o.authAccept.Terminate(false)
+	o.authInit.Terminate(false)
 
 	// Terminate the heartbeat mechanism
 	if err := o.heart.terminate(); err != nil {
 		errs = append(errs, err)
 	}
 	// Wait for all state exchanges to finish
-	o.stateExch.Terminate()
+	o.stateExch.Terminate(true)
 
 	// Terminate the maintainer and all peer connections with it
 	o.maintQuit <- errc

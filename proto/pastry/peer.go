@@ -55,6 +55,7 @@ type peer struct {
 
 	// Maintenance fields
 	quit chan chan error // Synchronizes peer termination
+	drop chan struct{}   // Channel sync for remote drop on graceful tear-down
 	term bool            // Specifies whether the peer terminated already or not
 	lock sync.Mutex      // Lock to protect the close mechanism
 }
@@ -73,6 +74,7 @@ func (o *Overlay) newPeer(ses *session.Session) *peer {
 
 		// Transport and maintenance channels
 		quit: make(chan chan error),
+		drop: make(chan struct{}),
 	}
 }
 
@@ -166,6 +168,7 @@ func (p *peer) processor() {
 		}
 	}
 	// Signal the overlay of the connection drop
+	close(p.drop)
 	if errc == nil {
 		p.owner.drop(p)
 	}

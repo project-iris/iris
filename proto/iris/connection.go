@@ -21,12 +21,13 @@ package iris
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto/carrier"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/pool"
+	"github.com/karalabe/iris/proto/carrier"
 )
 
 var appPrefixes []string
@@ -243,5 +244,5 @@ func (c *connection) Close() {
 	c.conn.Close()
 
 	// Terminate the worker pool
-	c.workers.Terminate()
+	c.workers.Terminate(true)
 }

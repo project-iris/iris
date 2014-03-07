@@ -77,12 +77,14 @@ func (t *ThreadPool) Start() {
 
 // Waits for all threads to finish, terminating the whole pool afterwards. No
 // new tasks are accepted in the meanwhile.
-func (t *ThreadPool) Terminate() {
+func (t *ThreadPool) Terminate(clear bool) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
 	t.quit = true
-	t.tasks.Reset()
+	if clear {
+		t.tasks.Reset()
+	}
 
 	for t.idle < t.total {
 		t.done.Wait()

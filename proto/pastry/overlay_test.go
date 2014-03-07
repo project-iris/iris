@@ -20,6 +20,7 @@
 package pastry
 
 import (
+	"log"
 	"math/big"
 	"time"
 
@@ -90,6 +91,7 @@ type nopCallback struct {
 }
 
 func (cb *nopCallback) Deliver(msg *proto.Message, key *big.Int) {
+	log.Printf("nop callback delivered a message")
 }
 
 func (cb *nopCallback) Forward(msg *proto.Message, key *big.Int) bool {

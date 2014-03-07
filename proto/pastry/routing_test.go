@@ -25,6 +25,8 @@ import (
 	"crypto/x509"
 	"io"
 	"math/big"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,9 +36,13 @@ import (
 
 type collector struct {
 	delivs []*proto.Message
+	lock   sync.Mutex
 }
 
 func (c *collector) Deliver(msg *proto.Message, key *big.Int) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
 	c.delivs = append(c.delivs, msg)
 }
 
@@ -64,7 +70,7 @@ func TestRouting(t *testing.T) {
 	// Create the callbacks to listen on incoming messages
 	apps := []*collector{}
 	for i := 0; i < originals; i++ {
-		apps = append(apps, &collector{[]*proto.Message{}})
+		apps = append(apps, &collector{delivs: []*proto.Message{}})
 	}
 	// Start handful of nodes and ensure valid routing state
 	nodes := []*Overlay{}
@@ -144,17 +150,23 @@ func TestRouting(t *testing.T) {
 		}(i, quit[i])
 	}
 	// Boot a few more nodes and shut them down afterwards
+	pend := new(sync.WaitGroup)
 	for i := 0; i < additions; i++ {
-		nodes = append(nodes, New(appId, key, new(nopCallback)))
-		if _, err := nodes[originals+i].Boot(); err != nil {
-			t.Fatalf("failed to boot additional node: %v.", err)
-		}
+		pend.Add(1)
+		go func() {
+			defer pend.Done()
+
+			temp := New(appId, key, new(nopCallback))
+			if _, err := temp.Boot(); err != nil {
+				t.Fatalf("failed to boot additional node: %v.", err)
+			}
+			if err := temp.Shutdown(); err != nil {
+				t.Fatalf("failed to terminate additional node: %v.", err)
+			}
+		}()
 	}
-	for i := 0; i < additions; i++ {
-		if err := nodes[originals+i].Shutdown(); err != nil {
-			t.Fatalf("failed to terminate additional node: %v.", err)
-		}
-	}
+	pend.Wait()
+
 	// Terminate all the senders
 	for i := 0; i < len(quit); i++ {
 		q := make(chan struct{})
@@ -303,14 +315,14 @@ func BenchmarkThroughput1MByte(b *testing.B) {
 	benchmarkThroughput(b, 1048576)
 }
 
-// Overlay pllication callback to wait for a number of messages and signal afterwards.
+// Overlay application callback to wait for a number of messages and signal afterwards.
 type waiter struct {
-	left int
+	left int32
 	quit chan struct{}
 }
 
 func (w *waiter) Deliver(msg *proto.Message, key *big.Int) {
-	if w.left--; w.left <= 0 {
+	if atomic.AddInt32(&w.left, -1) == 0 {
 		close(w.quit)
 	}
 }
@@ -340,7 +352,10 @@ func benchmarkThroughput(b *testing.B, block int) {
 	send.Boot()
 	defer send.Shutdown()
 
-	wait := &waiter{b.N, make(chan struct{})}
+	wait := &waiter{
+		left: int32(b.N),
+		quit: make(chan struct{}),
+	}
 	recv := New(appId, key, wait)
 	recv.Boot()
 	defer recv.Shutdown()
