@@ -85,15 +85,17 @@ func TestRouting(t *testing.T) {
 
 	// Create the messages to pass around
 	meta := []byte{0x99, 0x98, 0x97, 0x96}
-	head := proto.Header{make([]byte, len(meta)), []byte{0x00, 0x01}, []byte{0x02, 0x03}}
-	copy(head.Meta.([]byte), meta)
-
 	msgs := make([][]proto.Message, originals)
 	for i := 0; i < originals; i++ {
 		msgs[i] = make([]proto.Message, originals)
 		for j := 0; j < originals; j++ {
-			msgs[i][j].Head = head
-			msgs[i][j].Data = []byte(nodes[i].nodeId.String() + nodes[j].nodeId.String())
+			msgs[i][j] = proto.Message{
+				Head: proto.Header{
+					Meta: meta,
+				},
+				Data: []byte(nodes[i].nodeId.String() + nodes[j].nodeId.String()),
+			}
+			msgs[i][j].Encrypt()
 		}
 	}
 	// Check that each node can route to everybody

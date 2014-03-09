@@ -133,6 +133,7 @@ func TestDirectSendRecv(t *testing.T) {
 		}
 		io.ReadFull(rand.Reader, send.Head.Meta.([]byte))
 		io.ReadFull(rand.Reader, send.Data)
+		send.Encrypt()
 
 		// Send the message from client to server
 		if err := clientLink.SendDirect(send); err != nil {
@@ -203,12 +204,13 @@ func TestSendRecv(t *testing.T) {
 		}
 		io.ReadFull(rand.Reader, send.Head.Meta.([]byte))
 		io.ReadFull(rand.Reader, send.Data)
+		send.Encrypt()
 
 		// Send the message from client to server
 		select {
 		case clientLink.Send <- send:
 			// Ok
-		case <-time.After(25 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("client send timed out")
 		}
 		select {
@@ -219,14 +221,14 @@ func TestSendRecv(t *testing.T) {
 			if bytes.Compare(send.Head.Meta.([]byte), recv.Head.Meta.([]byte)) != 0 || bytes.Compare(send.Data, recv.Data) != 0 {
 				t.Fatalf("send/receive mismatch: have %+v, want %+v.", recv, send)
 			}
-		case <-time.After(25 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("server receive timed out")
 		}
 		// Send the message from server to client
 		select {
 		case serverLink.Send <- send:
 			// Ok
-		case <-time.After(25 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("server send timed out")
 		}
 		select {
@@ -237,7 +239,7 @@ func TestSendRecv(t *testing.T) {
 			if bytes.Compare(send.Head.Meta.([]byte), recv.Head.Meta.([]byte)) != 0 || bytes.Compare(send.Data, recv.Data) != 0 {
 				t.Fatalf("send/receive mismatch: have %+v, want %+v.", recv, send)
 			}
-		case <-time.After(25 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("client receive timed out")
 		}
 	}

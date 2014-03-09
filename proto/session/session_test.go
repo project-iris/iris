@@ -29,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
 )
 
@@ -44,7 +43,7 @@ func TestForward(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to start the session listener: %v.", err)
 	}
-	sock.Accept(10 * time.Millisecond)
+	sock.Accept(100 * time.Millisecond)
 
 	client, err := Dial("localhost", addr.Port, key)
 	if err != nil {
@@ -59,17 +58,14 @@ func TestForward(t *testing.T) {
 	// Generate the messages to transmit
 	msgs := make([]proto.Message, 1000)
 	for i := 0; i < len(msgs); i++ {
-		blob := make([]byte, 768)
-		io.ReadFull(rand.Reader, blob)
-
 		msgs[i] = proto.Message{
 			Head: proto.Header{
 				Meta: []byte("meta"),
-				Key:  blob[0:256],
-				Iv:   blob[256:512],
 			},
-			Data: blob[512:768],
+			Data: make([]byte, 256),
 		}
+		io.ReadFull(rand.Reader, msgs[i].Data)
+		msgs[i].Encrypt()
 	}
 	// Send from client to server
 	go func() {
@@ -82,7 +78,7 @@ func TestForward(t *testing.T) {
 		select {
 		case msg := <-server.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("receive timed out")
 			break
 		}
@@ -104,7 +100,7 @@ func TestForward(t *testing.T) {
 		select {
 		case msg := <-client.CtrlLink.Recv:
 			recvs[i] = *msg
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("receive timed out")
 			break
 		}
@@ -126,8 +122,8 @@ func TestForward(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to close a session: %v.", err)
 			}
-		case <-time.After(25 * time.Millisecond):
-			t.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("session tear-down timeout.")
 		}
 	}
 	// Tear down the listener
@@ -189,7 +185,7 @@ func benchmarkLatency(b *testing.B, block int) {
 	if err != nil {
 		b.Fatalf("failed to start the session listener: %v.", err)
 	}
-	sock.Accept(10 * time.Millisecond)
+	sock.Accept(100 * time.Millisecond)
 
 	client, err := Dial("localhost", addr.Port, key)
 	if err != nil {
@@ -201,23 +197,18 @@ func benchmarkLatency(b *testing.B, block int) {
 	client.Start(64)
 	server.Start(64)
 
-	// Create a header of the right size
-	msgKey := make([]byte, config.PacketCipherBits/8)
-	io.ReadFull(rand.Reader, msgKey)
-	cipher, _ := config.PacketCipher(msgKey)
-
-	iv := make([]byte, cipher.BlockSize())
-	io.ReadFull(rand.Reader, iv)
-
-	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, msgKey, iv}
-
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
 	msgs := make([]proto.Message, b.N)
 	for i := 0; i < b.N; i++ {
-		msgs[i].Head = head
-		msgs[i].Data = make([]byte, block)
+		msgs[i] = proto.Message{
+			Head: proto.Header{
+				Meta: []byte{0x99, 0x98, 0x97, 0x96},
+			},
+			Data: make([]byte, block),
+		}
 		io.ReadFull(rand.Reader, msgs[i].Data)
+		msgs[i].Encrypt()
 	}
 	// Create the client and server runner routines with a sync channel
 	syncer := make(chan struct{})
@@ -260,8 +251,8 @@ func benchmarkLatency(b *testing.B, block int) {
 			if err != nil {
 				b.Fatalf("failed to close a session: %v.", err)
 			}
-		case <-time.After(25 * time.Millisecond):
-			b.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
+		case <-time.After(100 * time.Millisecond):
+			b.Fatalf("session tear-down timeout.")
 		}
 	}
 	// Tear down the listener
@@ -323,7 +314,7 @@ func benchmarkThroughput(b *testing.B, block int) {
 	if err != nil {
 		b.Fatalf("failed to start the session listener: %v.", err)
 	}
-	sock.Accept(10 * time.Millisecond)
+	sock.Accept(100 * time.Millisecond)
 
 	client, err := Dial("localhost", addr.Port, key)
 	if err != nil {
@@ -335,23 +326,18 @@ func benchmarkThroughput(b *testing.B, block int) {
 	client.Start(64)
 	server.Start(64)
 
-	// Create a header of the right size
-	msgKey := make([]byte, config.PacketCipherBits/8)
-	io.ReadFull(rand.Reader, msgKey)
-	cipher, _ := config.PacketCipher(msgKey)
-
-	iv := make([]byte, cipher.BlockSize())
-	io.ReadFull(rand.Reader, iv)
-
-	head := proto.Header{[]byte{0x99, 0x98, 0x97, 0x96}, msgKey, iv}
-
 	// Generate a large batch of random data to forward
 	b.SetBytes(int64(block))
 	msgs := make([]proto.Message, b.N)
 	for i := 0; i < b.N; i++ {
-		msgs[i].Head = head
-		msgs[i].Data = make([]byte, block)
+		msgs[i] = proto.Message{
+			Head: proto.Header{
+				Meta: []byte{0x99, 0x98, 0x97, 0x96},
+			},
+			Data: make([]byte, block),
+		}
 		io.ReadFull(rand.Reader, msgs[i].Data)
+		msgs[i].Encrypt()
 	}
 	// Create the client and server runner routines
 	var run sync.WaitGroup
@@ -391,8 +377,8 @@ func benchmarkThroughput(b *testing.B, block int) {
 			if err != nil {
 				b.Fatalf("failed to close a session: %v.", err)
 			}
-		case <-time.After(25 * time.Millisecond):
-			b.Fatalf("failed to tear down session in %v.", 25*time.Millisecond)
+		case <-time.After(100 * time.Millisecond):
+			b.Fatalf("session tear-down timeout.")
 		}
 	}
 	// Tear down the listener

@@ -176,6 +176,10 @@ func (l *Link) Close() error {
 func (l *Link) SendDirect(msg *proto.Message) error {
 	var err error
 
+	// Sanity check for message data security
+	if !msg.Secure() && len(msg.Data) > 0 {
+		return errors.New("unsecured data, send denied")
+	}
 	// Flatten and encrypt the headers
 	if err = l.outCoder.Encode(msg.Head); err != nil {
 		return err

@@ -24,8 +24,9 @@ package proto
 import (
 	"crypto/cipher"
 	"crypto/rand"
-	"github.com/karalabe/iris/config"
 	"io"
+
+	"github.com/karalabe/iris/config"
 )
 
 // Baseline message headers.
@@ -39,6 +40,8 @@ type Header struct {
 type Message struct {
 	Head Header // Baseline headers
 	Data []byte // Payload in plain or ciphertext form
+
+	secure bool // Flag specifying whether the data segment was encrypted or not
 }
 
 // Encrypts a plaintext message with a temporary key and IV.
@@ -63,6 +66,8 @@ func (m *Message) Encrypt() error {
 	stream.XORKeyStream(m.Data, m.Data)
 	m.Head.Key = key
 	m.Head.Iv = iv
+
+	m.secure = true
 	return nil
 }
 
@@ -80,4 +85,9 @@ func (m *Message) Decrypt() error {
 	m.Head.Key = nil
 	m.Head.Iv = nil
 	return nil
+}
+
+// Returns whether the message was secured or not.
+func (m *Message) Secure() bool {
+	return m.secure
 }
