@@ -1,5 +1,5 @@
 // Iris - Decentralized Messaging Framework
-// Copyright 2013 Peter Szilagyi. All rights reserved.
+// Copyright 2014 Peter Szilagyi. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
 // terms of the GNU General Public License as published by the Free Software
@@ -17,9 +17,8 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// Contains the encrypted network link implementation for the session.
-
-package session
+// Package link contains the encrypted network link implementation.
+package link
 
 import (
 	"bytes"
@@ -47,7 +46,9 @@ func init() {
 	gob.Register(&closePacket{})
 }
 
-// Accomplishes secure and authenticated full duplex communication.
+// Accomplishes secure and authenticated full duplex communication. Note, only
+// the headers are encrypted and decrypted. It is the responsibility of the
+// caller to call proto.Message.Encrypt/Decrypt (link would bottleneck).
 type Link struct {
 	socket *stream.Stream
 
@@ -72,19 +73,17 @@ type Link struct {
 	recvQuit chan chan error
 }
 
-// Creates a new, full-duplex session link from the negotiated secret. The
-// initiator is used to decide the key derivation order for the two half-duplex
-// channels.
-//
-// Note, this only configures the crypto primitives, the data stream must be
-// added separately.
-func newLink(hkdf io.Reader, initiator bool) *Link {
-	l := new(Link)
-
+// Creates a new, full-duplex encrypted link from the negotiated secret. The
+// client is used to decide the key derivation order for the two half-duplex
+// channels (server keys first, client key second).
+func New(conn *stream.Stream, hkdf io.Reader, server bool) *Link {
+	l := &Link{
+		socket: conn,
+	}
 	// Create the duplex channel
 	sc, sm := makeHalfDuplex(hkdf)
 	cc, cm := makeHalfDuplex(hkdf)
-	if initiator {
+	if server {
 		l.inCipher, l.outCipher, l.inMacer, l.outMacer = cc, sc, cm, sm
 	} else {
 		l.inCipher, l.outCipher, l.inMacer, l.outMacer = sc, cc, sm, cm
@@ -129,7 +128,7 @@ func makeHalfDuplex(hkdf io.Reader) (cipher.Stream, hash.Hash) {
 }
 
 // Creates the buffer channels and starts the transfer processes.
-func (l *Link) start(cap int) {
+func (l *Link) Start(cap int) {
 	// Create the data and quit channels
 	l.Send = make(chan *proto.Message, cap)
 	l.Recv = make(chan *proto.Message, cap)
@@ -142,7 +141,7 @@ func (l *Link) start(cap int) {
 }
 
 // Terminates any live data transfer go routines and closes the underlying sock.
-func (l *Link) close() error {
+func (l *Link) Close() error {
 	var res error
 
 	// Set a maximum timeout for the graceful closes to finish
@@ -172,8 +171,9 @@ func (l *Link) close() error {
 }
 
 // The actual message sending logic. Calculates the payload MAC, encrypts the
-// headers and sends it down to the stream.
-func (l *Link) send(msg *proto.Message) error {
+// headers and sends it down to the stream. Direct send is public for handshake
+// simplifications. After that is done, the link should switch to channel mode.
+func (l *Link) SendDirect(msg *proto.Message) error {
 	var err error
 
 	// Flatten and encrypt the headers
@@ -201,8 +201,9 @@ func (l *Link) send(msg *proto.Message) error {
 }
 
 // The actual message receiving logic. Reads a message from the stream, verifies
-// its mac, decodes the headers and send it upwards.
-func (l *Link) recv() (*proto.Message, error) {
+// its mac, decodes the headers and send it upwards. Direct receive is public for
+// handshake simplifications, after which the link should switch to channel mode.
+func (l *Link) RecvDirect() (*proto.Message, error) {
 	var msg proto.Message
 	var err error
 
@@ -243,7 +244,7 @@ func (l *Link) sender() {
 		case errc = <-l.sendQuit:
 			continue
 		case msg := <-l.Send:
-			errv = l.send(msg)
+			errv = l.SendDirect(msg)
 		}
 	}
 	// If quit was requested, send all pending messages and close packet
@@ -252,14 +253,14 @@ func (l *Link) sender() {
 		for done := false; !done && errv == nil; {
 			select {
 			case msg := <-l.Send:
-				errv = l.send(msg)
+				errv = l.SendDirect(msg)
 			default:
 				done = true
 			}
 		}
 		// Send the final close packet
 		if errv == nil {
-			errv = l.send(&proto.Message{
+			errv = l.SendDirect(&proto.Message{
 				Head: proto.Header{
 					Meta: &closePacket{},
 				},
@@ -280,7 +281,7 @@ func (l *Link) receiver() {
 	// Loop until an error occurs or quit is requested
 	for errv == nil && errc == nil {
 		// Fetch the next message from the encrypted link
-		msg, err := l.recv()
+		msg, err := l.RecvDirect()
 		if err != nil {
 			errv = err
 			continue

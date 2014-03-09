@@ -184,7 +184,7 @@ func (l *Listener) serverHandle(strm *stream.Stream, timeout time.Duration) {
 			return
 		}
 		// Create the session and link a data channel to it
-		sess := newSession(strm, secret, false)
+		sess := newSession(strm, secret, true)
 		if err = l.serverLink(sess); err != nil {
 			log.Printf("session: failed to retrieve data link: %v.", err)
 			if err = strm.Close(); err != nil {
@@ -239,7 +239,7 @@ func Dial(host string, port int, key *rsa.PrivateKey) (*Session, error) {
 		}
 	}
 	// Link a new data connection to it
-	sess := newSession(strm, secret, true)
+	sess := newSession(strm, secret, false)
 	if err = clientLink(sess); err != nil {
 		log.Printf("session: failed to link data connection: %v.", err)
 		if err := strm.Close(); err != nil {
@@ -347,13 +347,13 @@ func (l *Listener) serverLink(sess *Session) error {
 			Meta: &linkRequest{id},
 		},
 	}
-	if err = sess.CtrlLink.send(msg); err != nil {
+	if err = sess.CtrlLink.SendDirect(msg); err != nil {
 		return fmt.Errorf("failed to send session id: %v", err)
 	}
 	// Wait for the data link or time out
 	select {
 	case strm := <-data:
-		sess.DataLink.socket = strm
+		sess.init(strm, true)
 	case <-time.After(config.SessionLinkTimeout):
 		return errors.New("link timeout")
 	}
@@ -364,10 +364,10 @@ func (l *Listener) serverLink(sess *Session) error {
 		},
 	}
 	// Retrieve the remote data link authentication
-	if err = sess.DataLink.send(auth); err != nil {
+	if err = sess.DataLink.SendDirect(auth); err != nil {
 		return fmt.Errorf("failed to send data auth: %v", err)
 	}
-	if msg, err := sess.DataLink.recv(); err != nil {
+	if msg, err := sess.DataLink.RecvDirect(); err != nil {
 		return fmt.Errorf("failed to retrieve data auth: %v", err)
 	} else if res, ok := msg.Head.Meta.(*linkRequest); !ok {
 		return errors.New("corrupt auth message")
@@ -380,12 +380,12 @@ func (l *Listener) serverLink(sess *Session) error {
 // Initiates a data channel link to the specified control channel.
 func clientLink(sess *Session) error {
 	// Wait for the server to specify the session id
-	msg, err := sess.CtrlLink.recv()
+	msg, err := sess.CtrlLink.RecvDirect()
 	if err != nil {
 		return fmt.Errorf("failed to retrieve session id: %v", err)
 	}
 	// Initiate a new stream connection to the server
-	addr := sess.CtrlLink.socket.Sock().RemoteAddr().String()
+	addr := sess.CtrlLink.Sock().RemoteAddr().String()
 	strm, err := stream.Dial(addr, config.SessionDialTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to establish data link: %v", err)
@@ -403,7 +403,7 @@ func clientLink(sess *Session) error {
 		return fmt.Errorf("failed to flush link request: %v", err)
 	}
 	// Finalize the session with the data stream
-	sess.DataLink.socket = strm
+	sess.init(strm, false)
 
 	// Send the data link authentication
 	auth := &proto.Message{
@@ -412,10 +412,10 @@ func clientLink(sess *Session) error {
 		},
 	}
 	// Retrieve the remote data link authentication
-	if err = sess.DataLink.send(auth); err != nil {
+	if err = sess.DataLink.SendDirect(auth); err != nil {
 		return fmt.Errorf("failed to send data auth: %v", err)
 	}
-	if msg, err := sess.DataLink.recv(); err != nil {
+	if msg, err := sess.DataLink.RecvDirect(); err != nil {
 		return fmt.Errorf("failed to retrieve data auth: %v", err)
 	} else if res, ok := msg.Head.Meta.(*linkRequest); !ok {
 		return errors.New("corrupt authentication message")

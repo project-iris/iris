@@ -20,7 +20,6 @@
 package session
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"net"
@@ -51,10 +50,6 @@ func TestHandshake(t *testing.T) {
 		// Make sure the server also gets back a live session
 		select {
 		case server := <-sock.Sink:
-			// Check the session internals
-			testLinkCiphers(t, client.CtrlLink, server.CtrlLink)
-			testLinkCiphers(t, client.DataLink, server.DataLink)
-
 			// Close the two sessions
 			if err := client.Close(); err != nil {
 				t.Fatalf("failed to close client session: %v.", err)
@@ -70,38 +65,6 @@ func TestHandshake(t *testing.T) {
 	// Ensure the listener can be torn down correctly
 	if err := sock.Close(); err != nil {
 		t.Fatalf("failed to terminate session listener: %v.", err)
-	}
-}
-
-// Tests whether server and client side crypto primitives match.
-func testLinkCiphers(t *testing.T, client, server *Link) {
-	clientData := make([]byte, 4096)
-	serverData := make([]byte, 4096)
-
-	// Control channel check
-	client.inCipher.XORKeyStream(clientData, clientData)
-	server.outCipher.XORKeyStream(serverData, serverData)
-	if !bytes.Equal(clientData, serverData) {
-		t.Fatalf("cipher mismatch on the session endpoints")
-	}
-	client.outCipher.XORKeyStream(clientData, clientData)
-	server.inCipher.XORKeyStream(serverData, serverData)
-	if !bytes.Equal(clientData, serverData) {
-		t.Fatalf("cipher mismatch on the session endpoints")
-	}
-	client.inMacer.Write(clientData)
-	server.outMacer.Write(serverData)
-	clientData = client.inMacer.Sum(nil)
-	serverData = server.outMacer.Sum(nil)
-	if !bytes.Equal(clientData, serverData) {
-		t.Fatalf("macer mismatch on the session endpoints")
-	}
-	client.outMacer.Write(clientData)
-	server.inMacer.Write(serverData)
-	clientData = client.outMacer.Sum(nil)
-	serverData = server.inMacer.Sum(nil)
-	if !bytes.Equal(clientData, serverData) {
-		t.Fatalf("macer mismatch on the session endpoints")
 	}
 }
 
