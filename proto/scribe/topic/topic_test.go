@@ -20,14 +20,16 @@
 package topic
 
 import (
-	"github.com/karalabe/iris/ext/sortext"
 	"math/big"
 	"testing"
+
+	"github.com/karalabe/iris/ext/sortext"
 )
 
 func TestTopic(t *testing.T) {
 	// Define some setup parameters for the test
 	topicId := big.NewInt(314)
+	ownerId := big.NewInt(141)
 
 	nodeIds := []int64{1, 2, 3, 4, 5}
 	nodes := make([]*big.Int, len(nodeIds))
@@ -36,52 +38,33 @@ func TestTopic(t *testing.T) {
 	}
 	sortext.BigInts(nodes)
 
-	appIds := []int64{11, 12, 13, 14, 15}
-	apps := make([]*big.Int, len(appIds))
-	for i, id := range appIds {
-		apps[i] = big.NewInt(id)
-	}
-	sortext.BigInts(apps)
-
 	// Create the topic and check internal state
-	top := New(topicId)
+	top := New(topicId, ownerId)
 	if id := top.Self(); id.Cmp(topicId) != 0 {
 		t.Fatalf("topic id mismatch: have %v, want %v.", id, topicId)
 	}
-	// Check subscribe and unsubscribe features
+	if id := top.owner; id.Cmp(ownerId) != 0 {
+		t.Fatalf("topic owner mismatch: have %v, want %v.", id, ownerId)
+	}
+	// Check subscribe and unsubscribe
 	for i, id := range nodes {
-		top.SubscribeNode(id)
+		top.Subscribe(id)
 		if n := len(top.nodes); n != i+1 {
 			t.Fatalf("topic child node count mismatch: have %v, want %v", n, i+1)
 		}
 	}
 	for i, id := range nodes {
-		top.UnsubscribeNode(id)
+		top.Unsubscribe(id)
 		if n := len(top.nodes); n != len(nodes)-1-i {
 			t.Fatalf("topic child node count mismatch: have %v, want %v", n, len(nodes)-1-i)
 		}
 	}
-	for i, id := range apps {
-		top.SubscribeApp(id)
-		if n := len(top.apps); n != i+1 {
-			t.Fatalf("topic child app count mismatch: have %v, want %v", n, i+1)
-		}
-	}
-	for i, id := range apps {
-		top.UnsubscribeApp(id)
-		if n := len(top.apps); n != len(apps)-1-i {
-			t.Fatalf("topic child app count mismatch: have %v, want %v", n, len(apps)-1-i)
-		}
-	}
 	// Subscribe everybody back
 	for _, id := range nodes {
-		top.SubscribeNode(id)
-	}
-	for _, id := range apps {
-		top.SubscribeApp(id)
+		top.Subscribe(id)
 	}
 	// Check broadcasting
-	ns, as := top.Broadcast()
+	ns := top.Broadcast()
 	if len(ns) != len(nodes) {
 		t.Fatalf("broadcast node list length mismatch: have %v, want %v.", len(ns), len(nodes))
 	}
@@ -90,53 +73,33 @@ func TestTopic(t *testing.T) {
 			t.Fatalf("broadcast node %d mismatch: have %v, want %v.", i, id, nodes[i])
 		}
 	}
-	if len(as) != len(apps) {
-		t.Fatalf("broadcast app list length mismatch: have %v, want %v.", len(as), len(apps))
-	}
-	for i, id := range as {
-		if apps[i].Cmp(id) != 0 {
-			t.Fatalf("broadcast app %d mismatch: have %v, want %v.", i, id, apps[i])
-		}
-	}
 	// Check load balancing (without one entry)
-	ns, as = []*big.Int{}, []*big.Int{}
+	ns = []*big.Int{}
 	for i := 0; i < 1000; i++ {
-		n, a, err := top.Balance(nodes[0])
+		n, err := top.Balance(nodes[0])
 		if err != nil {
 			t.Fatalf("failed to balance: %v.", err)
 		}
-		if (n == nil && a == nil) || (n != nil && a != nil) {
-			t.Fatalf("invalid balancing result (both or none nil): node %v, app %v.", n, a)
-		}
-		if n != nil {
-			ns = append(ns, n)
-		} else {
-			as = append(as, a)
-		}
+		ns = append(ns, n)
 	}
 	if len(ns) == 0 {
 		t.Fatalf("no nodes have been balanced to")
 	}
-	if len(as) == 0 {
-		t.Fatalf("no apps have been balanced to")
-	}
 	for i, id := range ns {
 		if id.Cmp(nodes[0]) == 0 {
-			t.Fatalf("balance %d: excluded node %v.", i, id)
+			t.Fatalf("balance %d: reached excluded node %v.", i, id)
 		}
 		idx := sortext.SearchBigInts(nodes, id)
 		if idx >= len(nodes) || nodes[idx] != id {
 			t.Fatalf("balance %d: invalid node id %v.", i, id)
 		}
 	}
-	for i, id := range as {
-		idx := sortext.SearchBigInts(apps, id)
-		if idx >= len(apps) || apps[idx] != id {
-			t.Fatalf("balance %d: invalid node id %v.", i, id)
-		}
+	// Add a local subscription
+	if err := top.Subscribe(ownerId); err != nil {
+		t.Fatalf("failed to subscribe with local node: %v.", err)
 	}
 	// Check load report generation
-	ns, caps := top.GenerateReport()
+	ns, caps := top.GenerateReports()
 	if len(ns) != len(nodes) || len(caps) != len(nodes) {
 		t.Fatalf("report target size mismatch: have %v/%v nodes/caps, want %v.", len(ns), len(caps), len(nodes))
 	}
@@ -151,7 +114,7 @@ func TestTopic(t *testing.T) {
 		top.ProcessReport(id, 10*(i+1))
 		total += 10 * (i + 1)
 	}
-	ns, caps = top.GenerateReport()
+	ns, caps = top.GenerateReports()
 	for i, cap := range caps {
 		if cap != total-10*(i+1) {
 			t.Fatalf("capacity %d mismatch: have %v, want %v", i, cap, total-10*(i+1))

@@ -22,27 +22,27 @@
 package topic
 
 import (
-	"fmt"
-	"github.com/karalabe/iris/balancer"
-	"github.com/karalabe/iris/ext/sortext"
-	"github.com/karalabe/iris/system"
+	"errors"
 	"log"
 	"math"
 	"math/big"
-	"math/rand"
 	"sync"
 	"sync/atomic"
+
+	"github.com/karalabe/iris/balancer"
+	"github.com/karalabe/iris/ext/sortext"
+	"github.com/karalabe/iris/system"
 )
 
-// Special id to reffer to the local node.
-var localId = big.NewInt(-1)
+// Custom topic error messages
+var ErrSubscribed = errors.New("already subscribed")
 
 // The maintenance data related to a single topic.
 type Topic struct {
 	id     *big.Int   // Unique id of the topic
+	owner  *big.Int   // Id of the local node
 	parent *big.Int   // Parent node in the topic tree
-	nodes  []*big.Int // Remote children in the topic tree
-	apps   []*big.Int // Local children in the topic tree
+	nodes  []*big.Int // Remote children in the topic tree (+local if subbed)
 
 	load *balancer.Balancer // Balancer to load-distribute messages
 	msgs int32              // Number of messages balanced to locals (atomic, take care)
@@ -51,20 +51,20 @@ type Topic struct {
 }
 
 // Creates a new topic with no subscriptions.
-func New(id *big.Int) *Topic {
+func New(id, owner *big.Int) *Topic {
 	log.Printf("Topic %v created", id)
 
 	return &Topic{
 		id:    id,
+		owner: owner,
 		nodes: []*big.Int{},
-		apps:  []*big.Int{},
 		load:  balancer.New(),
 	}
 }
 
 // Closes down a topic, releasing the internal heartbeat mechanism.
 func (t *Topic) Close() {
-	log.Printf("Topic %v termianted", t.id)
+	log.Printf("Topic %v terminated", t.id)
 }
 
 // Returns the topic identifier.
@@ -103,31 +103,11 @@ func (t *Topic) Empty() bool {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	return len(t.apps) == 0 && len(t.nodes) == 0
+	return len(t.nodes) == 0
 }
 
-// Subscribes an application to the topic and inserts the local node into the
-// load balancer.
-func (t *Topic) SubscribeApp(id *big.Int) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
-	idx := sortext.SearchBigInts(t.apps, id)
-	if idx >= len(t.apps) || id.Cmp(t.apps[idx]) != 0 {
-		// New entity, insert into the list
-		t.apps = append(t.apps, id)
-		sortext.BigInts(t.apps)
-
-		// Start load balancing locally too if first
-		if len(t.apps) == 1 {
-			t.load.Register(localId)
-		}
-	}
-}
-
-// Subscribes a remote node to the topic and inserts it into the load balancer's
-// registry.
-func (t *Topic) SubscribeNode(id *big.Int) error {
+// Subscribes a node to the topic and inserts it into the load balancer registry.
+func (t *Topic) Subscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -135,7 +115,7 @@ func (t *Topic) SubscribeNode(id *big.Int) error {
 
 	idx := sortext.SearchBigInts(t.nodes, id)
 	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
-		return fmt.Errorf("already subscribed")
+		return ErrSubscribed
 	}
 	// New entity, insert into the list
 	t.nodes = append(t.nodes, id)
@@ -148,32 +128,8 @@ func (t *Topic) SubscribeNode(id *big.Int) error {
 	return nil
 }
 
-// Unsubscribes a local application from the topic and possibly removes the
-// local node from the balancer if no apps remained.
-func (t *Topic) UnsubscribeApp(id *big.Int) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
-	idx := sortext.SearchBigInts(t.apps, id)
-	if idx < len(t.apps) && id.Cmp(t.apps[idx]) == 0 {
-		// Remove the node from the children
-		last := len(t.apps) - 1
-		t.apps[idx] = t.apps[last]
-		t.apps = t.apps[:last]
-
-		// Create ordered list once again
-		sortext.BigInts(t.apps)
-
-		// Remove local apps from balancer if none left
-		if len(t.apps) == 0 {
-			t.load.Unregister(localId)
-		}
-	}
-}
-
-// Unregisters a remote node from the topic, removing it from the balancer's
-// registry as well as the heart-beaters monitor list.
-func (t *Topic) UnsubscribeNode(id *big.Int) {
+// Unregisters a node from the topic, removing it from the balancer's registry.
+func (t *Topic) Unsubscribe(id *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -196,49 +152,53 @@ func (t *Topic) UnsubscribeNode(id *big.Int) {
 	}
 }
 
-// Returns the list of nodes and apps that a broadcast message should be sent.
-func (t *Topic) Broadcast() (nodes, apps []*big.Int) {
+// Returns the list of nodes that a broadcast message should be sent to.
+func (t *Topic) Broadcast() []*big.Int {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	nodes = make([]*big.Int, len(t.nodes), len(t.nodes)+1)
+	nodes := make([]*big.Int, len(t.nodes), len(t.nodes)+1)
 	copy(nodes, t.nodes)
 	if t.parent != nil {
 		nodes = append(nodes, t.parent)
 	}
-	apps = make([]*big.Int, len(t.apps))
-	copy(apps, t.apps)
-
-	return nodes, apps
+	return nodes
 }
 
-// Returns a node or an application id to which the balancer deemed the next
-// message should be sent. An optional ex node can be specified to prevent
-// balancing there (if others exist). Only one result will be valid, the other
-// nil.
-func (t *Topic) Balance(ex *big.Int) (nodeId, appId *big.Int, err error) {
+// Returns a node id to which the balancer deemed the next message should be
+// sent. An optional ex node can be specified to prevent balancing there (if
+// others exist).
+func (t *Topic) Balance(ex *big.Int) (*big.Int, error) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	// Pick a balance target and forward if remote node
-	if id, err := t.load.Balance(ex); err != nil {
-		return nil, nil, err
-	} else if id.Cmp(localId) != 0 {
-		return id, nil, nil
+	// Pick a balance target
+	id, err := t.load.Balance(ex)
+	if err != nil {
+		return nil, err
 	}
-	// Otherwise balance between local apps
-	atomic.AddInt32(&t.msgs, 1)
-	return nil, t.apps[rand.Intn(len(t.apps))], nil
+	// If the target is the local node, increment the task counter
+	if id.Cmp(t.owner) == 0 {
+		atomic.AddInt32(&t.msgs, 1)
+	}
+	return id, nil
 }
 
 // Returns the list of nodes to report to, and the report for each.
-func (t *Topic) GenerateReport() ([]*big.Int, []int) {
+func (t *Topic) GenerateReports() ([]*big.Int, []int) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	// Copy child list + parent if not topic root
+	// Copy child list (rem local if subbed) + parent if not topic root
 	ids := make([]*big.Int, len(t.nodes), len(t.nodes)+1)
 	copy(ids, t.nodes)
+
+	idx := sortext.SearchBigInts(ids, t.owner)
+	if idx < len(ids) && t.owner.Cmp(ids[idx]) == 0 {
+		last := len(ids) - 1
+		ids[idx] = ids[last]
+		ids = ids[:last]
+	}
 	if t.parent != nil {
 		ids = append(ids, t.parent)
 	}
@@ -263,12 +223,13 @@ func (t *Topic) Cycle() {
 	defer t.lock.RUnlock()
 
 	// Notify the balancer of the local capacity
-	if len(t.apps) > 0 {
+	idx := sortext.SearchBigInts(t.nodes, t.owner)
+	if idx < len(t.nodes) && t.owner.Cmp(t.nodes[idx]) == 0 {
 		// Sanity check not to send some weird value
 		cap := math.Max(0, float64(atomic.LoadInt32(&t.msgs))/float64(system.CpuUsage()))
 		cap = math.Min(math.MaxInt32, cap)
 
-		t.load.Update(localId, int(cap))
+		t.load.Update(t.owner, int(cap))
 	}
 	// Reset counters for next beat
 	atomic.StoreInt32(&t.msgs, 0)
