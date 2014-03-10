@@ -116,7 +116,7 @@ func (o *Overlay) sendUnsubscribe(parentId *big.Int, topicId *big.Int) {
 // Assembles a topic publish message, consisting of the publish opcode, the
 // originating application (to allow replies) and the destination topic (to
 // allow catching publishes midway).
-func (o *Overlay) sendPublish(appId *big.Int, topicId *big.Int, msg *proto.Message) {
+func (o *Overlay) sendPublish(topicId *big.Int, msg *proto.Message) {
 	o.sendDataPacket(topicId, &header{Op: opPub, Topic: topicId}, msg)
 }
 
@@ -129,7 +129,7 @@ func (o *Overlay) fwdPublish(dest *big.Int, msg *proto.Message) {
 // Assembles a topic balance message, consisting of the balance opcode, the
 // originating application (to allow replies) and the destination topic (to
 // allow catching balances midway).
-func (o *Overlay) sendBalance(appId *big.Int, topicId *big.Int, msg *proto.Message) {
+func (o *Overlay) sendBalance(topicId *big.Int, msg *proto.Message) {
 	o.sendDataPacket(topicId, &header{Op: opBal, Topic: topicId}, msg)
 }
 

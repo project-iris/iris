@@ -1,0 +1,130 @@
+// Iris - Decentralized Messaging Framework
+// Copyright 2014 Peter Szilagyi. All rights reserved.
+//
+// Iris is dual licensed: you can redistribute it and/or modify it under the
+// terms of the GNU General Public License as published by the Free Software
+// Foundation, either version 3 of the License, or (at your option) any later
+// version.
+//
+// The framework is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+// more details.
+//
+// Alternatively, the Iris framework may be used in accordance with the terms
+// and conditions contained in a signed written agreement between you and the
+// author(s).
+//
+// Author: peterke@gmail.com (Peter Szilagyi)
+
+package scribe
+
+import (
+	"crypto/x509"
+	"math/big"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/karalabe/iris/proto"
+
+	"github.com/karalabe/iris/config"
+)
+
+type collector struct {
+	publish []*proto.Message
+	balance []*proto.Message
+	direct  []*proto.Message
+	lock    sync.Mutex
+}
+
+func (c *collector) HandlePublish(sender *big.Int, topic string, msg *proto.Message) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.publish = append(c.publish, msg)
+}
+
+func (c *collector) HandleBalance(sender *big.Int, topic string, msg *proto.Message) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.balance = append(c.balance, msg)
+}
+
+func (c *collector) HandleDirect(sender *big.Int, msg *proto.Message) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.direct = append(c.direct, msg)
+}
+
+// Tests whether topic publishing work as expected.
+func TestPublish(t *testing.T) {
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
+
+	nodes := 10
+	pubs := 100
+
+	// Make sure there are enough ports to use
+	olds := config.BootPorts
+	defer func() { config.BootPorts = olds }()
+
+	for i := 0; i < nodes; i++ {
+		config.BootPorts = append(config.BootPorts, 65500+i)
+	}
+	// Load the private key and start a single scribe node
+	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
+
+	// Gradually start up scribe nodes, and execute one operation with each
+	//   i % 2 == 0: subscriber
+	//   i % 3 == 1: publisher
+	//   otherwise:    simple forwarder
+	coll := &collector{
+		publish: []*proto.Message{},
+		balance: []*proto.Message{},
+		direct:  []*proto.Message{},
+	}
+	for i := 0; i < nodes; i++ {
+		// Start the node
+		node := New(overId, key, coll)
+		if _, err := node.Boot(); err != nil {
+			t.Fatalf("failed to boot scribe node: %v.", err)
+		}
+		defer func() {
+			if err := node.Shutdown(); err != nil {
+				t.Fatalf("failed to shutdown scribe node: %v.", err)
+			}
+		}()
+		time.Sleep(time.Second)
+
+		// If it's a subscriber, subscribe
+		if i%2 == 0 {
+			if err := node.Subscribe(topicId); err != nil {
+				t.Fatalf("failed to subscribe to topic: %v.", err)
+			}
+			time.Sleep(time.Second)
+		}
+		// If it's a publisher, send a message through
+		if i%3 == 0 {
+			for j := 0; j < pubs; j++ {
+				msg := &proto.Message{
+					Data: []byte{byte(i)},
+				}
+				if err := node.Publish(topicId, msg); err != nil {
+					t.Fatalf("failed to publish into topic: %v,", err)
+				}
+			}
+			time.Sleep(time.Second)
+			// Wait a while and check event counts
+			if n := len(coll.publish); n != pubs*(i/2+1) {
+				t.Fatalf("arrive event mismatch: have %v, want %v", n, pubs*(i/2+1))
+			} else {
+				// Reset the event collector
+				coll.publish = coll.publish[:0]
+			}
+		}
+	}
+}

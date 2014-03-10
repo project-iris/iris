@@ -53,6 +53,7 @@ type Topic struct {
 
 // Creates a new topic with no subscriptions.
 func New(id, owner *big.Int) *Topic {
+	log.Printf("%v topic created: %v", owner, id)
 	return &Topic{
 		id:    id,
 		owner: owner,
@@ -79,7 +80,7 @@ func (t *Topic) Reown(parent *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("topic %v: changing ownership from %v to %v.", t.id, t.parent, parent)
+	log.Printf("%v:%v: changing ownership from %v to %v.", t.owner, t.id, t.parent, parent)
 
 	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
@@ -105,7 +106,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("Topic %v: node subscription: %v.", t.id, id)
+	log.Printf("%v:%v: node subscription: %v.", t.owner, t.id, id)
 
 	// Ensure double subscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
@@ -116,7 +117,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 	t.nodes = append(t.nodes, id)
 	sortext.BigInts(t.nodes)
 
-	log.Printf("Topic %v: subbed, state: %v.", t.id, t.nodes)
+	log.Printf("%v:%v: subbed, state: %v.", t.owner, t.id, t.nodes)
 
 	// Start load balancing to it too
 	t.load.Register(id)
@@ -128,7 +129,7 @@ func (t *Topic) Unsubscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("Topic %v: node unsubscription: %v.", t.id, id)
+	log.Printf("%v:%v: node unsubscription: %v.", t.owner, t.id, id)
 
 	// Ensure double unsubscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
@@ -141,7 +142,7 @@ func (t *Topic) Unsubscribe(id *big.Int) error {
 	t.nodes = t.nodes[:last]
 	sortext.BigInts(t.nodes)
 
-	log.Printf("Topic %v: remed, state: %v.", t.id, t.nodes)
+	log.Printf("%v:%v: remed, state: %v.", t.owner, t.id, t.nodes)
 
 	// Remove the node from the load balancer
 	t.load.Unregister(id)

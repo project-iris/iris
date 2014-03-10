@@ -21,9 +21,10 @@
 package system
 
 import (
-	"github.com/karalabe/iris/config"
 	"sync"
 	"time"
+
+	"github.com/karalabe/iris/config"
 )
 
 // Cpu usage infos and statistics (not much needed for now).
@@ -52,7 +53,7 @@ func init() {
 
 	// Measure till program is terminated
 	go func() {
-		tick := time.Tick(time.Duration(config.CarrierBeatPeriod) * time.Millisecond)
+		tick := time.Tick(config.ScribeBeatPeriod)
 		for {
 			<-tick
 			gatherCpuInfo()

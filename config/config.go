@@ -220,16 +220,16 @@ var PastryAuthThreads = 8
 var PastryExchThreads = 128
 
 // Heartbeat period to distribute current CPU load and also check liveliness (ms).
-var CarrierBeatPeriod = 750
+var ScribeBeatPeriod = 750 * time.Millisecond
 
 // Number of missed heartbeats after which to consider a node down.
-var CarrierKillCount = 3
+var ScribeKillCount = 3
 
 // Application identifier space (bits).
-var CarrierSpace = 32
+var ScribeSpace = 32
 
 // Number of messages to buffer for application delivery before dropping.
-var CarrierAppBuffer = 128
+var ScribeAppBuffer = 128
 
 // Number of sub-clusters an app cluster or topic is split into.
 var IrisClusterSplits = 5

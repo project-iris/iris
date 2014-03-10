@@ -27,7 +27,6 @@ import (
 	"log"
 	"math/big"
 	"sync"
-	"time"
 
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/heart"
@@ -69,7 +68,7 @@ func New(overId string, key *rsa.PrivateKey, app Callback) *Overlay {
 		names:  make(map[string]string),
 	}
 	o.pastry = pastry.New(overId, key, o)
-	o.heart = heart.New(time.Duration(config.CarrierBeatPeriod)*time.Millisecond, config.CarrierKillCount, o)
+	o.heart = heart.New(config.ScribeBeatPeriod, config.ScribeKillCount, o)
 	return o
 }
 
@@ -143,7 +142,7 @@ func (o *Overlay) Publish(topic string, msg *proto.Message) error {
 	if err := msg.Encrypt(); err != nil {
 		return err
 	}
-	o.sendPublish(o.pastry.Self(), pastry.Resolve(topic), msg)
+	o.sendPublish(pastry.Resolve(topic), msg)
 	return nil
 }
 
@@ -152,7 +151,7 @@ func (o *Overlay) Balance(topic string, msg *proto.Message) error {
 	if err := msg.Encrypt(); err != nil {
 		return err
 	}
-	o.sendBalance(o.pastry.Self(), pastry.Resolve(topic), msg)
+	o.sendBalance(pastry.Resolve(topic), msg)
 	return nil
 }
 
