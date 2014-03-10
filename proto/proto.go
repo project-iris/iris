@@ -87,7 +87,12 @@ func (m *Message) Decrypt() error {
 	return nil
 }
 
-// Returns whether the message was secured or not.
+// Internal, used by the link package to verify security.
 func (m *Message) Secure() bool {
 	return m.secure
+}
+
+// Internal, used by the link package to assert known security.
+func (m *Message) KnownSecure() {
+	m.secure = true
 }

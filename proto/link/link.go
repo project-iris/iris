@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log"
 	"net"
 	"time"
 
@@ -178,6 +179,7 @@ func (l *Link) SendDirect(msg *proto.Message) error {
 
 	// Sanity check for message data security
 	if !msg.Secure() && len(msg.Data) > 0 {
+		log.Printf("link: unsecured data, send denied.")
 		return errors.New("unsecured data, send denied")
 	}
 	// Flatten and encrypt the headers
@@ -234,6 +236,8 @@ func (l *Link) RecvDirect() (*proto.Message, error) {
 	if err = l.inCoder.Decode(&msg.Head); err != nil {
 		return nil, err
 	}
+	// Set the message security knowingly to true
+	msg.KnownSecure()
 	return &msg, nil
 }
 
