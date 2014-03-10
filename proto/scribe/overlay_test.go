@@ -81,7 +81,7 @@ func TestPublish(t *testing.T) {
 	// Gradually start up scribe nodes, and execute one operation with each
 	//   i % 2 == 0: subscriber
 	//   i % 3 == 1: publisher
-	//   otherwise:    simple forwarder
+	//   otherwise:  simple forwarder
 	coll := &collector{
 		publish: []*proto.Message{},
 		balance: []*proto.Message{},
@@ -144,6 +144,108 @@ func TestPublish(t *testing.T) {
 			} else {
 				// Reset the event collector
 				coll.publish = coll.publish[:0]
+			}
+		}
+		// If it's a subscriber, unsubscribe
+		if i%2 == 0 {
+			if err := live[i].Unsubscribe(topicId); err != nil {
+				t.Fatalf("failed to unsubscribe from topic: %v.", err)
+			}
+			time.Sleep(time.Second)
+		}
+		// Terminate the node
+		if err := live[i].Shutdown(); err != nil {
+			t.Fatalf("failed to terminate scribe node: %v.", err)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// Tests whether topic balancing work as expected.
+func TestBalance(t *testing.T) {
+	// Override the overlay configuration
+	swapConfigs()
+	defer swapConfigs()
+
+	nodes := 10
+	bals := 100
+
+	// Make sure there are enough ports to use
+	olds := config.BootPorts
+	defer func() { config.BootPorts = olds }()
+
+	for i := 0; i < nodes; i++ {
+		config.BootPorts = append(config.BootPorts, 65500+i)
+	}
+	// Load the private key and start a single scribe node
+	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
+
+	// Gradually start up scribe nodes, and execute one operation with each
+	//   i % 2 == 0: subscriber
+	//   i % 3 == 1: balancer
+	//   otherwise:  simple forwarder
+	coll := &collector{
+		publish: []*proto.Message{},
+		balance: []*proto.Message{},
+		direct:  []*proto.Message{},
+	}
+	live := make([]*Overlay, 0, nodes)
+	for i := 0; i < nodes; i++ {
+		// Start the node
+		node := New(overId, key, coll)
+		live = append(live, node)
+
+		if _, err := node.Boot(); err != nil {
+			t.Fatalf("failed to boot scribe node: %v.", err)
+		}
+		time.Sleep(time.Second)
+
+		// If it's a subscriber, subscribe
+		if i%2 == 0 {
+			if err := node.Subscribe(topicId); err != nil {
+				t.Fatalf("failed to subscribe to topic: %v.", err)
+			}
+			time.Sleep(time.Second)
+		}
+		// If it's a balancer, send a message through
+		if i%3 == 0 {
+			for j := 0; j < bals; j++ {
+				msg := &proto.Message{
+					Data: []byte{byte(i)},
+				}
+				if err := node.Balance(topicId, msg); err != nil {
+					t.Fatalf("failed to balance into topic: %v,", err)
+				}
+			}
+			// Wait a while and check event counts
+			time.Sleep(time.Second)
+			if n := len(coll.balance); n != bals {
+				t.Fatalf("arrive event mismatch: have %v, want %v", n, bals)
+			} else {
+				// Reset the event collector
+				coll.balance = coll.balance[:0]
+			}
+		}
+	}
+	// Execute the inverse of the previous sequence, gradually terminating the nodes
+	for i := nodes - 1; i >= 0; i-- {
+		// If it's a balancer, send a message through
+		if i%3 == 0 {
+			for j := 0; j < bals; j++ {
+				msg := &proto.Message{
+					Data: []byte{byte(i)},
+				}
+				if err := live[i].Balance(topicId, msg); err != nil {
+					t.Fatalf("failed to balance into topic: %v,", err)
+				}
+			}
+			// Wait a while and check event counts
+			time.Sleep(time.Second)
+			if n := len(coll.balance); n != bals {
+				t.Fatalf("arrive event mismatch: have %v, want %v", n, bals)
+			} else {
+				// Reset the event collector
+				coll.balance = coll.balance[:0]
 			}
 		}
 		// If it's a subscriber, unsubscribe
