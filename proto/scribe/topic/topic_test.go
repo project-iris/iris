@@ -63,14 +63,24 @@ func TestTopic(t *testing.T) {
 	for _, id := range nodes {
 		top.Subscribe(id)
 	}
-	// Check broadcasting
-	ns := top.Broadcast()
+	// Check broadcasting with no exclusion
+	ns := top.Broadcast(nil)
 	if len(ns) != len(nodes) {
 		t.Fatalf("broadcast node list length mismatch: have %v, want %v.", len(ns), len(nodes))
 	}
 	for i, id := range ns {
 		if nodes[i].Cmp(id) != 0 {
 			t.Fatalf("broadcast node %d mismatch: have %v, want %v.", i, id, nodes[i])
+		}
+	}
+	// Check broadcasting with exclusion
+	ns = top.Broadcast(nodes[0])
+	if len(ns) != len(nodes)-1 {
+		t.Fatalf("excluded broadcast node list length mismatch: have %v, want %v.", len(ns), len(nodes)-1)
+	}
+	for _, id := range ns {
+		if nodes[0].Cmp(id) == 0 {
+			t.Fatalf("broadcast includes excluded node: %v.", id)
 		}
 	}
 	// Check load balancing (without one entry)

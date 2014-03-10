@@ -52,19 +52,12 @@ type Topic struct {
 
 // Creates a new topic with no subscriptions.
 func New(id, owner *big.Int) *Topic {
-	log.Printf("Topic %v created", id)
-
 	return &Topic{
 		id:    id,
 		owner: owner,
 		nodes: []*big.Int{},
 		load:  balancer.New(),
 	}
-}
-
-// Closes down a topic, releasing the internal heartbeat mechanism.
-func (t *Topic) Close() {
-	log.Printf("Topic %v terminated", t.id)
 }
 
 // Returns the topic identifier.
@@ -152,15 +145,30 @@ func (t *Topic) Unsubscribe(id *big.Int) {
 	}
 }
 
-// Returns the list of nodes that a broadcast message should be sent to.
-func (t *Topic) Broadcast() []*big.Int {
+// Returns the list of nodes that a broadcast message should be sent to. An
+// optional ex node can be specified to exclude it from the list.
+func (t *Topic) Broadcast(ex *big.Int) []*big.Int {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
+	// Gather all the nodes to broadcast to
 	nodes := make([]*big.Int, len(t.nodes), len(t.nodes)+1)
 	copy(nodes, t.nodes)
 	if t.parent != nil {
 		nodes = append(nodes, t.parent)
+	}
+	// If exclusion is needed, do it
+	if ex != nil {
+		// Sort the nodes and do a binary search on them
+		sortext.BigInts(nodes)
+		idx := sortext.SearchBigInts(nodes, ex)
+
+		// Swap out with the last if found
+		if idx < len(nodes) && ex.Cmp(nodes[idx]) == 0 {
+			last := len(nodes) - 1
+			nodes[idx] = nodes[last]
+			nodes = nodes[:last]
+		}
 	}
 	return nodes
 }
