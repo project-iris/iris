@@ -36,6 +36,7 @@ import (
 
 // Custom topic error messages
 var ErrSubscribed = errors.New("already subscribed")
+var ErrNotSubscribed = errors.New("not subscribed")
 
 // The maintenance data related to a single topic.
 type Topic struct {
@@ -106,6 +107,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 
 	log.Printf("Topic %v: node subscription: %v.", t.id, id)
 
+	// Ensure double subscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
 	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
 		return ErrSubscribed
@@ -122,27 +124,28 @@ func (t *Topic) Subscribe(id *big.Int) error {
 }
 
 // Unregisters a node from the topic, removing it from the balancer's registry.
-func (t *Topic) Unsubscribe(id *big.Int) {
+func (t *Topic) Unsubscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
 	log.Printf("Topic %v: node unsubscription: %v.", t.id, id)
 
+	// Ensure double unsubscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
-	if idx < len(t.nodes) && id.Cmp(t.nodes[idx]) == 0 {
-		// Remove the node from the load balancer
-		t.load.Unregister(t.nodes[idx])
-
-		// Remove the node from the children
-		last := len(t.nodes) - 1
-		t.nodes[idx] = t.nodes[last]
-		t.nodes = t.nodes[:last]
-
-		// Create ordered list once again
-		sortext.BigInts(t.nodes)
-
-		log.Printf("Topic %v: remed, state: %v.", t.id, t.nodes)
+	if idx == len(t.nodes) || id.Cmp(t.nodes[idx]) != 0 {
+		return ErrNotSubscribed
 	}
+	// Remove the node from the children
+	last := len(t.nodes) - 1
+	t.nodes[idx] = t.nodes[last]
+	t.nodes = t.nodes[:last]
+	sortext.BigInts(t.nodes)
+
+	log.Printf("Topic %v: remed, state: %v.", t.id, t.nodes)
+
+	// Remove the node from the load balancer
+	t.load.Unregister(id)
+	return nil
 }
 
 // Returns the list of nodes that a broadcast message should be sent to. An
