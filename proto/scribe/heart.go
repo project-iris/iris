@@ -17,10 +17,10 @@
 //
 // Author: peterke@gmail.com (Peter Szilagyi)
 
-// This file contains the heartbeat event handlers and the related load repoting
+// This file contains the heartbeat event handlers and the related load reporting
 // logic.
 
-package carrier
+package scribe
 
 import (
 	"log"
@@ -36,35 +36,35 @@ type report struct {
 }
 
 // Adds the node within the topic to the list of monitored entities.
-func (c *carrier) monitor(topic *big.Int, node *big.Int) error {
+func (o *Overlay) monitor(topic *big.Int, node *big.Int) error {
 	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
-	return c.heart.Monitor(id)
+	return o.heart.Monitor(id)
 }
 
 // Remove the node of a specific topic from the list of monitored entities.
-func (c *carrier) unmonitor(topic *big.Int, node *big.Int) error {
+func (o *Overlay) unmonitor(topic *big.Int, node *big.Int) error {
 	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
-	return c.heart.Unmonitor(id)
+	return o.heart.Unmonitor(id)
 }
 
 // Updates the last ping time of a node within a topic.
-func (c *carrier) ping(topic *big.Int, node *big.Int) error {
+func (o *Overlay) ping(topic *big.Int, node *big.Int) error {
 	id := new(big.Int).Add(new(big.Int).Lsh(topic, uint(config.PastrySpace)), node)
-	return c.heart.Ping(id)
+	return o.heart.Ping(id)
 }
 
 // Implements the heart.Callback.Beat method. At each heartbeat, the load stats
 // of all the topics are gathered, mapped to destination nodes and sent out. In
-// addition, each root topic sends a subscription message to disconver newly
+// addition, each root topic sends a subscription message to discover newly
 // added roots.
-func (c *carrier) Beat() {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+func (o *Overlay) Beat() {
+	o.lock.RLock()
+	defer o.lock.RUnlock()
 
 	// Collect and assemble load reports
 	reports := make(map[string]*report)
-	for _, top := range c.topics {
-		ids, caps := top.GenerateReport()
+	for _, top := range o.topics {
+		ids, caps := top.GenerateReports()
 		for i, id := range ids {
 			sid := id.String()
 			rep, ok := reports[id.String()]
@@ -80,44 +80,45 @@ func (c *carrier) Beat() {
 	// Distribute the load reports to the remote carriers
 	for sid, rep := range reports {
 		if id, ok := new(big.Int).SetString(sid, 10); ok {
-			go c.sendReport(id, rep)
+			go o.sendReport(id, rep)
 		} else {
 			panic("failed to extract node id.")
 		}
 	}
 	// Subscribe all root topics
-	for _, top := range c.topics {
+	for _, top := range o.topics {
 		if top.Parent() == nil {
-			go c.sendSubscribe(top.Self())
+			go o.sendSubscribe(top.Self())
 		}
 	}
 }
 
 // Implements the heat.Callback.Dead method, monitoring the death events of
 // topic member nodes.
-func (c *carrier) Dead(id *big.Int) {
+func (o *Overlay) Dead(id *big.Int) {
 	// Split the id into topic and node parts
 	topic := new(big.Int).Rsh(id, uint(config.PastrySpace))
 	node := new(big.Int).Sub(id, new(big.Int).Lsh(topic, uint(config.PastrySpace)))
 
+	o.lock.RLock()
+	top, ok := o.topics[topic.String()]
+	o.lock.RUnlock()
+	if !ok {
+		log.Printf("scribe: topic %v already dead.", topic)
+		return
+	}
 	// Depending on whether it was the topic parent or a child reown or unsub
-	c.lock.RLock()
-	top, ok := c.topics[topic.String()]
-	c.lock.RUnlock()
-
-	if ok {
-		parent := top.Parent()
-		if parent != nil && parent.Cmp(node) == 0 {
-			// Make sure it's out of the heartbeat mechanism
-			if err := c.heart.Unmonitor(id); err != nil {
-				log.Printf("carrier: failed to unmonitor parent %v from topic %v: %v.", node, topic, err)
-			}
-			// Reassign topic rendes-vous point
-			top.Reown(nil)
-		} else {
-			c.handleUnsubscribe(node, topic, false)
+	parent := top.Parent()
+	if parent != nil && parent.Cmp(node) == 0 {
+		// Make sure it's out of the heartbeat mechanism
+		if err := o.heart.Unmonitor(id); err != nil {
+			log.Printf("scribe: failed to unmonitor dead parent: %v.", err)
 		}
+		// Reassign topic rendes-vous point
+		top.Reown(nil)
 	} else {
-		log.Printf("carrier: topic %v already dead.", topic)
+		if err := o.handleUnsubscribe(node, topic); err != nil {
+			log.Printf("scribe: failed to unsubscribe dead node: %v.", err)
+		}
 	}
 }
