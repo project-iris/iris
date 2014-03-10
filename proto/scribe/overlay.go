@@ -123,7 +123,7 @@ func (o *Overlay) Subscribe(topic string) error {
 }
 
 // Removes the subscription from topic.
-func (o *Overlay) Unsubscribe(topic string) {
+func (o *Overlay) Unsubscribe(topic string) error {
 	// Resolve the topic id
 	id := pastry.Resolve(topic)
 	sid := id.String()
@@ -134,7 +134,7 @@ func (o *Overlay) Unsubscribe(topic string) {
 	o.lock.Unlock()
 
 	// Remove the scribe subscription
-	o.handleUnsubscribe(o.pastry.Self(), id)
+	return o.handleUnsubscribe(o.pastry.Self(), id)
 }
 
 // Publishes a message into topic to be broadcast to everyone.

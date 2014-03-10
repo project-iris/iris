@@ -87,17 +87,15 @@ func TestPublish(t *testing.T) {
 		balance: []*proto.Message{},
 		direct:  []*proto.Message{},
 	}
+	live := make([]*Overlay, 0, nodes)
 	for i := 0; i < nodes; i++ {
 		// Start the node
 		node := New(overId, key, coll)
+		live = append(live, node)
+
 		if _, err := node.Boot(); err != nil {
 			t.Fatalf("failed to boot scribe node: %v.", err)
 		}
-		defer func() {
-			if err := node.Shutdown(); err != nil {
-				t.Fatalf("failed to shutdown scribe node: %v.", err)
-			}
-		}()
 		time.Sleep(time.Second)
 
 		// If it's a subscriber, subscribe
@@ -117,8 +115,8 @@ func TestPublish(t *testing.T) {
 					t.Fatalf("failed to publish into topic: %v,", err)
 				}
 			}
-			time.Sleep(time.Second)
 			// Wait a while and check event counts
+			time.Sleep(time.Second)
 			if n := len(coll.publish); n != pubs*(i/2+1) {
 				t.Fatalf("arrive event mismatch: have %v, want %v", n, pubs*(i/2+1))
 			} else {
@@ -126,5 +124,39 @@ func TestPublish(t *testing.T) {
 				coll.publish = coll.publish[:0]
 			}
 		}
+	}
+	// Execute the inverse of the previous sequence, gradually terminating the nodes
+	for i := nodes - 1; i >= 0; i-- {
+		// If it's a publisher, send a message through
+		if i%3 == 0 {
+			for j := 0; j < pubs; j++ {
+				msg := &proto.Message{
+					Data: []byte{byte(i)},
+				}
+				if err := live[i].Publish(topicId, msg); err != nil {
+					t.Fatalf("failed to publish into topic: %v,", err)
+				}
+			}
+			// Wait a while and check event counts
+			time.Sleep(time.Second)
+			if n := len(coll.publish); n != pubs*(i/2+1) {
+				t.Fatalf("arrive event mismatch: have %v, want %v", n, pubs*(i/2+1))
+			} else {
+				// Reset the event collector
+				coll.publish = coll.publish[:0]
+			}
+		}
+		// If it's a subscriber, unsubscribe
+		if i%2 == 0 {
+			if err := live[i].Unsubscribe(topicId); err != nil {
+				t.Fatalf("failed to unsubscribe from topic: %v.", err)
+			}
+			time.Sleep(time.Second)
+		}
+		// Terminate the node
+		if err := live[i].Shutdown(); err != nil {
+			t.Fatalf("failed to terminate scribe node: %v.", err)
+		}
+		time.Sleep(time.Second)
 	}
 }
