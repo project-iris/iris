@@ -55,8 +55,6 @@ func (o *Overlay) HandlePublish(src *big.Int, topic string, msg *proto.Message) 
 		switch head.Op {
 		case opBcast:
 			conn.workers.Schedule(func() { conn.handleBroadcast(msg.Data) })
-		case opReq:
-			conn.workers.Schedule(func() { conn.handleRequest(src, head.Src, head.ReqId, msg.Data, head.ReqTime) })
 		case opPub:
 			conn.workers.Schedule(func() { conn.handlePublish(topic, msg.Data) })
 			/*case opTunReq:
