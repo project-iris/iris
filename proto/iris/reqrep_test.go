@@ -56,7 +56,7 @@ func (r *requester) HandleDrop(reason error) {
 	panic("Connection dropped on request handler")
 }
 
-// Individual broadcast tests.
+// Individual reqrep tests.
 func TestReqRepSingleNodeSingleConn(t *testing.T) {
 	testReqRep(t, 1, 1, 10000)
 }
@@ -73,7 +73,7 @@ func TestReqRepMultiNodeMultiConn(t *testing.T) {
 	testReqRep(t, 10, 10, 100)
 }
 
-// Tests multi node multi connection broadcasting.
+// Tests multi node multi connection request/replies.
 func testReqRep(t *testing.T, nodes, conns, reqs int) {
 	// Configure the test
 	swapConfigs()
@@ -86,8 +86,8 @@ func testReqRep(t *testing.T, nodes, conns, reqs int) {
 	defer func() { config.BootPorts = olds }()
 
 	key, _ := x509.ParsePKCS1PrivateKey(privKeyDer)
-	overlay := "broadcast-test"
-	cluster := fmt.Sprintf("broadcast-test-%d-%d", nodes, conns)
+	overlay := "reqrep-test"
+	cluster := fmt.Sprintf("reqrep-test-%d-%d", nodes, conns)
 
 	// Boot the iris overlays
 	liveNodes := make([]*Overlay, nodes)
