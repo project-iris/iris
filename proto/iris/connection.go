@@ -102,7 +102,7 @@ type Connection struct {
 }
 
 // Connects to the iris overlay.
-func (o *Overlay) Connect(cluster string, handler ConnectionHandler) *Connection {
+func (o *Overlay) Connect(cluster string, handler ConnectionHandler) (*Connection, error) {
 	// Create the connection object
 	c := &Connection{
 		cluster: cluster,
@@ -128,11 +128,13 @@ func (o *Overlay) Connect(cluster string, handler ConnectionHandler) *Connection
 
 	// Subscribe to the multi-group
 	for _, prefix := range clusterPrefixes {
-		c.iris.subscribe(c.id, prefix+cluster)
+		if err := c.iris.subscribe(c.id, prefix+cluster); err != nil {
+			return nil, err
+		}
 	}
 	c.workers.Start()
 
-	return c
+	return c, nil
 }
 
 // Broadcasts asynchronously a message to all members of an iris cluster. No
@@ -257,7 +259,7 @@ func (c *Connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
 }
 
 // Gracefully terminates the connection, all subscriptions and all tunnels.
-func (c *Connection) Close() {
+func (c *Connection) Close() error {
 	// Signal the connection as terminating
 	close(c.term)
 
@@ -281,4 +283,5 @@ func (c *Connection) Close() {
 	}
 	// Terminate the worker pool
 	c.workers.Terminate(true)
+	return nil
 }

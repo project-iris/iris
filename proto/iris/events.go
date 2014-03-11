@@ -50,7 +50,8 @@ func (o *Overlay) HandlePublish(src *big.Int, topic string, msg *proto.Message) 
 	o.lock.RUnlock()
 
 	// Publish to every live subscription
-	for _, conn := range conns {
+	for i := 0; i < len(conns); i++ {
+		conn := conns[i] // Closure
 		switch head.Op {
 		case opBcast:
 			conn.workers.Schedule(func() { conn.handleBroadcast(msg.Data) })
