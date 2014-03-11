@@ -19,15 +19,24 @@
 
 package iris
 
-import (
-	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/carrier"
-	"math/rand"
-	"sync"
-	"time"
-)
+import "time"
 
+// Communication stream between the local app and a remote endpoint. Ordered
+// message delivery is guaranteed.
+type Tunnel interface {
+	// Sends an asynchronous message to the remote pair. An error is returned if
+	// the operation could not complete.
+	Send(msg []byte) error
+
+	// Retrieves a message waiting in the local queue. If none is available, the
+	// call blocks until either one arrives or a timeout is reached.
+	Recv(timeout time.Duration) ([]byte, error)
+
+	// Closes the tunnel between the pair.
+	Close()
+}
+
+/*
 type tunnel struct {
 	parent *connection
 	id     uint64
@@ -248,3 +257,4 @@ func (t *tunnel) Close() {
 	t.parent.handleTunnelClose(t.id)
 	t.parent.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
 }
+*/

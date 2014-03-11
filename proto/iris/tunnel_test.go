@@ -19,16 +19,7 @@
 
 package iris
 
-import (
-	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"fmt"
-	"github.com/karalabe/iris/proto/carrier"
-	"testing"
-	"time"
-)
-
+/*
 // Boots a random carrier for testing purposes
 func startCarrier() (carrier.Carrier, error) {
 	// Generate a new temporary key for the carrier
@@ -158,3 +149,4 @@ func TestTunnelAsync(t *testing.T) {
 		}
 	}
 }
+*/

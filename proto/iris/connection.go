@@ -20,6 +20,7 @@
 package iris
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -27,29 +28,58 @@ import (
 
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto/carrier"
 )
 
-var appPrefixes []string
-var topPrefixes []string
+// Iris specific errors
+var ErrTerminating = errors.New("terminating")
+var ErrTimeout = errors.New("timeout")
+var ErrSubscribed = errors.New("already subscribed")
+var ErrNotSubscribed = errors.New("not subscribed")
 
-// Creates the cluster split prefix tags
+// Prefixes for multi-clustering.
+var clusterPrefixes []string
+var topicPrefixes []string
+
+// Creates the cluster split prefix tags.
 func init() {
-	appPrefixes = make([]string, config.IrisClusterSplits)
-	for i := 0; i < len(appPrefixes); i++ {
-		appPrefixes[i] = fmt.Sprintf("app-#%d:", i)
+	clusterPrefixes = make([]string, config.IrisClusterSplits)
+	for i := 0; i < len(clusterPrefixes); i++ {
+		clusterPrefixes[i] = fmt.Sprintf("c#%d-", i)
 	}
-	topPrefixes = make([]string, config.IrisClusterSplits)
-	for i := 0; i < len(topPrefixes); i++ {
-		topPrefixes[i] = fmt.Sprintf("top-#%d:", i)
+	topicPrefixes = make([]string, config.IrisClusterSplits)
+	for i := 0; i < len(topicPrefixes); i++ {
+		topicPrefixes[i] = fmt.Sprintf("t#%d-", i)
 	}
 }
 
-type connection struct {
+// Handler for the connection scope events: application requests, application
+// broadcasts and tunneling requests.
+type ConnectionHandler interface {
+	// Handles a message broadcast to all applications of the local type.
+	HandleBroadcast(msg []byte)
+
+	// Handles the request, returning the reply that should be forwarded back to
+	// the caller. If the method crashes, nothing is returned and the caller will
+	// eventually time out.
+	HandleRequest(req []byte, timeout time.Duration) []byte
+
+	// Handles the request to open a direct tunnel.
+	HandleTunnel(tun Tunnel)
+}
+
+// Subscription handler receiving events from a single subscribed topic.
+type SubscriptionHandler interface {
+	// Handles an event published to the subscribed topic.
+	HandleEvent(msg []byte)
+}
+
+// Connection through which to interact with other iris clients.
+type Connection struct {
 	// Application layer fields
-	app     string              // Connection identifier
-	handler ConnectionHandler   // Handler for connection events
-	conn    *carrier.Connection // Interface into the distributed carrier
+	id      uint64            // Auto-incremented connection id
+	cluster string            // Cluster to which the client registers
+	handler ConnectionHandler // Handler for connection events
+	iris    *Overlay          // Interface into the distributed carrier
 
 	reqIdx  uint64                 // Index to assign the next request
 	reqPend map[uint64]chan []byte // Active requests waiting for a reply
@@ -58,9 +88,9 @@ type connection struct {
 	subLive map[string]SubscriptionHandler // Active subscriptions
 	subLock sync.RWMutex                   // Mutex to protect the subscription map
 
-	tunIdx  uint64             // Index to assign the next tunnel
-	tunLive map[uint64]*tunnel // Active tunnels
-	tunLock sync.RWMutex       // Mutex to protect the tunnel map
+	//tunIdx  uint64             // Index to assign the next tunnel
+	//tunLive map[uint64]*tunnel // Active tunnels
+	//tunLock sync.RWMutex       // Mutex to protect the tunnel map
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
@@ -71,15 +101,17 @@ type connection struct {
 	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 
-func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Connection {
+// Connects to the iris overlay.
+func (o *Overlay) Connect(cluster string, handler ConnectionHandler) *Connection {
 	// Create the connection object
-	c := &connection{
-		app:     app,
+	c := &Connection{
+		cluster: cluster,
 		handler: handler,
+		iris:    o,
 
 		reqPend: make(map[uint64]chan []byte),
 		subLive: make(map[string]SubscriptionHandler),
-		tunLive: make(map[uint64]*tunnel),
+		//tunLive: make(map[uint64]*tunnel),
 
 		// Quality of service
 		workers: pool.NewThreadPool(config.IrisHandlerThreads),
@@ -88,28 +120,31 @@ func Connect(carrier carrier.Carrier, app string, handler ConnectionHandler) Con
 		quit: make(chan chan error),
 		term: make(chan struct{}),
 	}
-	c.conn = carrier.Connect(c)
-	for _, prefix := range appPrefixes {
-		c.conn.Subscribe(prefix + app)
+	// Assign a connection id and track it
+	o.lock.Lock()
+	c.id, o.autoid = o.autoid, o.autoid+1
+	o.conns[c.id] = c
+	o.lock.Unlock()
+
+	// Subscribe to the multi-group
+	for _, prefix := range clusterPrefixes {
+		c.iris.subscribe(c.id, prefix+cluster)
 	}
 	c.workers.Start()
 
 	return c
 }
 
-// Implements iris.Connection.Broadcast. Tags the destination id with the app
-// prefix to ensure apps and topics can overlap, bundles the payload into a
-// protocol packet and publishes it.
-func (c *connection) Broadcast(app string, msg []byte) error {
-	prefixIdx := int(atomic.AddUint32(&c.splitId, uint32(1))) % config.IrisClusterSplits
-	c.conn.Publish(appPrefixes[prefixIdx]+app, assembleBroadcast(msg))
-	return nil
+// Broadcasts asynchronously a message to all members of an iris cluster. No
+// guarantees are made that all nodes receive the message (best effort).
+func (c *Connection) Broadcast(cluster string, msg []byte) error {
+	prefixIdx := int(atomic.AddUint32(&c.splitId, 1)) % config.IrisClusterSplits
+	return c.iris.scribe.Publish(clusterPrefixes[prefixIdx]+cluster, c.assembleBroadcast(msg))
 }
 
-// Implements iris.Connection.Request. Tags the destination with the app prefix,
-// bundles the request and asks the carrier to balance it to a suitable place,
-// and finally starts the countdown.
-func (c *connection) Request(app string, req []byte, timeout time.Duration) ([]byte, error) {
+// Executes a synchronous request to cluster (load balanced between all active),
+// and returns the received reply, or an error if a timeout is reached.
+func (c *Connection) Request(cluster string, req []byte, timeout time.Duration) ([]byte, error) {
 	// Create a reply channel for the results
 	c.reqLock.Lock()
 	reqCh := make(chan []byte, 1)
@@ -127,122 +162,123 @@ func (c *connection) Request(app string, req []byte, timeout time.Duration) ([]b
 		close(reqCh)
 	}()
 	// Send the request
-	c.conn.Balance(appPrefixes[int(reqId)%config.IrisClusterSplits]+app, assembleRequest(reqId, req, timeout))
+	prefixIdx := int(reqId) % config.IrisClusterSplits
+	c.iris.scribe.Balance(clusterPrefixes[prefixIdx]+cluster, c.assembleRequest(reqId, req, timeout))
 
 	// Retrieve the results, time out or fail if terminating
 	select {
 	case <-c.term:
-		return nil, permError(fmt.Errorf("connection terminating"))
+		return nil, ErrTerminating
 	case <-time.After(timeout):
-		return nil, timeError(fmt.Errorf("request timed out"))
+		return nil, ErrTimeout
 	case rep := <-reqCh:
 		return rep, nil
 	}
 }
 
-// Implements iris.Connection.Subscribe. Tags the target with the topic prefix,
-// assigns a handler for incoming events and executes a carrier subscription.
-func (c *connection) Subscribe(topic string, handler SubscriptionHandler) error {
+// Subscribes to topic, using handler as the callback for arriving events. An
+// error is returned if subscription fails.
+func (c *Connection) Subscribe(topic string, handler SubscriptionHandler) error {
 	// Make sure there are no double subscriptions and not closing
 	c.subLock.Lock()
 	select {
 	case <-c.term:
 		c.subLock.Unlock()
-		return permError(fmt.Errorf("connection terminating"))
+		return ErrTerminating
 	default:
-		if _, ok := c.subLive[topPrefixes[0]+topic]; ok {
+		if _, ok := c.subLive[topicPrefixes[0]+topic]; ok {
 			c.subLock.Unlock()
-			return permError(fmt.Errorf("already subscribed"))
+			return ErrSubscribed
 		}
-		for _, prefix := range topPrefixes {
+		for _, prefix := range topicPrefixes {
 			c.subLive[prefix+topic] = handler
 		}
 	}
 	c.subLock.Unlock()
 
 	// Subscribe through the carrier
-	for _, prefix := range topPrefixes {
-		if err := c.conn.Subscribe(prefix + topic); err != nil {
+	for _, prefix := range topicPrefixes {
+		if err := c.iris.subscribe(c.id, prefix+topic); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Implements iris.Connection.Publish. Tags the target with the topic prefix,
-// bundles the message and requests the carrier to publish it.
-func (c *connection) Publish(topic string, msg []byte) error {
-	prefixIdx := int(atomic.AddUint32(&c.splitId, uint32(1))) % config.IrisClusterSplits
-	c.conn.Publish(topPrefixes[prefixIdx]+topic, assemblePublish(msg))
-	return nil
+// Publishes an event asynchronously to topic. No guarantees are made that all
+// subscribers receive the message.
+func (c *Connection) Publish(topic string, msg []byte) error {
+	prefixIdx := int(atomic.AddUint32(&c.splitId, 1)) % config.IrisClusterSplits
+	return c.iris.scribe.Publish(topicPrefixes[prefixIdx]+topic, c.assemblePublish(msg))
 }
 
-// Implements iris.Connection.Unsubscribe. Removes an active subscription from
-// the local list and notifies the carrier of the request.
-func (c *connection) Unsubscribe(topic string) error {
+// Unsubscribes from topic, receiving no more event notifications for it.
+func (c *Connection) Unsubscribe(topic string) error {
 	// Remove subscription if present
 	c.subLock.Lock()
 	select {
 	case <-c.term:
 		c.subLock.Unlock()
-		return permError(fmt.Errorf("connection terminating"))
+		return ErrTerminating
 	default:
-		if _, ok := c.subLive[topPrefixes[0]+topic]; !ok {
+		if _, ok := c.subLive[topicPrefixes[0]+topic]; !ok {
 			c.subLock.Unlock()
-			return permError(fmt.Errorf("not subscribed"))
+			return ErrNotSubscribed
 		}
 	}
-	for _, prefix := range topPrefixes {
+	for _, prefix := range topicPrefixes {
 		delete(c.subLive, prefix+topic)
 	}
 	c.subLock.Unlock()
 
 	// Notify the carrier of the removal
-	for _, prefix := range topPrefixes {
-		c.conn.Unsubscribe(prefix + topic)
+	for _, prefix := range topicPrefixes {
+		if err := c.iris.unsubscribe(c.id, prefix+topic); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// Implements iris.Connection.Tunnel.
-func (c *connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
-	c.tunLock.RLock()
+// Opens a direct tunnel to a member of cluster, allowing pairwise-exclusive
+// and order-guaranteed message passing between them. The method blocks until
+// either the newly created tunnel is set up, or a timeout is reached.
+func (c *Connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
+	/*c.tunLock.RLock()
 	select {
 	case <-c.term:
 		c.tunLock.RUnlock()
-		return nil, permError(fmt.Errorf("connection terminating"))
+		return nil, ErrTerminating
 	default:
 		c.tunLock.RUnlock()
 		return c.initiateTunnel(app, timeout)
-	}
+	}*/
+	return nil, errors.New("not implemented")
 }
 
-// Implements iris.Connection.Close. Removes all topic subscriptions, closes all
-// tunnels and disconnects from the carrier.
-func (c *connection) Close() {
+// Gracefully terminates the connection, all subscriptions and all tunnels.
+func (c *Connection) Close() {
 	// Signal the connection as terminating
 	close(c.term)
 
 	// Close all open tunnels
-	c.tunLock.Lock()
+	/*c.tunLock.Lock()
 	for _, tun := range c.tunLive {
 		go tun.Close()
 	}
-	c.tunLock.Unlock()
+	c.tunLock.Unlock()*/
 
 	// Remove all topic subscriptions
 	c.subLock.Lock()
 	for topic, _ := range c.subLive {
-		c.conn.Unsubscribe(topic)
+		c.iris.unsubscribe(c.id, topic)
 	}
 	c.subLock.Unlock()
 
-	// Leave the app group and close the carrier connection
-	for _, prefix := range appPrefixes {
-		c.conn.Unsubscribe(prefix + c.app)
+	// Leave the cluster and close the carrier connection
+	for _, prefix := range clusterPrefixes {
+		c.iris.unsubscribe(c.id, prefix+c.cluster)
 	}
-	c.conn.Close()
-
 	// Terminate the worker pool
 	c.workers.Terminate(true)
 }
