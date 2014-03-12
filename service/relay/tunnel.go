@@ -21,17 +21,18 @@ package relay
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/iris"
 	"log"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/iris"
 )
 
 // Relay tunnel wrapping the real Iris tunnel, adding input and output buffers.
 type tunnel struct {
-	id  uint64      // Local-app tunnel identifier
-	tun iris.Tunnel // Iris tunnel being relayed and buffered
-	rel *relay      // Message relay to the attached app
+	id  uint64       // Local-app tunnel identifier
+	tun *iris.Tunnel // Iris tunnel being relayed and buffered
+	rel *relay       // Message relay to the attached app
 
 	// Throttling fields
 	atoi chan []byte   // Application to Iris message buffer
@@ -42,7 +43,7 @@ type tunnel struct {
 }
 
 // Creates a new relay tunnel and associated buffers.
-func (r *relay) newTunnel(id uint64, tun iris.Tunnel, atoiBuf int, itoaBuf int) *tunnel {
+func (r *relay) newTunnel(id uint64, tun *iris.Tunnel, atoiBuf int, itoaBuf int) *tunnel {
 	return &tunnel{
 		id:   id,
 		tun:  tun,
@@ -130,7 +131,7 @@ func (t *tunnel) receiver() {
 			// Message send permitted
 			if msg, rerr := t.tun.Recv(time.Duration(config.RelayTunnelPoll) * time.Millisecond); rerr == nil {
 				t.rel.handleTunnelRecv(t.id, msg)
-			} else if rerr.(iris.Error).Timeout() {
+			} else if rerr == iris.ErrTimeout {
 				<-t.itoa
 			} else {
 				go t.rel.handleTunnelClose(t.id, false)

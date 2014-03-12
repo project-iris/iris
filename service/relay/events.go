@@ -24,10 +24,11 @@
 package relay
 
 import (
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/iris"
 	"log"
 	"time"
+
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto/iris"
 )
 
 // Forwards an app broadcast arriving from the Iris network to the attached app.
@@ -158,7 +159,7 @@ func (r *relay) handleUnsubscribe(topic string) {
 
 // Forwards a tunneling request from the Iris network to the attached app. If no
 // reply comes within some alloted time, the tunnel and connection are dropped.
-func (r *relay) HandleTunnel(tun iris.Tunnel) {
+func (r *relay) HandleTunnel(tun *iris.Tunnel) {
 	// Allocate a temporary tunnel id
 	r.tunLock.Lock()
 	tmpId := r.tunIdx

@@ -23,24 +23,25 @@ package relay
 
 import (
 	"bufio"
+	"net"
+	"sync"
+
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/pool"
 	"github.com/karalabe/iris/proto/iris"
-	"net"
-	"sync"
 )
 
 // Message relay between the local carrier and an attached client app.
 type relay struct {
 	// Application layer fields
-	iris iris.Connection // Interface into the distributed carrier
+	iris *iris.Connection // Interface into the iris overlay
 
 	reqIdx  uint64                 // Index to assign the next request
 	reqPend map[uint64]chan []byte // Active requests waiting for a reply
 	reqLock sync.RWMutex           // Mutex to protect the request map
 
 	tunIdx  uint64                   // Temporary index to assign the next inbound tunnel
-	tunPend map[uint64]iris.Tunnel   // Tunnels pending app confirmation
+	tunPend map[uint64]*iris.Tunnel  // Tunnels pending app confirmation
 	tunInit map[uint64]chan struct{} // Confirmation channels for the pending tunnels
 	tunLive map[uint64]*tunnel       // Active tunnels
 	tunLock sync.RWMutex             // Mutex to protect the tunnel maps
@@ -64,7 +65,7 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Create the relay object
 	rel := &relay{
 		reqPend: make(map[uint64]chan []byte),
-		tunPend: make(map[uint64]iris.Tunnel),
+		tunPend: make(map[uint64]*iris.Tunnel),
 		tunInit: make(map[uint64]chan struct{}),
 		tunLive: make(map[uint64]*tunnel),
 
@@ -91,7 +92,12 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 		return nil, err
 	}
 	// Connect to the Iris network
-	rel.iris = iris.Connect(r.carrier, app, rel)
+	conn, err := r.iris.Connect(app, rel)
+	if err != nil {
+		rel.drop()
+		return nil, err
+	}
+	rel.iris = conn
 
 	// Report the connection accepted
 	if err := rel.sendInit(); err != nil {

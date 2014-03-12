@@ -26,8 +26,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"github.com/karalabe/iris/proto/carrier"
-	"github.com/karalabe/iris/service/relay"
 	"io/ioutil"
 	"log"
 	rng "math/rand"
@@ -36,6 +34,9 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strings"
+
+	"github.com/karalabe/iris/proto/iris"
+	"github.com/karalabe/iris/service/relay"
 )
 
 // Command line flags
@@ -164,16 +165,16 @@ func main() {
 	}
 
 	// Create and boot a new carrier
-	log.Printf("main: booting carrier...")
-	car := carrier.New(clusterId, rsaKey)
-	if peers, err := car.Boot(); err != nil {
-		log.Fatalf("main: failed to boot carrier: %v.", err)
+	log.Printf("main: booting iris overlay...")
+	overlay := iris.New(clusterId, rsaKey)
+	if peers, err := overlay.Boot(); err != nil {
+		log.Fatalf("main: failed to boot iris overlay: %v.", err)
 	} else {
-		log.Printf("main: carrier converged with %v remote connections.", peers)
+		log.Printf("main: iris overlay converged with %v remote connections.", peers)
 	}
 	// Create and boot a new relay
 	log.Printf("main: booting relay service...")
-	rel, err := relay.New(relayPort, car)
+	rel, err := relay.New(relayPort, overlay)
 	if err != nil {
 		log.Fatalf("main: failed to create relay service: %v.", err)
 	}
@@ -192,9 +193,11 @@ func main() {
 	<-quit
 	log.Printf("main: terminating relay service...")
 	if err := rel.Terminate(); err != nil {
-		log.Printf("main: relay service termination failure: %v.", err)
+		log.Printf("main: failed to terminate relay service: %v.", err)
 	}
 	log.Printf("main: terminating carrier...")
-	car.Shutdown()
+	if err := overlay.Shutdown(); err != nil {
+		log.Printf("main: failed to shutdown iris overlay: %v.", err)
+	}
 	log.Printf("main: iris terminated.")
 }

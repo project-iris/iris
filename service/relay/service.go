@@ -21,10 +21,11 @@ package relay
 
 import (
 	"fmt"
-	"github.com/karalabe/iris/proto/carrier"
 	"log"
 	"net"
 	"time"
+
+	"github.com/karalabe/iris/proto/iris"
 )
 
 // Rate at which to check for relay termination.
@@ -35,7 +36,7 @@ var acceptPollRate = time.Second
 type Relay struct {
 	address  *net.TCPAddr     // Listener address
 	listener *net.TCPListener // Listener socket for the locally joining apps
-	carrier  carrier.Carrier  // Carrier through which connections are relayed
+	iris     *iris.Overlay    // Overlay through which connections are relayed
 
 	clients map[*relay]struct{} // Active client connections
 
@@ -45,7 +46,7 @@ type Relay struct {
 
 // Creates a new relay attached to a carrier and opens the listener socket on
 // the specified local port.
-func New(port int, carrier carrier.Carrier) (*Relay, error) {
+func New(port int, overlay *iris.Overlay) (*Relay, error) {
 	// Assemble the listener address
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
@@ -54,7 +55,7 @@ func New(port int, carrier carrier.Carrier) (*Relay, error) {
 	// Return the relay service endpoint
 	return &Relay{
 		address: addr,
-		carrier: carrier,
+		iris:    overlay,
 		clients: make(map[*relay]struct{}),
 		done:    make(chan *relay),
 		quit:    make(chan chan error),

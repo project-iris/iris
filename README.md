@@ -4,6 +4,7 @@
   Releases
 ------------
  * Development:
+    - New tunnel design based on direct TCP connections.
     - Separate control and data connections for prioritized system messages.
     - Graceful session tear-down.
     - Fix pastry state exchange loopback.
