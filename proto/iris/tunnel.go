@@ -19,242 +19,319 @@
 
 package iris
 
-import "time"
+import (
+	"crypto/rand"
+	"encoding/gob"
+	"errors"
+	"fmt"
+	"hash"
+	"io"
+	"log"
+	"net"
+	"sort"
+	"time"
+
+	"code.google.com/p/go.crypto/hkdf"
+	"github.com/karalabe/iris/config"
+	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/link"
+	"github.com/karalabe/iris/proto/stream"
+)
+
+// The initialization packet when the tunnel is set up.
+type initPacket struct {
+	ConnId uint64 // Id of the Iris client connection requesting the tunnel
+	TunId  uint64 // Id of the tunnel being built
+}
+
+// Authorization packet to send over the established encrypted tunnels.
+type authPacket struct {
+	Id uint64
+}
+
+// Make sure the handshake packets are registered with gob.
+func init() {
+	gob.Register(&initPacket{})
+	gob.Register(&authPacket{})
+}
+
+func (o *Overlay) tunneler(ipnet *net.IPNet, quit chan chan error) {
+	// Listen for incoming streams on the given interface and random port.
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
+	if err != nil {
+		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
+	}
+	sock, err := stream.Listen(addr)
+	if err != nil {
+		panic(fmt.Sprintf("failed to start stream listener: %v.", err))
+	}
+	sock.Accept(config.IrisTunnelAcceptTimeout)
+
+	// Save the new listener address into the local (sorted) address list
+	o.lock.Lock()
+	o.tunAddrs = append(o.tunAddrs, addr.String())
+	sort.Strings(o.tunAddrs)
+	o.lock.Unlock()
+
+	// Process incoming connection until termination is requested
+	var errc chan error
+	for errc == nil {
+		select {
+		case errc = <-quit:
+			// Terminating, close and return
+			continue
+		case strm := <-sock.Sink:
+			// There's a hidden panic possibility here: the listener socket can fail
+			// if the system is overloaded with open connections. Alas, solving it is
+			// not trivial as it would require restarting the whole listener. Figure it
+			// out eventually.
+
+			// Initialize and authorize the inbound tunnel
+			if err := o.initServerTunnel(strm); err != nil {
+				log.Printf("iris: failed to initialize server tunnel: %v.", err)
+				if err := strm.Close(); err != nil {
+					log.Printf("iris: failed to terminate uninitialized tunnel stream: %v.", err)
+				}
+			}
+		}
+	}
+	// Terminate the peer listener
+	errv := sock.Close()
+	if errv != nil {
+		log.Printf("iris: failed to terminate tunnel listener: %v.", err)
+	}
+	errc <- errv
+}
 
 // Communication stream between the local app and a remote endpoint. Ordered
 // message delivery is guaranteed.
-type Tunnel interface {
-	// Sends an asynchronous message to the remote pair. An error is returned if
-	// the operation could not complete.
-	Send(msg []byte) error
+type Tunnel struct {
+	id    uint64      // Auto-incremented tunnel identifier
+	owner *Connection // Iris connection through which to communicate
 
-	// Retrieves a message waiting in the local queue. If none is available, the
-	// call blocks until either one arrives or a timeout is reached.
-	Recv(timeout time.Duration) ([]byte, error)
+	conn   *link.Link // Encrypted data link of the tunnel
+	secret []byte     // Master key from which to derive the link keys
 
-	// Closes the tunnel between the pair.
-	Close()
+	init chan *link.Link // Channel to receive the reverse tunnel link
+	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 
-/*
-type tunnel struct {
-	parent *connection
-	id     uint64
-
-	peerAddr *carrier.Address
-	peerId   uint64
-
-	// Control flow fields
-	outNext   uint64        // Next message sequence number to place in the send window
-	outAcked  uint64        // Id of the first gap in the acks
-	outGrant  uint64        // Message limit the remote endpoint is accepting (excluded)
-	outWindow [][]byte      // Send window for repeating lost messages
-	outSize   uint64        // Size of the input window
-	outSlots  chan struct{} // Channel for the available window slots
-	outLock   sync.Mutex    // Synchronizer to the output state
-
-	inNext   uint64        // Next sequence id to be read from the receive window
-	inReady  uint64        // Id of the first gap in the window
-	inWindow [][]byte      // Receive window for ordering messages
-	inSize   uint64        // Size of the input window
-	inSlots  chan struct{} // Channel for the slots ready for recv
-	inLock   sync.Mutex    // Synchronizer to the input state
-
-	// Bookkeeping fields
-	init chan struct{} // Initialization channel for outbound tunnels
-	term chan struct{} // Channel to signal termination to blocked go-routines
-}
-
-// Initiates an outgoing tunnel to a remote app. A new tunnel is created and set
-// as pending until either the tunneling response arrives or the request times
-// out.
-func (c *connection) initiateTunnel(app string, timeout time.Duration) (Tunnel, error) {
+// Initiates an outgoing tunnel to a remote cluster, by configuring a local
+// tunnel endpoint and requesting the remote client to connect to it.
+func (c *Connection) initiateTunnel(cluster string, timeout time.Duration) (*Tunnel, error) {
 	// Create a potential tunnel
 	c.tunLock.Lock()
 	tunId := c.tunIdx
-	tun := &tunnel{
-		parent: c,
-		id:     tunId,
+	tun := &Tunnel{
+		id:    tunId,
+		owner: c,
 
-		outWindow: make([][]byte, config.IrisTunnelWindow),
-		outSize:   uint64(config.IrisTunnelWindow),
-		outGrant:  uint64(config.IrisTunnelWindow),
-		outSlots:  make(chan struct{}, config.IrisTunnelWindow),
-		inWindow:  make([][]byte, config.IrisTunnelWindow),
-		inSize:    uint64(config.IrisTunnelWindow),
-		inSlots:   make(chan struct{}, config.IrisTunnelWindow),
-
-		init: make(chan struct{}, 1),
+		init: make(chan *link.Link, 1),
 		term: make(chan struct{}),
 	}
 	c.tunIdx++
 	c.tunLive[tunId] = tun
 	c.tunLock.Unlock()
 
+	// Create the master encryption key
+	tun.secret = make([]byte, config.StsCipherBits>>3)
+	if _, err := io.ReadFull(rand.Reader, tun.secret); err != nil {
+		return nil, err
+	}
 	// Send the tunneling request
-	c.conn.Balance(appPrefixes[rand.Intn(len(appPrefixes))]+app, assembleTunnelRequest(tunId))
+	prefixIdx := int(tunId) % config.IrisClusterSplits
+	c.iris.scribe.Balance(clusterPrefixes[prefixIdx]+cluster, c.assembleTunnelRequest(tunId, tun.secret, c.iris.tunAddrs, timeout))
 
 	// Retrieve the results, time out or terminate
 	var err error
 	select {
 	case <-c.term:
-		err = permError(fmt.Errorf("connection terminating"))
+		err = ErrTerminating
 	case <-time.After(timeout):
-		err = timeError(fmt.Errorf("tunneling timeout"))
-	case <-tun.init:
+		err = ErrTimeout
+	case tun.conn = <-tun.init:
+		// Clean up init fields
+		tun.secret, tun.init = nil, nil
 		return tun, nil
 	}
-	// Cleanup and report failure
+	// Tunneling failed, clean up and report error
 	c.tunLock.Lock()
 	delete(c.tunLive, tunId)
 	c.tunLock.Unlock()
+
 	return nil, err
 }
 
 // Accepts an incoming tunneling request from a remote, initializes and stores
 // the new tunnel into the connection state.
-func (c *connection) acceptTunnel(peerAddr *carrier.Address, peerId uint64) (Tunnel, error) {
+func (c *Connection) buildTunnel(remote uint64, id uint64, key []byte, addrs []string, timeout time.Duration) (*Tunnel, error) {
+	deadline := time.Now().Add(timeout)
+
 	// Create the local tunnel endpoint
 	c.tunLock.Lock()
 	tunId := c.tunIdx
-	tun := &tunnel{
-		parent:   c,
-		id:       tunId,
-		peerAddr: peerAddr,
-		peerId:   peerId,
-
-		outWindow: make([][]byte, config.IrisTunnelWindow),
-		outSize:   uint64(config.IrisTunnelWindow),
-		outGrant:  uint64(config.IrisTunnelWindow),
-		outSlots:  make(chan struct{}, config.IrisTunnelWindow),
-		inWindow:  make([][]byte, config.IrisTunnelWindow),
-		inSize:    uint64(config.IrisTunnelWindow),
-		inSlots:   make(chan struct{}, config.IrisTunnelWindow),
-
-		term: make(chan struct{}),
+	tun := &Tunnel{
+		id:    tunId,
+		owner: c,
+		term:  make(chan struct{}),
 	}
 	c.tunIdx++
 	c.tunLive[tunId] = tun
 	c.tunLock.Unlock()
 
-	// Return a successful tunnel setup to the initiator
-	c.conn.Direct(peerAddr, assembleTunnelReply(peerId, tunId))
-
-	// Return the accepted tunnel
+	// Dial the remote tunnel listener
+	var err error
+	var strm *stream.Stream
+	for _, addr := range addrs {
+		strm, err = stream.Dial(addr, timeout)
+		if err == nil {
+			break
+		}
+	}
+	// If no error occurred, initialize the client endpoint
+	if err == nil {
+		tun.conn, err = c.initClientTunnel(strm, remote, id, key, deadline)
+		if err != nil {
+			if err := strm.Close(); err != nil {
+				log.Printf("iris: failed to close uninitialized client tunnel stream: %v.", err)
+			}
+		}
+	}
+	// Tunneling failed, clean up and report error
+	if err != nil {
+		c.tunLock.Lock()
+		delete(c.tunLive, tunId)
+		c.tunLock.Unlock()
+		return nil, err
+	}
 	return tun, nil
 }
 
-// Implements iris.Tunnel.Send.
-//
-// The method is not reentrant. It is meant to be used in a single thread, with
-// concurrent access leading to undefined behavior!
-func (t *tunnel) Send(msg []byte) error {
-	// Wait till an output slot frees up
-	select {
-	case <-t.term:
-		return permError(fmt.Errorf("tunnel closed"))
-	case t.outSlots <- struct{}{}:
-		t.outLock.Lock()
-		defer t.outLock.Unlock()
+// Initializes a stream into an encrypted tunnel link.
+func (o *Overlay) initServerTunnel(strm *stream.Stream) error {
+	// Set a socket deadline for finishing the handshake
+	strm.Sock().SetDeadline(time.Now().Add(config.IrisTunnelInitTimeout))
+	defer strm.Sock().SetDeadline(time.Time{})
 
-		// Store the message into the send window
-		t.outWindow[t.outNext%t.outSize] = msg
-
-		// Send the message if allowed
-		if t.outNext < t.outGrant {
-			go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, t.outNext, msg))
-		}
-		// Update state and return
-		t.outNext++
+	// Fetch the unencrypted client initiator
+	init := new(initPacket)
+	if err := strm.Recv(init); err != nil {
+		return err
 	}
+	o.lock.RLock()
+	c, ok := o.conns[init.ConnId]
+	o.lock.RUnlock()
+	if !ok {
+		return errors.New("connection not found")
+	}
+	c.tunLock.RLock()
+	tun, ok := c.tunLive[init.TunId]
+	c.tunLock.RUnlock()
+	if !ok {
+		return errors.New("tunnel not found")
+	}
+	// Create the encrypted link
+	hasher := func() hash.Hash { return config.HkdfHash.New() }
+	hkdf := hkdf.New(hasher, tun.secret, config.HkdfSalt, config.HkdfInfo)
+	conn := link.New(strm, hkdf, true)
+
+	// Send and retrieve an authorization to verify both directions
+	auth := &proto.Message{
+		Head: proto.Header{
+			Meta: &authPacket{Id: tun.id},
+		},
+	}
+	if err := conn.SendDirect(auth); err != nil {
+		return err
+	}
+	if msg, err := conn.RecvDirect(); err != nil {
+		return err
+	} else if auth, ok := msg.Head.Meta.(*authPacket); !ok || auth.Id != tun.id {
+		return errors.New("protocol violation")
+	}
+	conn.Start(config.IrisTunnelBuffer)
+
+	// Send back the initialized link to the pending tunnel
+	tun.init <- conn
 	return nil
 }
 
-func (t *tunnel) handleAck(seqId uint64) {
-	t.outLock.Lock()
-	defer t.outLock.Unlock()
+// Initializes a stream into an encrypted tunnel link.
+func (c *Connection) initClientTunnel(strm *stream.Stream, remote uint64, id uint64, key []byte, deadline time.Time) (*link.Link, error) {
+	// Set a socket deadline for finishing the handshake
+	strm.Sock().SetDeadline(deadline)
+	defer strm.Sock().SetDeadline(time.Time{})
 
-	// Acknowledge a message if inside the window and not yet marked as ready for reuse
-	if t.outAcked <= seqId {
-		// TODO: remove int() cast if fixed: https://code.google.com/p/go/issues/detail?id=5820
-		t.outWindow[int(seqId%t.outSize)] = nil
+	// Send the unencrypted tunnel id to associate with the remote tunnel
+	init := &initPacket{ConnId: remote, TunId: id}
+	if err := strm.Send(init); err != nil {
+		return nil, err
 	}
-	// Grant send window slots if any became available
-	for t.outWindow[t.outAcked%t.outSize] == nil && t.outAcked < t.outNext {
-		<-t.outSlots
-		t.outAcked++
+	// Create the encrypted link and authorize it
+	hasher := func() hash.Hash { return config.HkdfHash.New() }
+	hkdf := hkdf.New(hasher, key, config.HkdfSalt, config.HkdfInfo)
+	conn := link.New(strm, hkdf, false)
+
+	// Send and retrieve an authorization to verify both directions
+	auth := &proto.Message{
+		Head: proto.Header{
+			Meta: &authPacket{Id: id},
+		},
 	}
+	if err := conn.SendDirect(auth); err != nil {
+		return nil, err
+	}
+	if msg, err := conn.RecvDirect(); err != nil {
+		return nil, err
+	} else if auth, ok := msg.Head.Meta.(*authPacket); !ok || auth.Id != id {
+		return nil, errors.New("protocol violation")
+	}
+	conn.Start(config.IrisTunnelBuffer)
+
+	// Return the initialized link
+	return conn, nil
 }
 
-func (t *tunnel) handleGrant(seqId uint64) {
-	t.outLock.Lock()
-	defer t.outLock.Unlock()
-
-	// If reordered grant message, discard
-	if t.outGrant >= seqId {
-		return
-	}
-	// Send all pending messages between the last grant and the new
-	for t.outGrant < seqId && t.outGrant < t.outNext {
-		msg := t.outWindow[t.outGrant%t.outSize]
-		go t.parent.conn.Direct(t.peerAddr, assembleTunnelData(t.peerId, t.outGrant, msg))
-		t.outGrant++
-	}
-	// Update grant entry and return
-	t.outGrant = seqId
+// Closes the tunnel connection.
+func (t *Tunnel) Close() error {
+	// Terminate the encrypted link
+	return t.conn.Close()
 }
 
-// The method is not reentrant. It is meant to be used in a single thread, with
-// concurrent access leading to undefined behavior!
-func (t *tunnel) Recv(timeout time.Duration) ([]byte, error) {
-	// Wait till an input slot is granted
+// Sends an asynchronous message to the remote pair. Not reentrant (order).
+func (t *Tunnel) Send(msg []byte) error {
+	// Create and encrypt the message
+	packet := &proto.Message{Data: msg}
+	if err := packet.Encrypt(); err != nil {
+		return err
+	}
+	// Queue the message for sending
 	select {
+	case t.conn.Send <- packet:
+		return nil
 	case <-t.term:
-		return nil, permError(fmt.Errorf("tunnel closed"))
+		return errors.New("closed")
+	}
+}
+
+// Retrieves a message waiting in the local queue. If none is available, the
+// call blocks until either one arrives or a timeout is reached.
+func (t *Tunnel) Recv(timeout time.Duration) ([]byte, error) {
+	// Retrieve an encrypted packet from the tunnel link
+	select {
+	case packet, ok := <-t.conn.Recv:
+		// Terminate the tunnel if closed remotely
+		if !ok {
+			close(t.term)
+			return nil, ErrTerminating
+		}
+		// Decrypt and pass upstream
+		if err := packet.Decrypt(); err != nil {
+			return nil, err
+		}
+		return packet.Data, nil
+
 	case <-time.After(timeout):
-		return nil, timeError(fmt.Errorf("tunnel recv timeout"))
-	case <-t.inSlots:
-		t.inLock.Lock()
-		defer t.inLock.Unlock()
-
-		// Retrieve the message from the window
-		msg := t.inWindow[t.inNext%t.inSize]
-		// TODO: remove int() cast if fixed: https://code.google.com/p/go/issues/detail?id=5820
-		t.inWindow[int(t.inNext%t.inSize)] = nil
-		t.inNext++
-
-		// Signal a window shift to the remote endpoint
-		go t.parent.conn.Direct(t.peerAddr, assembleTunnelGrant(t.peerId, t.inNext+t.inSize))
-
-		// Return the retrieved message
-		return msg, nil
+		return nil, ErrTimeout
 	}
 }
-
-// Handles the arrival
-func (t *tunnel) handleData(seqId uint64, msg []byte) {
-	// Sync the input state
-	t.inLock.Lock()
-
-	// Store the message if inside the window and not yet marked as ready for receive
-	if t.inReady <= seqId {
-		t.inWindow[seqId%t.inSize] = msg
-	}
-	// Grant receive slots if message is new (or filled a hole)
-	for t.inWindow[t.inReady%t.inSize] != nil && t.inReady < t.inNext+t.inSize {
-		t.inSlots <- struct{}{}
-		t.inReady++
-	}
-	t.inLock.Unlock()
-
-	// Always ack a message (in case a previous got lost)
-	t.parent.conn.Direct(t.peerAddr, assembleTunnelAck(t.peerId, seqId))
-}
-
-// Implements iris.Tunnel.Close. Signals the parent connection of the tunnel
-// closure for clean-up purposes and notifies the remote endpoint too.
-func (t *tunnel) Close() {
-	t.parent.handleTunnelClose(t.id)
-	t.parent.conn.Direct(t.peerAddr, assembleTunnelClose(t.peerId))
-}
-*/

@@ -32,16 +32,11 @@ import (
 type opcode uint8
 
 const (
-	opBcast    opcode = iota // Application broadcast
-	opReq                    // Application request
-	opRep                    // Application reply
-	opPub                    // Topic publish
-	opTunReq                 // Tunnel building request
-	opTunRep                 // Tunnel building reply
-	opTunData                // Tunnel data transfer
-	opTunAck                 // Tunnel data acknowledgment
-	opTunGrant               // Tunnel data flow allowance
-	opTunClose               // Tunnel closing
+	opBcast opcode = iota // Cluster broadcast
+	opReq                 // Cluster request
+	opRep                 // Cluster reply
+	opPub                 // Topic publish
+	opTun                 // Tunneling request
 )
 
 // Extra headers for the Iris layer.
@@ -55,9 +50,10 @@ type header struct {
 	ReqTime time.Duration // Maximum amount of time spendable on the request
 
 	// Optional fields for tunnels
-	TunId    uint64 // Destination tunnel
-	TunRemId uint64 // Remote tunnel endpoint, used during initiation
-	TunSeqId uint64 // Sequence number of the message during data transfer
+	TunId    uint64        // Id of the tunnel being requested
+	TunKey   []byte        // Secret symmetric key of the tunnel
+	TunAddrs []string      // Tunnel listener endpoints
+	TunTime  time.Duration // Maximum time to establish tunnel
 }
 
 // Make sure the header struct is registered with gob.
@@ -99,38 +95,9 @@ func (c *Connection) assemblePublish(msg []byte) *proto.Message {
 	return c.assemblePacket(&header{Op: opPub}, msg)
 }
 
-// Assembles a tunneling request message, consisting of the tunneling opcode and
-// the local tunnel id.
-func (c *Connection) assembleTunnelRequest(tunId uint64) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunReq, TunRemId: tunId}, nil)
-}
-
-// Assembles a tunneling reply message, consisting of the tunnel reply opcode
-// and the two tunnel endpoint ids.
-func (c *Connection) assembleTunnelReply(tunId, repTunId uint64) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunRep, TunId: tunId, TunRemId: repTunId}, nil)
-}
-
-// Assembles a tunnel data packet, consisting of the data opcode, the tunnel id,
-// the message sequence number and the payload itself.
-func (c *Connection) assembleTunnelData(tunId uint64, seqId uint64, msg []byte) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunData, TunId: tunId, TunSeqId: seqId}, msg)
-}
-
-// Assembles a tunnel ack packet, consisting of the ack opcode, the tunnel id
-// and the message sequence number.
-func (c *Connection) assembleTunnelAck(tunId uint64, seqId uint64) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunAck, TunId: tunId, TunSeqId: seqId}, nil)
-}
-
-// Assembles a tunnel data allowance packet, consisting of the grant opcode, the
-// tunnel id and the sequence number.
-func (c *Connection) assembleTunnelGrant(tunId uint64, seqId uint64) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunGrant, TunId: tunId, TunSeqId: seqId}, nil)
-}
-
-// Assembles a tunnel closure message, consisting of the opcode and the target
-// tunnel id.
-func (c *Connection) assembleTunnelClose(tunId uint64) *proto.Message {
-	return c.assemblePacket(&header{Op: opTunClose, TunId: tunId}, nil)
+// Assembles a tunneling request message, consisting of the tunneling opcode,
+// local tunnel id, assigned secret key and reachability infos for the reverse
+// stream connection.
+func (c *Connection) assembleTunnelRequest(tunId uint64, key []byte, addrs []string, timeout time.Duration) *proto.Message {
+	return c.assemblePacket(&header{Op: opTun, Src: c.id, TunId: tunId, TunKey: key, TunAddrs: addrs, TunTime: timeout}, nil)
 }

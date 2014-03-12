@@ -61,7 +61,7 @@ func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
 	if err != nil {
 		panic(fmt.Sprintf("failed to start session listener: %v.", err))
 	}
-	sock.Accept(config.PastryAcceptTimout)
+	sock.Accept(config.PastryAcceptTimeout)
 
 	// Save the new listener address into the local (sorted) address list
 	o.lock.Lock()

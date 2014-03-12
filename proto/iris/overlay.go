@@ -22,7 +22,9 @@ package iris
 
 import (
 	"crypto/rsa"
+	"fmt"
 	"log"
+	"net"
 	"sync"
 
 	"github.com/karalabe/iris/proto/scribe"
@@ -38,6 +40,9 @@ type Overlay struct {
 
 	subLive map[string][]uint64     // Live members of each subscribed topic
 	subLock map[string]sync.RWMutex // Locks protecting the individual topics
+
+	tunAddrs []string          // Listener addresses for the tunnel endpoints
+	tunQuits []chan chan error // Quit channels for the tunnel acceptors
 
 	lock sync.RWMutex // Protects the overlay state
 }
@@ -62,13 +67,51 @@ func (o *Overlay) Boot() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Start a tunnel acceptor on each network interface
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return 0, err
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok {
+			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+				// Create a quit channel and start the acceptor
+				quit := make(chan chan error)
+				o.tunQuits = append(o.tunQuits, quit)
+				go o.tunneler(ipnet, quit)
+			}
+		}
+	}
 	return peers, nil
 }
 
 // Terminates the overlay and all lower layer network primitives.
 func (o *Overlay) Shutdown() error {
+	errs := []error{}
+	errc := make(chan error)
+
+	// Close the tunnel listeners to prevent new connections
+	for _, quit := range o.tunQuits {
+		quit <- errc
+	}
+	for i := 0; i < len(o.tunQuits); i++ {
+		if err := <-errc; err != nil {
+			errs = append(errs, err)
+		}
+	}
 	// Terminate the scribe underlay
-	return o.scribe.Shutdown()
+	if err := o.scribe.Shutdown(); err != nil {
+		errs = append(errs, err)
+	}
+	// Report the errors and return
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return fmt.Errorf("%v", errs)
+	}
 }
 
 // Subscribes to a new topic, or adds the current connection to the list of live

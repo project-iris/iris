@@ -64,7 +64,7 @@ type ConnectionHandler interface {
 	HandleRequest(req []byte, timeout time.Duration) []byte
 
 	// Handles the request to open a direct tunnel.
-	HandleTunnel(tun Tunnel)
+	HandleTunnel(tun *Tunnel)
 }
 
 // Subscription handler receiving events from a single subscribed topic.
@@ -88,9 +88,9 @@ type Connection struct {
 	subLive map[string]SubscriptionHandler // Active subscriptions
 	subLock sync.RWMutex                   // Mutex to protect the subscription map
 
-	//tunIdx  uint64             // Index to assign the next tunnel
-	//tunLive map[uint64]*tunnel // Active tunnels
-	//tunLock sync.RWMutex       // Mutex to protect the tunnel map
+	tunIdx  uint64             // Index to assign the next tunnel
+	tunLive map[uint64]*Tunnel // Tunnels either live, or being established
+	tunLock sync.RWMutex       // Mutex to protect the tunnel map
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
@@ -111,7 +111,7 @@ func (o *Overlay) Connect(cluster string, handler ConnectionHandler) (*Connectio
 
 		reqPend: make(map[uint64]chan []byte),
 		subLive: make(map[string]SubscriptionHandler),
-		//tunLive: make(map[uint64]*tunnel),
+		tunLive: make(map[uint64]*Tunnel),
 
 		// Quality of service
 		workers: pool.NewThreadPool(config.IrisHandlerThreads),
@@ -245,17 +245,16 @@ func (c *Connection) Unsubscribe(topic string) error {
 // Opens a direct tunnel to a member of cluster, allowing pairwise-exclusive
 // and order-guaranteed message passing between them. The method blocks until
 // either the newly created tunnel is set up, or a timeout is reached.
-func (c *Connection) Tunnel(app string, timeout time.Duration) (Tunnel, error) {
-	/*c.tunLock.RLock()
+func (c *Connection) Tunnel(cluster string, timeout time.Duration) (*Tunnel, error) {
+	c.tunLock.RLock()
 	select {
 	case <-c.term:
 		c.tunLock.RUnlock()
 		return nil, ErrTerminating
 	default:
 		c.tunLock.RUnlock()
-		return c.initiateTunnel(app, timeout)
-	}*/
-	return nil, errors.New("not implemented")
+		return c.initiateTunnel(cluster, timeout)
+	}
 }
 
 // Gracefully terminates the connection, all subscriptions and all tunnels.

@@ -48,7 +48,7 @@ func (r *requester) HandleRequest(req []byte, timeout time.Duration) []byte {
 	return req
 }
 
-func (r *requester) HandleTunnel(tun Tunnel) {
+func (r *requester) HandleTunnel(tun *Tunnel) {
 	panic("Inbound tunnel on request handler")
 }
 
@@ -123,7 +123,7 @@ func testReqRep(t *testing.T, nodes, conns, reqs int) {
 		}
 	}
 	// Make sure there is a little time to propagate state and reports (TODO, fix this)
-	if nodes > 0 {
+	if nodes > 1 {
 		time.Sleep(10 * time.Second)
 	}
 	// Request with each and every node in parallel

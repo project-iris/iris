@@ -202,7 +202,7 @@ var PastryBeatPeriod = 3 * time.Second
 var PastryKillCount = 3
 
 // Maximum time to queue an authenticated session connection before dropping it.
-var PastryAcceptTimout = time.Second
+var PastryAcceptTimeout = time.Second
 
 // Time to wait after session setup for the init packet.
 var PastryInitTimeout = 5 * time.Second
@@ -237,11 +237,14 @@ var IrisClusterSplits = 5
 // Maximum number of handlers allowed concurrently per Iris application.
 var IrisHandlerThreads = 16
 
-// Send and receive window for tunnel ordering and throttling.
-var IrisTunnelWindow = 256
+// Maximum time to queue an established tunnel stream before dropping it.
+var IrisTunnelAcceptTimeout = time.Second
 
-// Timeout value for receiving a new acknowledgment.
-var IrisTunnelTimeout = 3000
+// Maximum time to wait for a client init packet.
+var IrisTunnelInitTimeout = time.Second
+
+// Send and receive window for tunnel ordering and throttling.
+var IrisTunnelBuffer = 256
 
 // Use in case of federated applications.
 var AppParentId = []byte(nil)

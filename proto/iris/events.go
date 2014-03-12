@@ -57,9 +57,7 @@ func (o *Overlay) HandlePublish(src *big.Int, topic string, msg *proto.Message) 
 			conn.workers.Schedule(func() { conn.handleBroadcast(msg.Data) })
 		case opPub:
 			conn.workers.Schedule(func() { conn.handlePublish(topic, msg.Data) })
-			/*case opTunReq:
-			  conn.workers.Schedule(func() { conn.handleTunnelRequest(src, head.Src, head.TunRemId) })
-			*/default:
+		default:
 			log.Printf("iris: invalid publish opcode: %v.", head.Op)
 		}
 	}
@@ -85,9 +83,9 @@ func (o *Overlay) HandleBalance(src *big.Int, topic string, msg *proto.Message) 
 	switch head.Op {
 	case opReq:
 		conn.workers.Schedule(func() { conn.handleRequest(src, head.Src, head.ReqId, msg.Data, head.ReqTime) })
-		/*case opTunReq:
-		  conn.workers.Schedule(func() { conn.handleTunnelRequest(src, head.Src, head.TunRemId) })
-		*/default:
+	case opTun:
+		conn.workers.Schedule(func() { conn.handleTunnelRequest(head.Src, head.TunId, head.TunKey, head.TunAddrs, head.TunTime) })
+	default:
 		log.Printf("iris: invalid balance opcode: %v.", head.Op)
 	}
 }
@@ -109,17 +107,7 @@ func (o *Overlay) HandleDirect(src *big.Int, msg *proto.Message) {
 	switch head.Op {
 	case opRep:
 		conn.workers.Schedule(func() { conn.handleReply(head.ReqId, msg.Data) })
-		/*case opTunRep:
-			conn.workers.Schedule(func() { conn.handleTunnelReply(src, head.TunId, head.TunRemId) })
-		case opTunData:
-			conn.workers.Schedule(func() { conn.handleTunnelData(head.TunId, head.TunSeqId, msg.Data) })
-		case opTunAck:
-			conn.workers.Schedule(func() { conn.handleTunnelAck(head.TunId, head.TunSeqId) })
-		case opTunGrant:
-			conn.workers.Schedule(func() { conn.handleTunnelGrant(head.TunId, head.TunSeqId) })
-		case opTunClose:
-			conn.workers.Schedule(func() { conn.handleTunnelClose(head.TunId) })
-		*/default:
+	default:
 		log.Printf("iris: invalid direct opcode: %v.", head.Op)
 	}
 }
@@ -164,83 +152,12 @@ func (c *Connection) handlePublish(topic string, msg []byte) {
 	}
 }
 
-/*
 // Accepts the inbound tunnel, notifies the remote endpoint of the success and
 // starts the local handler.
-func (c *Connection) handleTunnelRequest(srcNode *big.Int, srcConn uint64, peerId uint64) {
-	if tun, err := c.acceptTunnel(peerAddr, peerId); err != nil {
-		// This should not happend, potential extension point to re-route tunnel request
-		panic(err)
+func (c *Connection) handleTunnelRequest(conn uint64, id uint64, key []byte, addrs []string, timeout time.Duration) {
+	if tun, err := c.buildTunnel(conn, id, key, addrs, timeout); err != nil {
+		log.Printf("iris: failed to accept tunnel: %v.", err)
 	} else {
 		c.handler.HandleTunnel(tun)
 	}
 }
-
-// Initiates a locally outbound pending tunnel with the remote endpoint data and
-// notifies the tunneler.
-func (c *Connection) handleTunnelReply(peerAddr *carrier.Address, tunId uint64, peerId uint64) {
-	c.tunLock.Lock()
-	defer c.tunLock.Unlock()
-
-	// Make sure the tunnel is still pending and initialize it if so
-	if tun, ok := c.tunLive[tunId]; ok {
-		tun.peerAddr = peerAddr
-		tun.peerId = peerId
-		tun.init <- struct{}{}
-	}
-}
-
-// Delivers tunnel trafic from the Iris network to the specific tunnel.
-func (c *Connection) handleTunnelData(tunId uint64, seqId uint64, msg []byte) {
-	// Fetch the target tunnel
-	c.tunLock.RLock()
-	tun, ok := c.tunLive[tunId]
-	c.tunLock.RUnlock()
-
-	// Deliver the message
-	if ok {
-		tun.handleData(seqId, msg)
-	}
-}
-
-// Delivers a tunnel data acknowledgement from the Iris network to the specific
-// local endpoint.
-func (c *Connection) handleTunnelAck(tunId uint64, seqId uint64) {
-	// Fetch the target tunnel
-	c.tunLock.RLock()
-	tun, ok := c.tunLive[tunId]
-	c.tunLock.RUnlock()
-
-	// Deliver the ack
-	if ok {
-		tun.handleAck(seqId)
-	}
-}
-
-// Delivers a tunnel data allowance grant from the Iris network to the specific
-// local endpoint.
-func (c *Connection) handleTunnelGrant(tunId uint64, seqId uint64) {
-	// Fetch the target tunnel
-	c.tunLock.RLock()
-	tun, ok := c.tunLive[tunId]
-	c.tunLock.RUnlock()
-
-	// Deliver the allowance
-	if ok {
-		tun.handleGrant(seqId)
-	}
-}
-
-// Handles the local or remote closure of the tunnel by terminating all internal
-// operations and removing it from the set of live tunnels.
-func (c *Connection) handleTunnelClose(tunId uint64) {
-	c.tunLock.Lock()
-	defer c.tunLock.Unlock()
-
-	// Make sure the tunnel is still live
-	if tun, ok := c.tunLive[tunId]; ok {
-		close(tun.term)
-		delete(c.tunLive, tunId)
-	}
-}
-*/

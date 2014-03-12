@@ -47,7 +47,7 @@ func (b *broadcaster) HandleRequest(req []byte, timeout time.Duration) []byte {
 	panic("Request passed to broadcast handler")
 }
 
-func (b *broadcaster) HandleTunnel(tun Tunnel) {
+func (b *broadcaster) HandleTunnel(tun *Tunnel) {
 	panic("Inbound tunnel on broadcast handler")
 }
 
