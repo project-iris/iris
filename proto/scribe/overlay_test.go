@@ -268,7 +268,7 @@ func TestDirect(t *testing.T) {
 	swapConfigs()
 	defer swapConfigs()
 
-	nodes := 10
+	nodes := 9
 	msgs := 100
 
 	// Make sure there are enough ports to use
