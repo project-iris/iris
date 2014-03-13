@@ -47,9 +47,9 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 	// TODO: binary search with idSlice could be used (worthwhile?)
 	if delta(tab.leaves[0], dest).Sign() >= 0 && delta(dest, tab.leaves[len(tab.leaves)-1]).Sign() >= 0 {
 		best := tab.leaves[0]
-		dist := distance(best, dest)
+		dist := Distance(best, dest)
 		for _, leaf := range tab.leaves[1:] {
-			if d := distance(leaf, dest); d.Cmp(dist) < 0 {
+			if d := Distance(leaf, dest); d.Cmp(dist) < 0 {
 				best, dist = leaf, d
 			}
 		}
@@ -68,9 +68,9 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 		return
 	}
 	// Route to anybody closer than the local node
-	dist := distance(o.nodeId, dest)
+	dist := Distance(o.nodeId, dest)
 	for _, peer := range tab.leaves {
-		if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+		if p, _ := prefix(peer, dest); p >= pre && Distance(peer, dest).Cmp(dist) < 0 {
 			o.forward(src, msg, peer)
 			return
 		}
@@ -78,7 +78,7 @@ func (o *Overlay) route(src *peer, msg *proto.Message) {
 	for _, row := range tab.routes {
 		for _, peer := range row {
 			if peer != nil {
-				if p, _ := prefix(peer, dest); p >= pre && distance(peer, dest).Cmp(dist) < 0 {
+				if p, _ := prefix(peer, dest); p >= pre && Distance(peer, dest).Cmp(dist) < 0 {
 					o.forward(src, msg, peer)
 					return
 				}

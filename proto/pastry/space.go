@@ -70,7 +70,7 @@ func delta(a, b *big.Int) *big.Int {
 }
 
 // Calculates the absolute distance between two ids on the circular ID space
-func distance(a, b *big.Int) *big.Int {
+func Distance(a, b *big.Int) *big.Int {
 	return new(big.Int).Abs(delta(a, b))
 }
 

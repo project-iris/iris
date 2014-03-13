@@ -67,6 +67,7 @@ import (
 	"math/big"
 
 	"github.com/karalabe/iris/proto"
+	"github.com/karalabe/iris/proto/pastry"
 	"github.com/karalabe/iris/proto/scribe/topic"
 )
 
@@ -80,7 +81,7 @@ func (o *Overlay) Deliver(msg *proto.Message, key *big.Int) {
 			return
 		}
 		if err := o.handleSubscribe(head.Sender, key); err != nil {
-			log.Printf("scribe: failed to handle delivered subscription: %v.", err)
+			log.Printf("scribe: %v failed to handle delivered subscription %v to %v: %v.", o.pastry.Self(), head.Sender, key, err)
 		}
 	case opUnsubscribe:
 		// Drop all unsubscriptions not intended directly for the current node
@@ -147,7 +148,7 @@ func (o *Overlay) Forward(msg *proto.Message, key *big.Int) bool {
 		}
 		// Integrate the subscription locally, forwarding if it fails
 		if err := o.handleSubscribe(head.Sender, key); err != nil {
-			log.Printf("scribe: failed to handle forwarding subscription: %v.", err)
+			log.Printf("scribe: %v failed to handle forwarding subscription %v to %v: %v.", o.pastry.Self(), head.Sender, key, err)
 			return true
 		}
 		// Integrated, cascade the subscription with the local node
@@ -348,11 +349,19 @@ func (o *Overlay) handleReport(src *big.Int, rep *report) error {
 		}
 		// Insert the report into the topic and assign parent if needed
 		if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
+			// Report arrived from untracked node, assign as parent?
 			if top.Parent() != nil {
+				// Nope, we already have a parent, bin it
 				errs = append(errs, fmt.Errorf("failed to process report: %v.", err))
 				continue
 			}
-			// Assign a new parent TODO: REWRITE!!!
+			// Make sure the node is closer than oneself. Prevents a race condition
+			// between a child drop due to heart timeout and a late beat (report).
+			if pastry.Distance(o.pastry.Self(), id).Cmp(pastry.Distance(src, id)) < 0 {
+				errs = append(errs, fmt.Errorf("parent assignment denied: %v closer to %v than %v.", o.pastry.Self(), id, src))
+				continue
+			}
+			// Assign a new parent node and reown
 			if err := o.monitor(id, src); err != nil {
 				errs = append(errs, fmt.Errorf("failed to monitor new parent: %v.", err))
 				continue

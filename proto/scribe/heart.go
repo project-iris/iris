@@ -100,6 +100,8 @@ func (o *Overlay) Dead(id *big.Int) {
 	topic := new(big.Int).Rsh(id, uint(config.PastrySpace))
 	node := new(big.Int).Sub(id, new(big.Int).Lsh(topic, uint(config.PastrySpace)))
 
+	log.Printf("scribe: %v topic member death report: %v.", o.pastry.Self(), node)
+
 	o.lock.RLock()
 	top, ok := o.topics[topic.String()]
 	o.lock.RUnlock()

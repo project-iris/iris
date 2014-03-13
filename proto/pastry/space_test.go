@@ -75,7 +75,7 @@ func TestSpace(t *testing.T) {
 		if d := delta(tt.idA, tt.idB); tt.delta.Cmp(d) != 0 {
 			t.Errorf("test %d: delta mismatch: have %v, want %v.", i, d, tt.delta)
 		}
-		if d := distance(tt.idA, tt.idB); tt.dist.Cmp(d) != 0 {
+		if d := Distance(tt.idA, tt.idB); tt.dist.Cmp(d) != 0 {
 			t.Errorf("test %d: dist mismatch: have %v, want %v.", i, d, tt.dist)
 		}
 		if p, d := prefix(tt.idA, tt.idB); tt.prefix != p || tt.digit != d {
