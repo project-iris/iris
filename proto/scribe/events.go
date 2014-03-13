@@ -18,11 +18,51 @@
 // Author: peterke@gmail.com (Peter Szilagyi)
 
 // This file contains the different carrier event handlers.
+//
+// A short summary of how scribe handles different events:
+//  - Subscription:
+//    When a node wishes to subscribe to a topic, it will initiate a subscribe
+//    message towards the topic rendez-vous point (node closest to the topic
+//    hash). If such a subscription is being forwarded (pastry forward), it is
+//    caught by the relaying node, and a subscription to it is made, after which
+//    this middle node initiates a brand new subscription. If it is delivered,
+//    hopefully the topic root was reached and subscription cascading stops.
+//
+//  - Subscription removal:
+//    If all children nodes removed their subscription, and no local clients are
+//    subscribed to a specific topic, the topic itself is removed and the parent
+//    notified via an unsubscribe message. This message must be handled only by
+//    the true parent (destination and recipient match exactly), since churn can
+//    cause misplaced delivery.
+//
+//  - Publish:
+//    Whenever an event is published into a topic, it is sent towards the groups
+//    rendez-void node (the topic root in the multi-cast tree) for distribution.
+//    However, if the message enters the tree midway, there's no point in routing
+//    all the way to the root and back down, instead, distribution begins from
+//    the entry point. To prevent message duplication, each publish is either in
+//    a virgin or non-virgin state, depending on whether it entered the tree. If
+//    an event is virgin, it can be caught by any member node and processed, but
+//    non-virgin nodes must use precise addressing.
+//
+//  - Balance:
+//    It is essentially the same as publish, with the only difference that the
+//    message is send forward on only one edge of the multi-cast tree.
+//
+//  - Report:
+//    These are used to distribute load reports between members of a multi-cast
+//    tree. Since members know about each other, reports use precise addressing.
+//
+//  - Direct:
+//    As the name suggests, direct messages have a precise destination. Only the
+//    true recipient must handle it. Delivery to a non-precise destination means
+//    either the destination terminated, or pastry's mis-delivered (churn?).
 
 package scribe
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 
@@ -34,41 +74,58 @@ import (
 func (o *Overlay) Deliver(msg *proto.Message, key *big.Int) {
 	head := msg.Head.Meta.(*header)
 	switch head.Op {
-	case opSub:
-		// Accept remote subscription if not self-pass-through or looping root discovery
-		if head.Sender.Cmp(o.pastry.Self()) != 0 {
-			if err := o.handleSubscribe(head.Sender, key); err != nil {
-				log.Printf("scribe: failed to handle delivered subscription: %v.", err)
-			}
+	case opSubscribe:
+		// Topic roots will get self-subscribe messages, discard them
+		if head.Sender.Cmp(o.pastry.Self()) == 0 {
+			return
 		}
-	case opUnsub:
-		// Accept remote unsubscription if not self-pass-through
-		if head.Sender.Cmp(o.pastry.Self()) != 0 {
-			if err := o.handleUnsubscribe(head.Sender, head.Topic); err != nil {
-				log.Printf("scribe: failed to handle delivered unsubscription: %v.", err)
-			}
+		if err := o.handleSubscribe(head.Sender, key); err != nil {
+			log.Printf("scribe: failed to handle delivered subscription: %v.", err)
 		}
-	case opPub:
-		// Topic root, broadcast must be handled
+	case opUnsubscribe:
+		// Drop all unsubscriptions not intended directly for the current node
+		if o.pastry.Self().Cmp(key) != 0 {
+			log.Printf("scribe: unsubscription delivered to wrong node (churn?): have %v, want %v.", key, o.pastry.Self())
+			return
+		}
+		if err := o.handleUnsubscribe(head.Sender, head.Topic); err != nil {
+			log.Printf("scribe: failed to handle delivered unsubscription: %v.", err)
+		}
+	case opPublish:
+		// Non-virgin publishes must be delivered precisely
+		if head.Prev != nil && o.pastry.Self().Cmp(key) != 0 {
+			log.Printf("scribe: non-virgin publish at wrong destination (churn?): have %v, want %v.", key, o.pastry.Self())
+			return
+		}
 		if hand, err := o.handlePublish(msg, head.Topic, head.Prev); !hand || err != nil {
 			// Simple race condition between unsubscribe and publish, left in for debug
-			log.Printf("scribe: failed to handle delivered publish: %v %v.", hand, err)
+			log.Printf("scribe: failed to handle delivered publish (churn?): %v %v.", hand, err)
 		}
-	case opBal:
-		// Topic root, balance must be handled
+	case opBalance:
+		// Non-virgin balances must be delivered precisely
+		if head.Prev != nil && o.pastry.Self().Cmp(key) != 0 {
+			log.Printf("scribe: non-virgin balance at wrong destination (churn?): have %v, want %v.", key, o.pastry.Self())
+			return
+		}
 		if hand, err := o.handleBalance(msg, head.Topic, head.Prev); !hand || err != nil {
 			// Simple race condition between unsubscribe and balance, left in for debug
 			log.Printf("scribe: failed to handle delivered balance: %v %v.", hand, err)
 		}
-	case opRep:
-		// Load report, integrate only if we're the real destination
-		if key.Cmp(o.pastry.Self()) == 0 {
-			o.handleReport(head.Sender, head.Report)
-		} else {
-			log.Printf("scribe: wrong load report destination: have %v, want %v.", key, o.pastry.Self())
+	case opReport:
+		// Load reports are always addresses precisely, drop any other
+		if o.pastry.Self().Cmp(key) != 0 {
+			log.Printf("scribe: load report delivered to wrong node (churn?): have %v, want %v.", key, o.pastry.Self())
+			return
 		}
-	case opDir:
-		// Direct message, deliver
+		if err := o.handleReport(head.Sender, head.Report); err != nil {
+			log.Printf("scribe: failed to handle remote load report: %v.", err)
+		}
+	case opDirect:
+		// Direct messages are always precise
+		if o.pastry.Self().Cmp(key) != 0 {
+			log.Printf("scribe: direct message delivered to wrong node (churn?): have %v, want %v.", key, o.pastry.Self())
+			return
+		}
 		if err := o.handleDirect(msg); err != nil {
 			log.Printf("scribe: failed to handle direct message: %v.", err)
 		}
@@ -82,29 +139,32 @@ func (o *Overlay) Forward(msg *proto.Message, key *big.Int) bool {
 	head := msg.Head.Meta.(*header)
 
 	// If subscription event, process locally and re-initiate
-	if head.Op == opSub {
-		// Accept remote subscription if not self-pass-through or looping root discovery
-		if head.Sender.Cmp(o.pastry.Self()) != 0 {
-			if err := o.handleSubscribe(head.Sender, key); err != nil {
-				log.Printf("scribe: failed to handle forwarding subscription: %v.", err)
-				return true
-			}
+	if head.Op == opSubscribe {
+		// Pastry always asks permission to forward, even local messages (bug? ugly maybe)
+		// If the local node is the originator, just forward the message as is
+		if head.Sender.Cmp(o.pastry.Self()) == 0 {
+			return true
 		}
-		// Swap out the originating node to the current and forward
+		// Integrate the subscription locally, forwarding if it fails
+		if err := o.handleSubscribe(head.Sender, key); err != nil {
+			log.Printf("scribe: failed to handle forwarding subscription: %v.", err)
+			return true
+		}
+		// Integrated, cascade the subscription with the local node
 		head.Sender = o.pastry.Self()
 		return true
 	}
 	// Catch virgin publish messages and only blindly forward if cannot handle
-	if head.Op == opPub && head.Prev == nil {
-		if hand, err := o.handlePublish(msg, head.Topic, nil); err != nil {
+	if head.Op == opPublish && head.Prev == nil {
+		if hand, err := o.handlePublish(msg, head.Topic, head.Prev); err != nil {
 			log.Printf("scribe: failed to handle forwarding publish: %v %v.", hand, err)
 		} else {
 			return !hand
 		}
 	}
 	// Catch virgin balance messages and only blindly forward if cannot handle
-	if head.Op == opBal && head.Prev == nil {
-		if hand, err := o.handleBalance(msg, head.Topic, nil); err != nil {
+	if head.Op == opBalance && head.Prev == nil {
+		if hand, err := o.handleBalance(msg, head.Topic, head.Prev); err != nil {
 			log.Printf("scribe: failed to handle forwarding balance: %v %v.", hand, err)
 		} else {
 			return !hand
@@ -272,7 +332,10 @@ func (o *Overlay) handleDirect(msg *proto.Message) error {
 }
 
 // Handles a remote member report, possibly assigning a new parent to the topic.
-func (o *Overlay) handleReport(src *big.Int, rep *report) {
+func (o *Overlay) handleReport(src *big.Int, rep *report) error {
+	// Error collector
+	errs := []error{}
+
 	// Update local topics with the remote reports
 	for i, id := range rep.Tops {
 		o.lock.RLock()
@@ -280,33 +343,38 @@ func (o *Overlay) handleReport(src *big.Int, rep *report) {
 		o.lock.RUnlock()
 		if !ok {
 			// Simple race condition between unsubscribe and report, left in for debug
-			log.Printf("scribe: unknown topic %v, discarding load report %v.", id, rep.Caps[i])
+			errs = append(errs, fmt.Errorf("unknown topic: %v.", id))
 			continue
 		}
 		// Insert the report into the topic and assign parent if needed
 		if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
 			if top.Parent() != nil {
-				log.Printf("scribe: topic failed to process report %v: %v.", rep.Caps[i], err)
+				errs = append(errs, fmt.Errorf("failed to process report: %v.", err))
 				continue
 			}
 			// Assign a new parent TODO: REWRITE!!!
 			if err := o.monitor(id, src); err != nil {
-				log.Printf("scribe: topic %v failed to monitor new parent %v: %v.", id, src, err)
+				errs = append(errs, fmt.Errorf("failed to monitor new parent: %v.", err))
 				continue
 			}
 			top.Reown(src)
 
 			// Insert the topic report now
 			if err := top.ProcessReport(src, rep.Caps[i]); err != nil {
-				log.Printf("scribe: topic failed to process new parent report %v: %v.", rep.Caps[i], err)
+				errs = append(errs, fmt.Errorf("failed to process parent report: %v.", err))
 				continue
 			}
 		} else {
 			// Report processed correctly, update the heart
 			if err := o.ping(id, src); err != nil {
-				log.Printf("scribe: failed to ping node %v in topic %v: %v.", src, id, err)
+				errs = append(errs, fmt.Errorf("failed to ping node: %v.", err))
 				continue
 			}
 		}
 	}
+	// Return any errors
+	if len(errs) > 0 {
+		return fmt.Errorf("%v", errs)
+	}
+	return nil
 }

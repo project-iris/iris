@@ -296,7 +296,6 @@ func TestDirect(t *testing.T) {
 			t.Fatalf("failed to terminate origin node: %v.", err)
 		}
 	}()
-
 	// Gradually start up scribe nodes, and send a direct message with every second
 	live := make([]*Overlay, 0, nodes)
 	for i := 0; i < nodes; i++ {

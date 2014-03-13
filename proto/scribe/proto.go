@@ -28,17 +28,17 @@ import (
 	"github.com/karalabe/iris/proto"
 )
 
-// Carrier operation code type.
+// Scribe operation code type.
 type opcode uint8
 
-// Carrier operation types.
+// Scribe operation types.
 const (
-	opSub   opcode = iota // Carrier subscription
-	opUnsub               // Carrier subscription removal
-	opPub                 // Topic publish
-	opBal                 // Topic balance
-	opRep                 // Load report
-	opDir                 // Direct send
+	opSubscribe   opcode = iota // Group subscription
+	opUnsubscribe               // Group subscription removal
+	opPublish                   // Event publish
+	opBalance                   // Topic balance
+	opReport                    // Load report
+	opDirect                    // Direct send
 )
 
 // Extra headers for the scribe.
@@ -103,21 +103,20 @@ func (o *Overlay) fwdDataPacket(dest *big.Int, msg *proto.Message) {
 // Assembles a subscription message, consisting of the subscribe opcode and send
 // it towards the destination topic.
 func (o *Overlay) sendSubscribe(topicId *big.Int) {
-	o.sendPacket(topicId, &header{Op: opSub})
+	o.sendPacket(topicId, &header{Op: opSubscribe})
 }
 
 // Assembles an unsubscription message, consisting of the unsubscribe opcode
 // and desired topic to drop. The message is sent to the parent node in the
 // topic subtree.
 func (o *Overlay) sendUnsubscribe(parentId *big.Int, topicId *big.Int) {
-	o.sendPacket(parentId, &header{Op: opUnsub, Topic: topicId})
+	o.sendPacket(parentId, &header{Op: opUnsubscribe, Topic: topicId})
 }
 
-// Assembles a topic publish message, consisting of the publish opcode, the
-// originating application (to allow replies) and the destination topic (to
-// allow catching publishes midway).
+// Assembles a topic publish message, consisting of the publish opcode, and the
+// destination topic (to allow catching publishes in flight).
 func (o *Overlay) sendPublish(topicId *big.Int, msg *proto.Message) {
-	o.sendDataPacket(topicId, &header{Op: opPub, Topic: topicId}, msg)
+	o.sendDataPacket(topicId, &header{Op: opPublish, Topic: topicId}, msg)
 }
 
 // Reroutes a publish message to a new destination to traverse the topic tree
@@ -130,7 +129,7 @@ func (o *Overlay) fwdPublish(dest *big.Int, msg *proto.Message) {
 // originating application (to allow replies) and the destination topic (to
 // allow catching balances midway).
 func (o *Overlay) sendBalance(topicId *big.Int, msg *proto.Message) {
-	o.sendDataPacket(topicId, &header{Op: opBal, Topic: topicId}, msg)
+	o.sendDataPacket(topicId, &header{Op: opBalance, Topic: topicId}, msg)
 }
 
 // Reroutes a balanced message to a new destination to traverse the topic tree
@@ -141,10 +140,10 @@ func (o *Overlay) fwdBalance(dest *big.Int, msg *proto.Message) {
 
 // Assembles a scribe load report message and sends it to a peer.
 func (o *Overlay) sendReport(nodeId *big.Int, rep *report) {
-	o.sendPacket(nodeId, &header{Op: opRep, Report: rep})
+	o.sendPacket(nodeId, &header{Op: opReport, Report: rep})
 }
 
 // Sends out a message directed to a specific node.
 func (o *Overlay) sendDirect(dest *big.Int, msg *proto.Message) {
-	o.sendDataPacket(dest, &header{Op: opDir}, msg)
+	o.sendDataPacket(dest, &header{Op: opDirect}, msg)
 }
