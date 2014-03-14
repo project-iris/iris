@@ -100,7 +100,7 @@ func (o *Overlay) Deliver(msg *proto.Message, key *big.Int) {
 		}
 		if hand, err := o.handlePublish(msg, head.Topic, head.Prev); !hand || err != nil {
 			// Simple race condition between unsubscribe and publish, left in for debug
-			log.Printf("scribe: failed to handle delivered publish (churn?): %v %v.", hand, err)
+			log.Printf("scribe: %v failed to handle delivered publish (churn?): %v %v.", o.pastry.Self(), hand, err)
 		}
 	case opBalance:
 		// Non-virgin balances must be delivered precisely
@@ -252,6 +252,10 @@ func (o *Overlay) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 	if !ok {
 		// No error, but not handled either
 		return false, nil
+	}
+	// Precise publish is accepted only from neighbors or self (subscription race)
+	if prevHop != nil && !top.Neighbor(prevHop) {
+		return true, fmt.Errorf("non-neighbor direct publish: %v", prevHop)
 	}
 	// Extract the message headers
 	head := msg.Head.Meta.(*header)

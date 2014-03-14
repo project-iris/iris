@@ -40,10 +40,11 @@ var ErrNotSubscribed = errors.New("not subscribed")
 
 // The maintenance data related to a single topic.
 type Topic struct {
-	id     *big.Int   // Unique id of the topic
-	owner  *big.Int   // Id of the local node
-	parent *big.Int   // Parent node in the topic tree
-	nodes  []*big.Int // Remote children in the topic tree (+local if subbed)
+	id      *big.Int            // Unique id of the topic
+	owner   *big.Int            // Id of the local node
+	parent  *big.Int            // Parent node in the topic tree
+	nodes   []*big.Int          // Remote children in the topic tree (+local if subbed)
+	members map[string]struct{} // Membership set to allow fast lookups
 
 	load *balancer.Balancer // Balancer to load-distribute messages
 	msgs int32              // Number of messages balanced to locals (atomic, take care)
@@ -55,10 +56,11 @@ type Topic struct {
 func New(id, owner *big.Int) *Topic {
 	log.Printf("%v topic created: %v", owner, id)
 	return &Topic{
-		id:    id,
-		owner: owner,
-		nodes: []*big.Int{},
-		load:  balancer.New(),
+		id:      id,
+		owner:   owner,
+		nodes:   []*big.Int{},
+		members: make(map[string]struct{}),
+		load:    balancer.New(),
 	}
 }
 
@@ -85,10 +87,12 @@ func (t *Topic) Reown(parent *big.Int) {
 	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
 		t.load.Unregister(t.parent)
+		delete(t.members, t.parent.String())
 	}
 	// Initialize and save the new parent if any
 	if parent != nil {
 		t.load.Register(parent)
+		t.members[parent.String()] = struct{}{}
 	}
 	t.parent = parent
 }
@@ -116,6 +120,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 	// New entity, insert into the list
 	t.nodes = append(t.nodes, id)
 	sortext.BigInts(t.nodes)
+	t.members[id.String()] = struct{}{}
 
 	log.Printf("%v:%v: subbed, state: %v.", t.owner, t.id, t.nodes)
 
@@ -141,12 +146,22 @@ func (t *Topic) Unsubscribe(id *big.Int) error {
 	t.nodes[idx] = t.nodes[last]
 	t.nodes = t.nodes[:last]
 	sortext.BigInts(t.nodes)
+	delete(t.members, id.String())
 
 	log.Printf("%v:%v: remed, state: %v.", t.owner, t.id, t.nodes)
 
 	// Remove the node from the load balancer
 	t.load.Unregister(id)
 	return nil
+}
+
+// Returns whether a node is a neighbor of the current one in the topic tree.
+func (t *Topic) Neighbor(id *big.Int) bool {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	_, ok := t.members[id.String()]
+	return ok
 }
 
 // Returns the list of nodes that a broadcast message should be sent to. An
