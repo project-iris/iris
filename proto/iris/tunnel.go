@@ -55,7 +55,7 @@ func init() {
 	gob.Register(&authPacket{})
 }
 
-func (o *Overlay) tunneler(ipnet *net.IPNet, quit chan chan error) {
+func (o *Overlay) tunneler(ipnet *net.IPNet, live chan struct{}, quit chan chan error) {
 	// Listen for incoming streams on the given interface and random port.
 	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
 	if err != nil {
@@ -72,6 +72,9 @@ func (o *Overlay) tunneler(ipnet *net.IPNet, quit chan chan error) {
 	o.tunAddrs = append(o.tunAddrs, addr.String())
 	sort.Strings(o.tunAddrs)
 	o.lock.Unlock()
+
+	// Notify the overlay of the successful listen
+	live <- struct{}{}
 
 	// Process incoming connection until termination is requested
 	var errc chan error

@@ -75,10 +75,14 @@ func (o *Overlay) Boot() (int, error) {
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok {
 			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				// Create a quit channel and start the acceptor
+				// Create a quit channel
 				quit := make(chan chan error)
 				o.tunQuits = append(o.tunQuits, quit)
-				go o.tunneler(ipnet, quit)
+
+				// Start and sync the acceptor
+				live := make(chan struct{})
+				go o.tunneler(ipnet, live, quit)
+				<-live
 			}
 		}
 	}

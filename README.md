@@ -4,14 +4,10 @@
   Releases
 ------------
  * Development:
-    - New tunnel design based on direct TCP connections.
-    - Separate control and data connections for prioritized system messages.
-    - Graceful session tear-down.
-    - Fix pastry state exchange loopback.
-    - Fix invalid bootstrap net mask (default -> actual).
-    - Fix session handshake infinite wait.
-    - Fix thread pool termination wait.
-    - Fix queue reset GC allowance.
+    - Redesigned tunnels based on direct TCP connections.
+    - Prioritized system messages over separate control connections.
+    - Graceful connection and overlay tear-downs (still plenty to do).
+    - Countless stability fixes (too many to enumerate)
  * Version 0.1-pre2 (hotfix): **September 11, 2013**
     - Fix fast subscription reply only if subscription succeeds.
     - Fix topic self report after a node failure.
