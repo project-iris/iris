@@ -146,10 +146,13 @@ func (o *Overlay) Forward(msg *proto.Message, key *big.Int) bool {
 		if head.Sender.Cmp(o.pastry.Self()) == 0 {
 			return true
 		}
-		// Integrate the subscription locally, forwarding if it fails
+		// Integrate the subscription locally
 		if err := o.handleSubscribe(head.Sender, key); err != nil {
+			// A failure most probably means double subscription caused by a race
+			// between parent discovery and parent response. Discard to prevent the
+			// node being registered into multiple subtrees.
 			log.Printf("scribe: %v failed to handle forwarding subscription %v to %v: %v.", o.pastry.Self(), head.Sender, key, err)
-			return true
+			return false
 		}
 		// Integrated, cascade the subscription with the local node
 		head.Sender = o.pastry.Self()
