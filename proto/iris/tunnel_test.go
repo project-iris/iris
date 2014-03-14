@@ -133,7 +133,7 @@ func testTunnel(t *testing.T, nodes, conns, tuns, msgs int) {
 	}
 	// Make sure there is a little time to propagate state and reports (TODO, fix this)
 	if nodes > 1 {
-		time.Sleep(10 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 	// Request with each and every node in parallel
 	pend := new(sync.WaitGroup)

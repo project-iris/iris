@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/karalabe/iris/config"
 )
@@ -34,7 +35,12 @@ type subscriber struct {
 }
 
 func (s *subscriber) HandleEvent(msg []byte) {
-	s.msgs <- msg
+	select {
+	case s.msgs <- msg:
+		// Ok
+	default:
+		panic("event queue full")
+	}
 }
 
 // Individual pubsub tests.
@@ -104,7 +110,7 @@ func testPubSub(t *testing.T, nodes, conns, msgs int) {
 			}(liveConns[i][j])
 
 			// Subscribe to a new topic
-			liveHands[i][j] = &subscriber{make(chan []byte, conns*msgs)}
+			liveHands[i][j] = &subscriber{make(chan []byte, nodes*conns*msgs)}
 			if err := liveConns[i][j].Subscribe(topic, liveHands[i][j]); err != nil {
 				t.Fatalf("failed to subscribe to the topic: %v.", err)
 			}
@@ -115,7 +121,11 @@ func testPubSub(t *testing.T, nodes, conns, msgs int) {
 			}(liveConns[i][j])
 		}
 	}
-	// Broadcast with each and every node in parallel
+	// Make sure there is a little time to propagate state and reports (TODO, fix this)
+	if nodes > 1 {
+		time.Sleep(3 * time.Second)
+	}
+	// Publish with each and every node in parallel
 	pend := new(sync.WaitGroup)
 	for i := 0; i < nodes; i++ {
 		for j := 0; j < conns; j++ {
@@ -123,7 +133,7 @@ func testPubSub(t *testing.T, nodes, conns, msgs int) {
 			go func(i, j int) {
 				defer pend.Done()
 				for k := 0; k < msgs; k++ {
-					msg := []byte{byte(k)}
+					msg := []byte{byte(i), byte(j), byte(k)}
 					if err := liveConns[i][j].Publish(topic, msg); err != nil {
 						t.Fatalf("failed to publish message: %v.", err)
 					}
@@ -133,11 +143,14 @@ func testPubSub(t *testing.T, nodes, conns, msgs int) {
 	}
 	pend.Wait()
 
+	// Wait a while for messages to propagate through network
+	time.Sleep(250 * time.Millisecond)
+
 	// Verify that all publishes succeeded
 	for i := 0; i < nodes; i++ {
 		for j := 0; j < conns; j++ {
-			if n := len(liveHands[i][j].msgs); n != conns*msgs {
-				t.Fatalf("publish/deliver count mismatch: have %d, want %d", n, conns*msgs)
+			if n := len(liveHands[i][j].msgs); n != nodes*conns*msgs {
+				t.Fatalf("publish/deliver count mismatch: have %d, want %d", n, nodes*conns*msgs)
 			}
 		}
 	}

@@ -105,7 +105,7 @@ func testBroadcast(t *testing.T, nodes, conns, msgs int) {
 		liveConns[i] = make([]*Connection, conns)
 		for j := 0; j < conns; j++ {
 			var err error
-			liveHands[i][j] = &broadcaster{make(chan []byte, conns*msgs)}
+			liveHands[i][j] = &broadcaster{make(chan []byte, nodes*conns*msgs)}
 			liveConns[i][j], err = node.Connect(cluster, liveHands[i][j])
 			if err != nil {
 				t.Fatalf("failed to connect to the iris overlay: %v.", err)
@@ -117,6 +117,10 @@ func testBroadcast(t *testing.T, nodes, conns, msgs int) {
 			}(liveConns[i][j])
 		}
 	}
+	// Make sure there is a little time to propagate state and reports (TODO, fix this)
+	if nodes > 1 {
+		time.Sleep(3 * time.Second)
+	}
 	// Broadcast with each and every node in parallel
 	pend := new(sync.WaitGroup)
 	for i := 0; i < nodes; i++ {
@@ -125,7 +129,7 @@ func testBroadcast(t *testing.T, nodes, conns, msgs int) {
 			go func(i, j int) {
 				defer pend.Done()
 				for k := 0; k < msgs; k++ {
-					msg := []byte{byte(k)}
+					msg := []byte{byte(i), byte(j), byte(k)}
 					if err := liveConns[i][j].Broadcast(cluster, msg); err != nil {
 						t.Fatalf("failed to broadcast message: %v.", err)
 					}
@@ -135,11 +139,14 @@ func testBroadcast(t *testing.T, nodes, conns, msgs int) {
 	}
 	pend.Wait()
 
+	// Wait a while for messages to propagate through network
+	time.Sleep(250 * time.Millisecond)
+
 	// Verify that all broadcasts succeeded
 	for i := 0; i < nodes; i++ {
 		for j := 0; j < conns; j++ {
-			if n := len(liveHands[i][j].msgs); n != conns*msgs {
-				t.Fatalf("broadcast/deliver count mismatch: have %d, want %d", n, conns*msgs)
+			if n := len(liveHands[i][j].msgs); n != nodes*conns*msgs {
+				t.Fatalf("broadcast/deliver count mismatch: have %d, want %d", n, nodes*conns*msgs)
 			}
 		}
 	}
