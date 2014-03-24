@@ -82,7 +82,7 @@ func TestHeart(t *testing.T) {
 	time.Sleep(10 * time.Millisecond) // Go out of sync with beater
 
 	time.Sleep(beat)
-	if n := call.beat; n != 1 {
+	if n := int(atomic.LoadInt32(&call.beat)); n != 1 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 1)
 	}
 	call.assertDead(t, 0)
@@ -92,14 +92,14 @@ func TestHeart(t *testing.T) {
 		t.Fatalf("failed to monitor bob: %v.", err)
 	}
 	time.Sleep(beat)
-	if n := call.beat; n != 2 {
+	if n := int(atomic.LoadInt32(&call.beat)); n != 2 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 2)
 	}
 	call.assertDead(t, 0)
 
 	// Wait another beat, check beats and dead reports
 	time.Sleep(beat)
-	if n := call.beat; n != 3 {
+	if n := int(atomic.LoadInt32(&call.beat)); n != 3 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 3)
 	}
 	call.assertDead(t, 1)
@@ -112,7 +112,7 @@ func TestHeart(t *testing.T) {
 		t.Fatalf("failed to ping bob: %v.", err)
 	}
 	time.Sleep(beat)
-	if n := call.beat; n != 4 {
+	if n := int(atomic.LoadInt32(&call.beat)); n != 4 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	call.assertDead(t, 1)
@@ -122,7 +122,7 @@ func TestHeart(t *testing.T) {
 		t.Fatalf("failed to terminate beater: %v.", err)
 	}
 	time.Sleep(beat)
-	if n := call.beat; n != 4 {
+	if n := int(atomic.LoadInt32(&call.beat)); n != 4 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
 	call.assertDead(t, 1)

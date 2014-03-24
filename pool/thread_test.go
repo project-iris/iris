@@ -21,6 +21,7 @@ package pool
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -30,14 +31,10 @@ func TestThreadPool(t *testing.T) {
 	t.Parallel()
 
 	// Create a simple counter task for the pool to execute repeatedly
-	var mutex sync.Mutex
-	count := 0
+	count := int32(0)
 	task := func() {
 		time.Sleep(50 * time.Millisecond)
-
-		mutex.Lock()
-		count++
-		mutex.Unlock()
+		atomic.AddInt32(&count, 1)
 	}
 	// Create the thread pool
 	pool := NewThreadPool(3)
@@ -52,38 +49,38 @@ func TestThreadPool(t *testing.T) {
 		t.Fatalf("task count mismatch: have %v, want %v.", size, 9)
 	}
 	time.Sleep(100 * time.Millisecond)
-	if count > 0 {
+	if atomic.LoadInt32(&count) > 0 {
 		t.Fatalf("non-started pool executed tasks.")
 	}
 	// Start the pool and make sure tasks finish in batches
 	pool.Start()
 	time.Sleep(75 * time.Millisecond)
-	if count != 3 {
-		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 3)
+	if cnt := int(atomic.LoadInt32(&count)); cnt != 3 {
+		t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, 3)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if count != 6 {
-		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 6)
+	if cnt := int(atomic.LoadInt32(&count)); cnt != 6 {
+		t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, 6)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if count != 9 {
-		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 9)
+	if cnt := int(atomic.LoadInt32(&count)); cnt != 9 {
+		t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, 9)
 	}
 	// Verify that pool starts new threads when needed
 	for c := 1; c <= 3; c++ {
-		count = 0
+		atomic.StoreInt32(&count, 0)
 		for i := 0; i < c; i++ {
 			if err := pool.Schedule(task); err != nil {
 				t.Fatalf("failed to schedule task: %v.", err)
 			}
 		}
 		time.Sleep(75 * time.Millisecond)
-		if count != c {
-			t.Fatalf("unexpected finished tasks: have %v, want %v.", count, c)
+		if cnt := int(atomic.LoadInt32(&count)); cnt != c {
+			t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, c)
 		}
 	}
 	// Verify that clearing the pool removes all pending tasks
-	count = 0
+	atomic.StoreInt32(&count, 0)
 	for i := 0; i < 6; i++ {
 		if err := pool.Schedule(task); err != nil {
 			t.Fatalf("failed to schedule task: %v.", err)
@@ -92,11 +89,11 @@ func TestThreadPool(t *testing.T) {
 	time.Sleep(25 * time.Millisecond)
 	pool.Clear()
 	time.Sleep(100 * time.Millisecond)
-	if count != 3 {
-		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 3)
+	if cnt := int(atomic.LoadInt32(&count)); cnt != 3 {
+		t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, 3)
 	}
 	// Verify that termination waits for running threads and discards rest
-	count = 0
+	atomic.StoreInt32(&count, 0)
 	for i := 0; i < 4; i++ {
 		if err := pool.Schedule(task); err != nil {
 			t.Fatalf("failed to schedule task: %v.", err)
@@ -105,8 +102,8 @@ func TestThreadPool(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	pool.Terminate(true)
 	time.Sleep(150 * time.Millisecond)
-	if count != 3 {
-		t.Fatalf("unexpected finished tasks: have %v, want %v.", count, 3)
+	if cnt := int(atomic.LoadInt32(&count)); cnt != 3 {
+		t.Fatalf("unexpected finished tasks: have %v, want %v.", cnt, 3)
 	}
 	// Check that no more tasks can be scheduled
 	if err := pool.Schedule(task); err == nil {
@@ -169,18 +166,14 @@ func TestOrder(t *testing.T) {
 func TestClear(t *testing.T) {
 	t.Parallel()
 
-	mutex := new(sync.Mutex)
-	started := 0
+	started := int32(0)
 	workers := 32
 
 	// Create the pool and schedule more work than workers
 	pool := NewThreadPool(workers)
 	for i := 0; i < workers*8; i++ {
 		err := pool.Schedule(func() {
-			mutex.Lock()
-			started++
-			mutex.Unlock()
-
+			atomic.AddInt32(&started, 1)
 			time.Sleep(10 * time.Millisecond)
 		})
 		if err != nil {
@@ -196,8 +189,8 @@ func TestClear(t *testing.T) {
 	}
 	// Check that only the first batch got processed
 	time.Sleep(20 * time.Millisecond)
-	if started != workers {
-		t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
+	if start := int(atomic.LoadInt32(&started)); start != workers {
+		t.Fatalf("unexpected tasks started: have %d, want %d.", start, workers)
 	}
 }
 
@@ -208,18 +201,14 @@ func TestTerminate(t *testing.T) {
 
 	// Test termination with both clear flags
 	for _, clear := range []bool{false, true} {
-		mutex := new(sync.Mutex)
-		started := 0
+		started := int32(0)
 		workers := 32
 
 		// Create the pool and schedule more work than workers
 		pool := NewThreadPool(workers)
 		for i := 0; i < workers*8; i++ {
 			err := pool.Schedule(func() {
-				mutex.Lock()
-				started++
-				mutex.Unlock()
-
+				atomic.AddInt32(&started, 1)
 				time.Sleep(10 * time.Millisecond)
 			})
 			if err != nil {
@@ -235,10 +224,10 @@ func TestTerminate(t *testing.T) {
 		pool.Terminate(clear) // main terminator
 
 		// Ensure terminate blocked until current workers have finished
-		if clear && started != workers {
-			t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
-		} else if !clear && started != workers*8 {
-			t.Fatalf("task completion mismatch: have %d, want %d.", started, workers*8)
+		if start := int(atomic.LoadInt32(&started)); clear && start != workers {
+			t.Fatalf("unexpected tasks started: have %d, want %d.", start, workers)
+		} else if !clear && start != workers*8 {
+			t.Fatalf("task completion mismatch: have %d, want %d.", start, workers*8)
 		}
 		// Ensure that no more tasks can be scheduled
 		if err := pool.Schedule(func() {}); err == nil {
@@ -246,10 +235,10 @@ func TestTerminate(t *testing.T) {
 		}
 		// Verify whether the pool was cleared or not before termination
 		time.Sleep(20 * time.Millisecond)
-		if clear && started != workers {
-			t.Fatalf("unexpected tasks started: have %d, want %d.", started, workers)
-		} else if !clear && started != workers*8 {
-			t.Fatalf("task completion mismatch: have %d, want %d.", started, workers*8)
+		if start := int(atomic.LoadInt32(&started)); clear && start != workers {
+			t.Fatalf("unexpected tasks started: have %d, want %d.", start, workers)
+		} else if !clear && start != workers*8 {
+			t.Fatalf("task completion mismatch: have %d, want %d.", start, workers*8)
 		}
 	}
 }
