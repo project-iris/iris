@@ -104,12 +104,13 @@ func testBroadcast(t *testing.T, nodes, conns, msgs int) {
 		liveHands[i] = make([]*broadcaster, conns)
 		liveConns[i] = make([]*Connection, conns)
 		for j := 0; j < conns; j++ {
-			var err error
 			liveHands[i][j] = &broadcaster{make(chan []byte, nodes*conns*msgs)}
-			liveConns[i][j], err = node.Connect(cluster, liveHands[i][j])
+			conn, err := node.Connect(cluster, liveHands[i][j])
 			if err != nil {
 				t.Fatalf("failed to connect to the iris overlay: %v.", err)
 			}
+			liveConns[i][j] = conn
+
 			defer func(conn *Connection) {
 				if err := conn.Close(); err != nil {
 					t.Fatalf("failed to close iris connection: %v.", err)

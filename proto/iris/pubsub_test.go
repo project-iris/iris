@@ -97,12 +97,13 @@ func testPubSub(t *testing.T, nodes, conns, msgs int) {
 		liveHands[i] = make([]*subscriber, conns)
 		liveConns[i] = make([]*Connection, conns)
 		for j := 0; j < conns; j++ {
-			var err error
 			// Connect to the iris network
-			liveConns[i][j], err = node.Connect(cluster, nil)
+			conn, err := node.Connect(cluster, nil)
 			if err != nil {
 				t.Fatalf("failed to connect to the iris overlay: %v.", err)
 			}
+			liveConns[i][j] = conn
+
 			defer func(conn *Connection) {
 				if err := conn.Close(); err != nil {
 					t.Fatalf("failed to close iris connection: %v.", err)
