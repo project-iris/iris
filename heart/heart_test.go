@@ -21,22 +21,38 @@ package heart
 
 import (
 	"math/big"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 // Simple heartbeat callback to gather the events
 type testCallback struct {
-	beat int
+	beat int32
 	dead []*big.Int
+	lock sync.RWMutex
 }
 
 func (cb *testCallback) Beat() {
-	cb.beat++
+	atomic.AddInt32(&cb.beat, 1)
 }
 
 func (cb *testCallback) Dead(id *big.Int) {
+	cb.lock.Lock()
+	defer cb.lock.Unlock()
+
 	cb.dead = append(cb.dead, id)
+}
+
+// Checks synchronously if the dead count matches k.
+func (cb *testCallback) assertDead(t *testing.T, k int) {
+	cb.lock.RLock()
+	defer cb.lock.RUnlock()
+
+	if n := len(cb.dead); n != k {
+		t.Fatalf("dead event count mismatch: have %v, want %v", n, k)
+	}
 }
 
 func TestHeart(t *testing.T) {
@@ -69,9 +85,8 @@ func TestHeart(t *testing.T) {
 	if n := call.beat; n != 1 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 1)
 	}
-	if n := len(call.dead); n != 0 {
-		t.Fatalf("dead event count mismatch: have %v, want %v", n, 0)
-	}
+	call.assertDead(t, 0)
+
 	// Insert another entity, check the beats again
 	if err := heart.Monitor(bob); err != nil {
 		t.Fatalf("failed to monitor bob: %v.", err)
@@ -80,17 +95,15 @@ func TestHeart(t *testing.T) {
 	if n := call.beat; n != 2 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 2)
 	}
-	if n := len(call.dead); n != 0 {
-		t.Fatalf("dead event count mismatch: have %v, want %v", n, 0)
-	}
+	call.assertDead(t, 0)
+
 	// Wait another beat, check beats and dead reports
 	time.Sleep(beat)
 	if n := call.beat; n != 3 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 3)
 	}
-	if n := len(call.dead); n != 1 {
-		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
-	}
+	call.assertDead(t, 1)
+
 	// Remove dead guy, ping live one, make sure bob doesn't die now
 	if err := heart.Unmonitor(alice); err != nil {
 		t.Fatalf("failed to unmonitor alice: %v.", err)
@@ -102,9 +115,8 @@ func TestHeart(t *testing.T) {
 	if n := call.beat; n != 4 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
-	if n := len(call.dead); n != 1 {
-		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
-	}
+	call.assertDead(t, 1)
+
 	// Terminate beater and ensure no more events are fired
 	if err := heart.Terminate(); err != nil {
 		t.Fatalf("failed to terminate beater: %v.", err)
@@ -113,7 +125,5 @@ func TestHeart(t *testing.T) {
 	if n := call.beat; n != 4 {
 		t.Fatalf("beat event count mismatch: have %v, want %v", n, 4)
 	}
-	if n := len(call.dead); n != 1 {
-		t.Fatalf("dead event count mismatch: have %v, want %v", n, 1)
-	}
+	call.assertDead(t, 1)
 }
