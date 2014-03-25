@@ -36,7 +36,7 @@ import (
 
 type collector struct {
 	delivs []*proto.Message
-	lock   sync.Mutex
+	lock   sync.RWMutex
 }
 
 func (c *collector) Deliver(msg *proto.Message, key *big.Int) {
@@ -108,10 +108,12 @@ func TestRouting(t *testing.T) {
 	// Sleep a bit and verify
 	time.Sleep(time.Second)
 	for i := 0; i < originals; i++ {
+		apps[i].lock.RLock()
 		if len(apps[i].delivs) != originals {
 			t.Fatalf("app #%v: message count mismatch: have %v, want %v.", i, len(apps[i].delivs), originals)
 		} else {
 			for j := 0; j < originals; j++ {
+				apps[j].lock.RLock()
 				// Check contents (a bit reduced, not every field was verified below)
 				if bytes.Compare(meta, apps[j].delivs[i].Head.Meta.([]byte)) != 0 {
 					t.Fatalf("send/receive meta mismatch: have %v, want %v.", apps[j].delivs[i].Head.Meta, meta)
@@ -119,12 +121,16 @@ func TestRouting(t *testing.T) {
 				if bytes.Compare(msgs[i][j].Data, apps[j].delivs[i].Data) != 0 {
 					t.Fatalf("send/receive data mismatch: have %v, want %v.", apps[j].delivs[i].Data, msgs[i][j].Data)
 				}
+				apps[j].lock.RUnlock()
 			}
 		}
+		apps[i].lock.RUnlock()
 	}
 	// Clear out all the collectors
 	for i := 0; i < len(apps); i++ {
+		apps[i].lock.Lock()
 		apps[i].delivs = apps[i].delivs[:0]
+		apps[i].lock.Unlock()
 	}
 	// Start a load of parallel transfers
 	sent := make([][]int, originals)
@@ -133,12 +139,22 @@ func TestRouting(t *testing.T) {
 		sent[i] = make([]int, originals)
 		quit[i] = make(chan chan struct{})
 	}
-	for i, src := range nodes[0:originals] {
+	for i := 0; i < originals; i++ {
 		go func(idx int, quit chan chan struct{}) {
 			for {
 				// Send a message to all original nodes
 				for j, dst := range nodes[0:originals] {
-					src.Send(dst.nodeId, &msgs[idx][j])
+					// Create the message to pass around
+					msg := &proto.Message{
+						Head: proto.Header{
+							Meta: meta,
+						},
+						Data: []byte(nodes[idx].nodeId.String() + dst.nodeId.String()),
+					}
+					msg.Encrypt()
+
+					// Send the message and increment the counter
+					nodes[idx].Send(dst.nodeId, msg)
 					sent[idx][j]++
 					select {
 					case q := <-quit:
@@ -183,9 +199,11 @@ func TestRouting(t *testing.T) {
 		for j := 0; j < originals; j++ {
 			count += sent[j][i]
 		}
+		apps[i].lock.RLock()
 		if len(apps[i].delivs) != count {
 			t.Fatalf("send/receive count mismatch: have %v, want %v.", len(apps[i].delivs), count)
 		}
+		apps[i].lock.RUnlock()
 	}
 }
 

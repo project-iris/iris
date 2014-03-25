@@ -80,9 +80,6 @@ func (o *Overlay) manager() {
 			// Termination requested
 			continue
 		case <-o.eventNotify:
-			// Wait until all pending events are gathered
-			o.eventPend.Wait()
-
 			// Swap out the collectors
 			o.eventLock.Lock()
 			o.exchSet, exchs = exchs, o.exchSet
@@ -194,11 +191,9 @@ func (o *Overlay) manager() {
 // Inserts a state exchange into the exchange queue
 func (o *Overlay) exch(p *peer, s *state) {
 	// Insert the state exchange
-	o.eventPend.Add(1)
 	o.eventLock.Lock()
 	o.exchSet[p] = s
 	o.eventLock.Unlock()
-	o.eventPend.Done()
 
 	// Wake the manager if blocking
 	select {
@@ -212,11 +207,9 @@ func (o *Overlay) exch(p *peer, s *state) {
 // Inserts a peer into the drop queue.
 func (o *Overlay) drop(p *peer) {
 	// Insert the drop request
-	o.eventPend.Add(1)
 	o.eventLock.Lock()
 	o.dropSet[p] = struct{}{}
 	o.eventLock.Unlock()
-	o.eventPend.Done()
 
 	// Wake the manager if blocking
 	select {

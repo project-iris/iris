@@ -77,9 +77,8 @@ type Overlay struct {
 	exchSet map[*peer]*state   // State exchanges pending merging
 	dropSet map[*peer]struct{} // Peers pending dropping
 
-	eventLock   sync.Mutex     // Lock protecting overlay events
-	eventPend   sync.WaitGroup // Syncer to wait till event reports finish
-	eventNotify chan struct{}  // Notifier for event changes
+	eventLock   sync.Mutex    // Lock protecting overlay events
+	eventNotify chan struct{} // Notifier for event changes
 
 	stable sync.WaitGroup // Syncer for reaching convergence
 	lock   sync.RWMutex   // Syncer for state mods after booting
