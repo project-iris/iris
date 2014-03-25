@@ -279,6 +279,7 @@ func benchmarkLatency(b *testing.B, block int) {
 		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)
 		io.ReadFull(rand.Reader, msgs[i].Data)
+		msgs[i].Encrypt()
 	}
 	// Create the sender node
 	send := New(appId, key, new(nopCallback))
@@ -366,6 +367,7 @@ func benchmarkThroughput(b *testing.B, block int) {
 		msgs[i].Head = head
 		msgs[i].Data = make([]byte, block)
 		io.ReadFull(rand.Reader, msgs[i].Data)
+		msgs[i].Encrypt()
 	}
 	// Create two overlay nodes to communicate
 	send := New(appId, key, new(nopCallback))
