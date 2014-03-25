@@ -31,6 +31,11 @@ import (
 )
 
 func checkRoutes(t *testing.T, nodes []*Overlay) {
+	// Synchronize overlay states
+	for _, o := range nodes {
+		o.lock.RLock()
+		defer o.lock.RUnlock()
+	}
 	// Extract the ids from the running nodes
 	ids := make([]*big.Int, len(nodes))
 	for i, o := range nodes {
