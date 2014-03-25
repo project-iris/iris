@@ -245,9 +245,12 @@ func (o *Overlay) handleUnsubscribe(nodeId, topicId *big.Int) error {
 
 // Handles the publish event of a topic.
 func (o *Overlay) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *big.Int) (bool, error) {
+	sid := topicId.String()
+
 	// Fetch the topic or report not found
 	o.lock.RLock()
-	top, ok := o.topics[topicId.String()]
+	top, ok := o.topics[sid]
+	topName := o.names[sid]
 	o.lock.RUnlock()
 	if !ok {
 		// No error, but not handled either
@@ -290,16 +293,19 @@ func (o *Overlay) handlePublish(msg *proto.Message, topicId *big.Int, prevHop *b
 			// Cannot decrypt, report handled and also the error
 			return true, err
 		}
-		o.app.HandlePublish(head.Sender, o.names[topicId.String()], plain)
+		o.app.HandlePublish(head.Sender, topName, plain)
 	}
 	return true, nil
 }
 
 // Handles the load balancing event of a topio.
 func (o *Overlay) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *big.Int) (bool, error) {
+	sid := topicId.String()
+
 	// Fetch the topic or report not found
 	o.lock.RLock()
-	top, ok := o.topics[topicId.String()]
+	top, ok := o.topics[sid]
+	topName := o.names[sid]
 	o.lock.RUnlock()
 	if !ok {
 		// No error, but not handled either
@@ -322,7 +328,7 @@ func (o *Overlay) handleBalance(msg *proto.Message, topicId *big.Int, prevHop *b
 		return true, err
 	}
 	// Deliver to the application on the specific topic
-	o.app.HandleBalance(head.Sender, o.names[topicId.String()], msg)
+	o.app.HandleBalance(head.Sender, topName, msg)
 	return true, nil
 }
 
