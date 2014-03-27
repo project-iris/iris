@@ -23,7 +23,6 @@ package topic
 
 import (
 	"errors"
-	"log"
 	"math"
 	"math/big"
 	"sync"
@@ -54,7 +53,7 @@ type Topic struct {
 
 // Creates a new topic with no subscriptions.
 func New(id, owner *big.Int) *Topic {
-	log.Printf("%v topic created: %v", owner, id)
+	// log.Printf("%v topic created: %v", owner, id)
 	return &Topic{
 		id:      id,
 		owner:   owner,
@@ -82,7 +81,7 @@ func (t *Topic) Reown(parent *big.Int) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("%v:%v: changing ownership from %v to %v.", t.owner, t.id, t.parent, parent)
+	// log.Printf("%v:%v: changing ownership from %v to %v.", t.owner, t.id, t.parent, parent)
 
 	// If an old parent existed, clear out leftovers
 	if t.parent != nil {
@@ -110,7 +109,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("%v:%v: node subscription: %v.", t.owner, t.id, id)
+	// log.Printf("%v:%v: node subscription: %v.", t.owner, t.id, id)
 
 	// Ensure double subscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
@@ -122,7 +121,7 @@ func (t *Topic) Subscribe(id *big.Int) error {
 	sortext.BigInts(t.nodes)
 	t.members[id.String()] = struct{}{}
 
-	log.Printf("%v:%v: subbed, state: %v.", t.owner, t.id, t.nodes)
+	// log.Printf("%v:%v: subbed, state: %v.", t.owner, t.id, t.nodes)
 
 	// Start load balancing to it too
 	t.load.Register(id)
@@ -134,7 +133,7 @@ func (t *Topic) Unsubscribe(id *big.Int) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	log.Printf("%v:%v: node unsubscription: %v.", t.owner, t.id, id)
+	// log.Printf("%v:%v: node unsubscription: %v.", t.owner, t.id, id)
 
 	// Ensure double unsubscription doesn't happen
 	idx := sortext.SearchBigInts(t.nodes, id)
@@ -148,7 +147,7 @@ func (t *Topic) Unsubscribe(id *big.Int) error {
 	sortext.BigInts(t.nodes)
 	delete(t.members, id.String())
 
-	log.Printf("%v:%v: remed, state: %v.", t.owner, t.id, t.nodes)
+	// log.Printf("%v:%v: remed, state: %v.", t.owner, t.id, t.nodes)
 
 	// Remove the node from the load balancer
 	t.load.Unregister(id)
