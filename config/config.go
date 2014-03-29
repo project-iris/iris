@@ -220,7 +220,7 @@ var PastryAuthThreads = 8
 var PastryExchThreads = 128
 
 // Heartbeat period to distribute current CPU load and also check liveliness (ms).
-var ScribeBeatPeriod = 750 * time.Millisecond
+var ScribeBeatPeriod = time.Second
 
 // Number of missed heartbeats after which to consider a node down.
 var ScribeKillCount = 3
