@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/karalabe/iris/proto/link"
+
 	"github.com/karalabe/iris/config"
 	"github.com/karalabe/iris/proto"
 	"github.com/karalabe/iris/proto/session"
@@ -74,13 +76,14 @@ func (o *Overlay) newPeer(ses *session.Session) *peer {
 
 		// Transport and maintenance channels
 		quit: make(chan chan error),
-		drop: make(chan struct{}),
+		drop: make(chan struct{}, 2),
 	}
 }
 
 // Starts the inbound message processor and router.
 func (p *peer) Start() {
-	go p.processor()
+	go p.processor(p.conn.CtrlLink)
+	go p.processor(p.conn.DataLink)
 }
 
 // Terminates a peer connection.
@@ -97,11 +100,13 @@ func (p *peer) Close() error {
 	// Gracefully close the peer session, flushing pending messages
 	res := p.conn.Close()
 
-	// Sync the processor termination and return
+	// Sync the processor terminations and return
 	errc := make(chan error)
-	p.quit <- errc
-	if err := <-errc; res != nil {
-		res = err
+	for i := 0; i < 2; i++ {
+		p.quit <- errc
+		if err := <-errc; res != nil {
+			res = err
+		}
 	}
 	return res
 }
@@ -123,18 +128,17 @@ func (p *peer) send(msg *proto.Message) error {
 }
 
 // Accepts inbound messages and routes them into the overlay.
-func (p *peer) processor() {
+func (p *peer) processor(link *link.Link) {
 	var errc chan error
 	var errv error
 
 	// Retrieve messages until connection is torn down or termination is requested
-	// Note, channels are prioritized, with control first and data second
 	for closed := false; !closed && errc == nil; {
 		select {
 		case errc = <-p.quit:
 			// This should not happen often (graceful close on the recv channel instead)
 			continue
-		case msg, ok := <-p.conn.CtrlLink.Recv:
+		case msg, ok := <-link.Recv:
 			if !ok {
 				// Connection went down (gracefully or not, dunno)
 				closed = true
@@ -142,33 +146,10 @@ func (p *peer) processor() {
 			}
 			// Route the control message
 			p.owner.route(p, msg)
-		default:
-			// No control events, allow data events too
-			select {
-			case errc = <-p.quit:
-				// This should not happen often (graceful close on the recv channel instead)
-				continue
-			case msg, ok := <-p.conn.CtrlLink.Recv:
-				if !ok {
-					// Connection went down (gracefully or not, dunno)
-					closed = true
-					continue
-				}
-				// Route the control message
-				p.owner.route(p, msg)
-			case msg, ok := <-p.conn.DataLink.Recv:
-				if !ok {
-					// Connection went down (gracefully or not, dunno)
-					closed = true
-					continue
-				}
-				// Route the data message
-				p.owner.route(p, msg)
-			}
 		}
 	}
 	// Signal the overlay of the connection drop
-	close(p.drop)
+	p.drop <- struct{}{}
 	if errc == nil {
 		p.owner.drop(p)
 	}
