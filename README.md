@@ -1,9 +1,10 @@
-  Iris - Decentralized Messaging
-==================================
+  Iris - Decentralized Cloud Messaging
+========================================
 
   Releases
 ------------
- * Development:
+
+ * Version 0.2.0: **March 31, 2014**
     - Redesigned tunnels based on direct TCP connections.
     - Prioritized system messages over separate control connections.
     - Graceful connection and overlay tear-downs (still plenty to do).
