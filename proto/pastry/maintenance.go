@@ -31,11 +31,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/karalabe/iris/pool"
+	"github.com/project-iris/iris/pool"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/ext/mathext"
-	"github.com/karalabe/iris/ext/sortext"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/ext/mathext"
+	"github.com/project-iris/iris/ext/sortext"
 )
 
 // Listens for incoming state merge requests, assembles new routing tables based

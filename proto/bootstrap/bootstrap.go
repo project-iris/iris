@@ -34,8 +34,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/gobber"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/gobber"
 )
 
 // Constants for the protocol UDP layer

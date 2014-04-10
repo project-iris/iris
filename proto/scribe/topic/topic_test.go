@@ -21,7 +21,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/karalabe/iris/ext/sortext"
+	"github.com/project-iris/iris/ext/sortext"
 )
 
 func TestTopic(t *testing.T) {

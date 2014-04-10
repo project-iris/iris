@@ -28,9 +28,9 @@ import (
 	"net"
 	"sync"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/pool"
+	"github.com/project-iris/iris/proto"
 )
 
 // Different status types in which the node can be.

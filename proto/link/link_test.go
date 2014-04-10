@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"code.google.com/p/go.crypto/hkdf"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/stream"
+	"github.com/project-iris/iris/proto"
+	"github.com/project-iris/iris/proto/stream"
 )
 
 // Tests whether link ciphers are initializes correctly.

@@ -33,8 +33,8 @@ import (
 	"runtime/pprof"
 	"strings"
 
-	"github.com/karalabe/iris/proto/iris"
-	"github.com/karalabe/iris/service/relay"
+	"github.com/project-iris/iris/proto/iris"
+	"github.com/project-iris/iris/service/relay"
 )
 
 // Command line flags

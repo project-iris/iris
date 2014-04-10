@@ -24,7 +24,7 @@ import (
 	"log"
 	"math/big"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // Load report between two carrier nodes.

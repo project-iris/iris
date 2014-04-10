@@ -26,9 +26,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/karalabe/iris/balancer"
-	"github.com/karalabe/iris/ext/sortext"
-	"github.com/karalabe/iris/system"
+	"github.com/project-iris/iris/balancer"
+	"github.com/project-iris/iris/ext/sortext"
+	"github.com/project-iris/iris/system"
 )
 
 // Custom topic error messages

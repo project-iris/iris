@@ -24,9 +24,9 @@ import (
 	"net"
 	"sync"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/pool"
-	"github.com/karalabe/iris/proto/iris"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/pool"
+	"github.com/project-iris/iris/proto/iris"
 )
 
 // Message relay between the local carrier and an attached client app.

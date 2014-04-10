@@ -24,7 +24,7 @@ import (
 	"crypto/rand"
 	"io"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // Baseline message headers.

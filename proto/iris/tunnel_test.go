@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // Connection handler for the tunnel tests.

@@ -25,7 +25,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/karalabe/iris/proto/scribe"
+	"github.com/project-iris/iris/proto/scribe"
 )
 
 // The overlay implementation, receiving the overlay events and processing

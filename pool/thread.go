@@ -25,7 +25,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/karalabe/iris/container/queue"
+	"github.com/project-iris/iris/container/queue"
 )
 
 var ErrTerminating = errors.New("pool terminating")

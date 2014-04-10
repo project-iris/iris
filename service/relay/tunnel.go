@@ -22,8 +22,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/iris"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/proto/iris"
 )
 
 // Relay tunnel wrapping the real Iris tunnel, adding input and output buffers.

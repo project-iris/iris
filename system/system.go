@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // Cpu usage infos and statistics (not much needed for now).

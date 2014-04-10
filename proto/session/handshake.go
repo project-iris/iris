@@ -30,10 +30,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/crypto/sts"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/stream"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/crypto/sts"
+	"github.com/project-iris/iris/proto"
+	"github.com/project-iris/iris/proto/stream"
 )
 
 // Session handshake request multiplexer to choose between the authenticated

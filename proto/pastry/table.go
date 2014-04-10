@@ -22,7 +22,7 @@ package pastry
 import (
 	"math/big"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // Simplified Pastry routing table.

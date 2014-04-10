@@ -23,7 +23,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/karalabe/iris/proto/iris"
+	"github.com/project-iris/iris/proto/iris"
 )
 
 // Rate at which to check for relay termination.

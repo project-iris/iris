@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/ext/mathext"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/ext/mathext"
 )
 
 func checkRoutes(t *testing.T, nodes []*Overlay) {

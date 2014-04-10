@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 func TestPortSelection(t *testing.T) {

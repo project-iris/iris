@@ -25,8 +25,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto/iris"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/proto/iris"
 )
 
 // Forwards an app broadcast arriving from the Iris network to the attached app.

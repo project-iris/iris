@@ -24,8 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/pool"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/pool"
 )
 
 // Iris specific errors

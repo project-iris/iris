@@ -31,9 +31,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/stream"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/proto"
+	"github.com/project-iris/iris/proto/stream"
 )
 
 // Link termination message for graceful tear-down.

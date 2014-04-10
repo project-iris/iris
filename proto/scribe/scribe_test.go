@@ -20,7 +20,7 @@ package scribe
 import (
 	"time"
 
-	"github.com/karalabe/iris/config"
+	"github.com/project-iris/iris/config"
 )
 
 // 512 bit RSA key in DER format

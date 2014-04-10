@@ -30,10 +30,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/karalabe/iris/config"
-	"github.com/karalabe/iris/proto"
-	"github.com/karalabe/iris/proto/bootstrap"
-	"github.com/karalabe/iris/proto/session"
+	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/proto"
+	"github.com/project-iris/iris/proto/bootstrap"
+	"github.com/project-iris/iris/proto/session"
 )
 
 // The initialization packet when the connection is set up.

@@ -23,7 +23,7 @@ import (
 	"encoding/gob"
 	"math/big"
 
-	"github.com/karalabe/iris/proto"
+	"github.com/project-iris/iris/proto"
 )
 
 // Scribe operation code type.

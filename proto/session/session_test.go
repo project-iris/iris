@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/karalabe/iris/proto"
+	"github.com/project-iris/iris/proto"
 )
 
 func TestForward(t *testing.T) {
