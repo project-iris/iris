@@ -26,14 +26,14 @@ import (
 
 // Usage example for the thread pool.
 func Example_threadPool() {
-	// Create a new thread pool with 5 worker goroutine capacity
+	// Create a new thread pool with 5 concurrent worker capacity
 	workers := pool.NewThreadPool(5)
 
 	// Start the pool (you could schedule tasks before starting, and they would
 	// wait queued until permission is given to execute)
 	workers.Start()
 
-	// Schedule some tasks (functions with no arguments and return values)
+	// Schedule some tasks (functions with no arguments nor return values)
 	for i := 0; i < 10; i++ {
 		id := i // Need to copy i for the task closure
 		workers.Schedule(func() {
