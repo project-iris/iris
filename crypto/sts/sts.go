@@ -1,5 +1,5 @@
-// Iris - Decentralized Messaging Framework
-// Copyright 2013 Peter Szilagyi. All rights reserved.
+// Iris - Decentralized cloud messaging
+// Copyright (c) 2013 Project Iris. All rights reserved.
 //
 // Iris is dual licensed: you can redistribute it and/or modify it under the
 // terms of the GNU General Public License as published by the Free Software
@@ -14,8 +14,6 @@
 // Alternatively, the Iris framework may be used in accordance with the terms
 // and conditions contained in a signed written agreement between you and the
 // author(s).
-//
-// Author: peterke@gmail.com (Peter Szilagyi)
 
 // Package sts implements the Station-to-station (STS) key exchange protocol.
 //   Wikipedia: http://en.wikipedia.org/wiki/Station-to-Station_protocol
@@ -36,7 +34,6 @@
 package sts
 
 import (
-	"code.google.com/p/go.crypto/hkdf"
 	"crypto"
 	"crypto/cipher"
 	"crypto/rsa"
@@ -44,6 +41,8 @@ import (
 	"hash"
 	"io"
 	"math/big"
+
+	"code.google.com/p/go.crypto/hkdf"
 )
 
 // Current step in the protocol to prevent user errors

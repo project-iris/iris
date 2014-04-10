@@ -1,4 +1,4 @@
-  Iris - Decentralized Cloud Messaging
+  Iris - Decentralized cloud messaging
 ========================================
 
   Releases

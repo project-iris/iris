@@ -1,5 +1,5 @@
-Iris - Distributed Messaging Framework
-Copyright 2013 Peter Szilagyi. All rights reserved.
+Iris - Distributed cloud messaging
+Copyright (c) 2013 Project Iris. All rights reserved.
 
 Iris is dual licensed: you can redistribute it and/or modify it under the terms
 of the GNU General Public License as published by the Free Software Foundation,
