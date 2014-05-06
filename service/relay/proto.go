@@ -26,6 +26,7 @@ import (
 
 const (
 	opInit     byte = iota // Connection initialization
+	opDeny                 // Connection denial
 	opBcast                // Application broadcast
 	opReq                  // Application request
 	opRep                  // Application reply
@@ -36,12 +37,16 @@ const (
 	opTunReq               // Tunnel building request
 	opTunRep               // Tunnel building reply
 	opTunData              // Tunnel data transfer
-	opTunAck               // Tunnel data acknowledgement
+	opTunAck               // Tunnel data acknowledgment
 	opTunClose             // Tunnel closing
 )
 
-// Relay protocol version
-var relayVersion = "v1.0"
+// Protocol constants
+var (
+	protoVersion = "v1.0-draft2"
+	clientMagic  = "iris-client-magic"
+	relayMagic   = "iris-relay-magic"
+)
 
 // Serializes a single byte into the relay.
 func (r *relay) sendByte(data byte) error {
@@ -103,6 +108,26 @@ func (r *relay) sendFlush() error {
 // Serializes the initialization confirmation.
 func (r *relay) sendInit() error {
 	if err := r.sendByte(opInit); err != nil {
+		return err
+	}
+	if err := r.sendString(relayMagic); err != nil {
+		return err
+	}
+	if err := r.sendString(protoVersion); err != nil {
+		return err
+	}
+	return r.sendFlush()
+}
+
+// Serializes the connection denial.
+func (r *relay) sendDeny(reason string) error {
+	if err := r.sendByte(opDeny); err != nil {
+		return err
+	}
+	if err := r.sendString(relayMagic); err != nil {
+		return err
+	}
+	if err := r.sendString(reason); err != nil {
 		return err
 	}
 	return r.sendFlush()
@@ -330,25 +355,30 @@ func (r *relay) recvString() (string, error) {
 }
 
 // Retrieves the connection initialization and processes it.
-func (r *relay) procInit() (string, error) {
+func (r *relay) procInit() (string, string, error) {
 	// Retrieve the init code
 	if op, err := r.recvByte(); err != nil {
-		return "", err
+		return "", "", err
 	} else if op != opInit {
-		return "", fmt.Errorf("relay: protocol violation: invalid init code: %v.", op)
+		return "", "", fmt.Errorf("relay: protocol violation: invalid init code: %v.", op)
 	}
-	// Retrieve and check the protocol version
-	if ver, err := r.recvString(); err != nil {
-		return "", err
-	} else if ver != relayVersion {
-		return "", fmt.Errorf("relay: protocol violation: incompatible version: have %v, want %v", ver, relayVersion)
+	// Retrieve and check the client side magic
+	if magic, err := r.recvString(); err != nil {
+		return "", "", err
+	} else if magic != clientMagic {
+		return "", "", fmt.Errorf("relay: protocol violation: mismatching client magic: have %v, want %v", magic, clientMagic)
 	}
-	// Retrieve the app id
-	app, err := r.recvString()
+	// Retrieve the protocol version
+	version, err := r.recvString()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return app, nil
+	// Retrieve the cluster id
+	cluster, err := r.recvString()
+	if err != nil {
+		return "", "", err
+	}
+	return version, cluster, nil
 }
 
 // Retrieves a local broadcast message from the relay and forwards to the Iris network.

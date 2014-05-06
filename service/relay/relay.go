@@ -21,6 +21,7 @@ package relay
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"sync"
 
@@ -84,13 +85,24 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	defer rel.sockLock.Unlock()
 
 	// Initialize the relay
-	app, err := rel.procInit()
+	version, cluster, err := rel.procInit()
 	if err != nil {
 		rel.drop()
 		return nil, err
 	}
+	// Make sure the protocol version is compatible
+	if version != protoVersion {
+		// Drop the connection in either error branch
+		defer rel.drop()
+
+		reason := fmt.Sprintf("Unsupported protocol. Client: %s. Iris: %s.", version, protoVersion)
+		if err := rel.sendDeny(reason); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("relay: unsupported client protocol version: have %v, want %v", version, protoVersion)
+	}
 	// Connect to the Iris network
-	conn, err := r.iris.Connect(app, rel)
+	conn, err := r.iris.Connect(cluster, rel)
 	if err != nil {
 		rel.drop()
 		return nil, err
