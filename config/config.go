@@ -248,16 +248,19 @@ var IrisTunnelBuffer = 256
 var AppParentId = []byte(nil)
 
 // Protocol version to ensure compatible connections.
-var ProtocolVersion = "v0.1-pre"
+var ProtocolVersion = "v0.3"
 
 // Maximum number of handlers allowed concurrently per relay connection.
 var RelayHandlerThreads = 8
 
-// Number of messages to buffer per outbound tunnel.
-var RelayTunnelBuffer = 128
+// Maximum permitted size for a message chunk.
+var RelayTunnelChunkLimit = 65536
+
+// Size of the input buffer to use on inbound messages.
+var RelayTunnelBuffer = 4 * 1024 * 1024
 
 // Time alloted to a client to acknowledge a tunnel.
-var RelayTunnelTimeout = 3000
+var RelayTunnelTimeout = 3 * time.Second
 
-// Block time when trying a tunnel read (ms).
-var RelayTunnelPoll = 1000
+// Block time when trying a tunnel read.
+var RelayTunnelPoll = time.Second

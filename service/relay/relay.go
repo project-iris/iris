@@ -30,7 +30,7 @@ import (
 	"github.com/project-iris/iris/proto/iris"
 )
 
-// Message relay between the local carrier and an attached client app.
+// Message relay between the local carrier and an attached binding.
 type relay struct {
 	// Application layer fields
 	iris *iris.Connection // Interface into the iris overlay
@@ -41,7 +41,7 @@ type relay struct {
 	reqLock sync.RWMutex           // Mutex to protect the result channel maps
 
 	tunIdx  uint64                   // Temporary index to assign the next inbound tunnel
-	tunPend map[uint64]*iris.Tunnel  // Tunnels pending app confirmation
+	tunPend map[uint64]*iris.Tunnel  // Tunnels pending binding confirmation
 	tunInit map[uint64]chan struct{} // Confirmation channels for the pending tunnels
 	tunLive map[uint64]*tunnel       // Active tunnels
 	tunLock sync.RWMutex             // Mutex to protect the tunnel maps
@@ -49,14 +49,14 @@ type relay struct {
 	// Network layer fields
 	sock     net.Conn          // Network connection to the attached client
 	sockBuf  *bufio.ReadWriter // Buffered access to the network socket
-	sockLock sync.Mutex        // Mutex to atomise message sending
+	sockLock sync.Mutex        // Mutex to atomize message sending
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
 
 	// Bookkeeping fields
 	done chan *relay     // Channel on which to signal termination
-	quit chan chan error // Quit channe to synchronize relay termination
+	quit chan chan error // Quit channel to synchronize relay termination
 	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 

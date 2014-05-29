@@ -18,9 +18,10 @@
 package relay
 
 import (
-	"fmt"
 	"log"
-	"time"
+	"sync"
+
+	"github.com/project-iris/iris/container/queue"
 
 	"github.com/project-iris/iris/config"
 	"github.com/project-iris/iris/proto/iris"
@@ -32,45 +33,63 @@ type tunnel struct {
 	tun *iris.Tunnel // Iris tunnel being relayed and buffered
 	rel *relay       // Message relay to the attached app
 
-	// Throttling fields
-	atoi chan []byte   // Application to Iris message buffer
-	itoa chan struct{} // Iris to application pending ack buffer
+	// Quality of service fields
+	atoiSize *queue.Queue  // Iris to application size buffer
+	atoiData *queue.Queue  // Iris to application message buffer
+	atoiSign chan struct{} // Allowance grant signaler
+	atoiLock sync.Mutex    // Protects the allowance and signaler
+
+	itoaSpace int           // Iris to attached application space allowance
+	itoaSign  chan struct{} // Allowance grant signaler
+	itoaLock  sync.Mutex    // Protects the allowance and signaler
 
 	// Bookkeeping fields
 	quit chan chan error // Quit channel to synchronize tunnel termination
 }
 
 // Creates a new relay tunnel and associated buffers.
-func (r *relay) newTunnel(id uint64, tun *iris.Tunnel, atoiBuf int, itoaBuf int) *tunnel {
+func (r *relay) newTunnel(id uint64, tun *iris.Tunnel) *tunnel {
 	return &tunnel{
-		id:   id,
-		tun:  tun,
-		rel:  r,
-		atoi: make(chan []byte, atoiBuf),
-		itoa: make(chan struct{}, itoaBuf),
+		id:  id,
+		tun: tun,
+		rel: r,
+
+		atoiSize: queue.New(),
+		atoiData: queue.New(),
+		atoiSign: make(chan struct{}),
+		itoaSign: make(chan struct{}),
+
 		quit: make(chan chan error),
 	}
 }
 
-// Buffers an app message to be sent to the remote endpoint. Fails in case of a
-// filled buffer.
-func (t *tunnel) send(msg []byte) error {
+// Acknowledges a received packet allowing further sends.
+func (t *tunnel) grantAllowance(space int) {
+	t.itoaLock.Lock()
+	defer t.itoaLock.Unlock()
+
+	t.itoaSpace += space
 	select {
-	case t.atoi <- msg:
-		return nil
+	case t.itoaSign <- struct{}{}:
 	default:
-		return fmt.Errorf("buffer full")
 	}
 }
 
-// Acknowledges a received packet allowing further sends.
-func (t *tunnel) ack() error {
+// Buffers a binding message chunk to be sent to the remote endpoint.
+func (t *tunnel) sendChunk(size int, payload []byte) error {
+	t.atoiLock.Lock()
+	defer t.atoiLock.Unlock()
+
+	t.atoiSize.Push(size)
+	t.atoiData.Push(payload)
+
 	select {
-	case <-t.itoa:
-		return nil
+	case t.atoiSign <- struct{}{}:
 	default:
-		return fmt.Errorf("ack out of bounds")
 	}
+
+	// TODO: check allowance
+	return nil
 }
 
 // Closes the tunnel and stops any data transfer.
@@ -86,26 +105,25 @@ func (t *tunnel) close() {
 	}
 }
 
-// Forwards messages arriving from the application to the Iris network.
+// Forwards messages arriving from the attached binding to the Iris network.
 func (t *tunnel) sender() {
 	var err error
 	var errc chan error
 
 	// Loop until termination is requested
 	for errc == nil && err == nil {
+		// Short circuit if a message is available
+		if size, chunk := t.fetchMessage(); chunk != nil {
+			err = t.tun.Send(size, chunk)
+			continue
+		}
+		// Otherwise wait for availability signal
 		select {
 		case errc = <-t.quit:
 			// Closing
-		case msg := <-t.atoi:
-			// Send the message and ack the client (async)
-			if err = t.tun.Send(msg); err == nil {
-				go func() {
-					if err := t.rel.sendTunnelAck(t.id); err != nil {
-						log.Printf("relay: send ack failed: %v.", err)
-						t.rel.drop()
-					}
-				}()
-			}
+		case <-t.atoiSign:
+			// Potentially available message, retry
+			continue
 		}
 	}
 	// Sync termination and send back any error
@@ -115,26 +133,63 @@ func (t *tunnel) sender() {
 	errc <- err
 }
 
+// Fetches the next buffered message, or nil if none is available. If a message
+// was available, grants the remote side the space allowance just consumed.
+func (t *tunnel) fetchMessage() (int, []byte) {
+	t.atoiLock.Lock()
+	defer t.atoiLock.Unlock()
+
+	if !t.atoiData.Empty() {
+		size := t.atoiSize.Pop().(int)
+		data := t.atoiData.Pop().([]byte)
+		t.rel.workers.Schedule(func() {
+			if err := t.rel.sendTunnelAllowance(t.id, len(data)); err != nil {
+				log.Printf("relay: send ack failed: %v.", err)
+				t.rel.drop()
+			}
+		})
+		return size, data
+	}
+	// No message, reset arrival flag
+	select {
+	case <-t.atoiSign:
+	default:
+	}
+	return 0, nil
+}
+
 // Forwards messages arriving from the Iris network to the attached application.
 func (t *tunnel) receiver() {
 	var err error
 	var errc chan error
 
 	// Loop until termination is requested
+	size, chunk, rerr := 0, []byte(nil), error(nil)
 	for errc == nil && err == nil {
+		// Fetch a message to deliver if none pending
+		if chunk == nil {
+			size, chunk, rerr = t.tun.Recv(config.RelayTunnelPoll)
+			if rerr != nil && rerr != iris.ErrTimeout {
+				err = rerr
+				continue
+			}
+		}
+		// Send if any and there's enough space allowance already
+		if chunk != nil {
+			force := (size == 0)
+			if t.drainAllowance(len(chunk), force) {
+				err = t.rel.sendTunnelTransfer(t.id, size, chunk)
+				size, chunk = 0, nil
+				continue
+			}
+		}
+		// Wait for a potential allowance grant
 		select {
 		case errc = <-t.quit:
 			// Closing
-		case t.itoa <- struct{}{}:
-			// Message send permitted
-			if msg, rerr := t.tun.Recv(time.Duration(config.RelayTunnelPoll) * time.Millisecond); rerr == nil {
-				t.rel.handleTunnelRecv(t.id, msg)
-			} else if rerr == iris.ErrTimeout {
-				<-t.itoa
-			} else {
-				go t.rel.handleTunnelClose(t.id, false)
-				err = rerr
-			}
+		case <-t.itoaSign:
+			// Potentially enough space allowance, retry
+			continue
 		}
 	}
 	// Sync termination and send back any error
@@ -142,4 +197,23 @@ func (t *tunnel) receiver() {
 		errc = <-t.quit
 	}
 	errc <- err
+}
+
+// Checks whether there is enough space allowance available to send a message.
+// If yes, the allowance is reduced accordingly. Chunks are forcefully send over
+// since a large enough message would clog up the link.
+func (t *tunnel) drainAllowance(need int, force bool) bool {
+	t.itoaLock.Lock()
+	defer t.itoaLock.Unlock()
+
+	if force || t.itoaSpace >= need {
+		t.itoaSpace -= need
+		return true
+	}
+	// Not enough, reset allowance grant flag
+	select {
+	case <-t.itoaSign:
+	default:
+	}
+	return false
 }

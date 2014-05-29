@@ -224,85 +224,95 @@ func (r *relay) sendPublish(topic string, event []byte) error {
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a tunneling message into the relay.
-func (r *relay) sendTunnelRequest(tmpId uint64, buf int) error {
+// Sends a tunnel initiation.
+func (r *relay) sendTunnelInit(id uint64, chunkLimit int) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opTunInit); err != nil {
 		return err
 	}
-	if err := r.sendVarint(tmpId); err != nil {
+	if err := r.sendVarint(id); err != nil {
 		return err
 	}
-	if err := r.sendVarint(uint64(buf)); err != nil {
+	if err := r.sendVarint(uint64(chunkLimit)); err != nil {
 		return err
 	}
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a tunneling reply into the relay.
-func (r *relay) sendTunnelReply(tunId uint64, buf int, timeout bool) error {
+// Sends a tunnel construction result.
+func (r *relay) sendTunnelResult(id uint64, chunkLimit int) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opTunConfirm); err != nil {
 		return err
 	}
-	if err := r.sendVarint(tunId); err != nil {
+	if err := r.sendVarint(id); err != nil {
 		return err
 	}
+	timeout := (chunkLimit == 0)
 	if err := r.sendBool(timeout); err != nil {
 		return err
 	}
 	if !timeout {
-		if err := r.sendVarint(uint64(buf)); err != nil {
+		if err := r.sendVarint(uint64(chunkLimit)); err != nil {
 			return err
 		}
 	}
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a tunnel data packet into the relay.
-func (r *relay) sendTunnelData(tunId uint64, msg []byte) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunTransfer); err != nil {
-		return err
-	}
-	if err := r.sendVarint(tunId); err != nil {
-		return err
-	}
-	if err := r.sendBinary(msg); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
-}
-
-// Atomically sends a tunnel data acknowledgement into the relay.
-func (r *relay) sendTunnelAck(tunId uint64) error {
+// Sends a tunnel allowance message.
+func (r *relay) sendTunnelAllowance(id uint64, space int) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opTunAllow); err != nil {
 		return err
 	}
-	if err := r.sendVarint(tunId); err != nil {
+	if err := r.sendVarint(id); err != nil {
+		return err
+	}
+	if err := r.sendVarint(uint64(space)); err != nil {
+		return err
+	}
+	return r.sockBuf.Flush()
+}
+
+// Sends a tunnel data exchange message.
+func (r *relay) sendTunnelTransfer(id uint64, size int, payload []byte) error {
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	if err := r.sendByte(opTunTransfer); err != nil {
+		return err
+	}
+	if err := r.sendVarint(id); err != nil {
+		return err
+	}
+	if err := r.sendVarint(uint64(size)); err != nil {
+		return err
+	}
+	if err := r.sendBinary(payload); err != nil {
 		return err
 	}
 	return r.sockBuf.Flush()
 }
 
 // Atomically sends a tunnel close request into the relay.
-func (r *relay) sendTunnelClose(tunId uint64) error {
+func (r *relay) sendTunnelClose(id uint64, reason string) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opTunClose); err != nil {
 		return err
 	}
-	if err := r.sendVarint(tunId); err != nil {
+	if err := r.sendVarint(id); err != nil {
+		return err
+	}
+	if err := r.sendString(reason); err != nil {
 		return err
 	}
 	return r.sockBuf.Flush()
@@ -498,17 +508,13 @@ func (r *relay) procPublish() error {
 	return nil
 }
 
-// Retrieves a tunneling request and forwards it to the Iris network.
-func (r *relay) procTunnelRequest() error {
-	tunId, err := r.recvVarint()
+// Retrieves a tunnel construction request.
+func (r *relay) procTunnelInit() error {
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	app, err := r.recvString()
-	if err != nil {
-		return err
-	}
-	buf, err := r.recvVarint()
+	cluster, err := r.recvString()
 	if err != nil {
 		return err
 	}
@@ -516,13 +522,13 @@ func (r *relay) procTunnelRequest() error {
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleTunnelRequest(tunId, app, int(buf), time.Duration(timeout)*time.Millisecond) })
+	r.workers.Schedule(func() { r.handleTunnelInit(id, cluster, time.Duration(timeout)*time.Millisecond) })
 	return nil
 }
 
-// Retrieves a tunneling reply and finalizes the tunnel building.
-func (r *relay) procTunnelReply() error {
-	tmpId, err := r.recvVarint()
+// Retrieves a tunnel confirmation.
+func (r *relay) procTunnelConfirm() error {
+	buildId, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
@@ -530,45 +536,49 @@ func (r *relay) procTunnelReply() error {
 	if err != nil {
 		return err
 	}
-	buf, err := r.recvVarint()
+	r.workers.Schedule(func() { r.handleTunnelConfirm(buildId, tunId) })
+	return nil
+}
+
+// Retrieves a tunnel allowance message.
+func (r *relay) procTunnelAllowance() error {
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleTunnelReply(tmpId, tunId, int(buf)) })
+	space, err := r.recvVarint()
+	if err != nil {
+		return err
+	}
+	r.workers.Schedule(func() { r.handleTunnelAllowance(id, int(space)) })
 	return nil
 }
 
 // Retrieves a tunnel data message and relays it.
-func (r *relay) procTunnelData() error {
-	tunId, err := r.recvVarint()
+func (r *relay) procTunnelTranfer() error {
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	msg, err := r.recvBinary()
+	size, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	r.handleTunnelSend(tunId, msg) // Note, NOT separate go-routine, need to preserve order a bit longer
+	payload, err := r.recvBinary()
+	if err != nil {
+		return err
+	}
+	r.handleTunnelSend(id, int(size), payload)
 	return nil
 }
 
-// Retrieves a tunnel data acknowledgement and processes it.
-func (r *relay) procTunnelAck() error {
-	tunId, err := r.recvVarint()
-	if err != nil {
-		return err
-	}
-	r.workers.Schedule(func() { r.handleTunnelAck(tunId) })
-	return nil
-}
-
-// Retrieves a tunneling request and relays it.
+// Retrieves a tunnel close request.
 func (r *relay) procTunnelClose() error {
-	tunId, err := r.recvVarint()
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleTunnelClose(tunId, true) })
+	r.workers.Schedule(func() { r.handleTunnelClose(id, true) })
 	return nil
 }
 
@@ -595,13 +605,13 @@ func (r *relay) process() {
 			case opPublish:
 				err = r.procPublish()
 			case opTunInit:
-				err = r.procTunnelRequest()
+				err = r.procTunnelInit()
 			case opTunConfirm:
-				err = r.procTunnelReply()
+				err = r.procTunnelConfirm()
 			case opTunAllow:
-				err = r.procTunnelAck()
+				err = r.procTunnelAllowance()
 			case opTunTransfer:
-				err = r.procTunnelData()
+				err = r.procTunnelTranfer()
 			case opTunClose:
 				err = r.procTunnelClose()
 			case opClose:

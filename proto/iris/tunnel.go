@@ -47,10 +47,16 @@ type authPacket struct {
 	Id uint64
 }
 
+// Header to attach to data transfer packets.
+type dataHeader struct {
+	SizeOrCont int // Size of the original message, or 0 if not the first chunk
+}
+
 // Make sure the handshake packets are registered with gob.
 func init() {
 	gob.Register(&initPacket{})
 	gob.Register(&authPacket{})
+	gob.Register(&dataHeader{})
 }
 
 func (o *Overlay) tunneler(ipnet *net.IPNet, live chan struct{}, quit chan chan error) {
@@ -300,9 +306,14 @@ func (t *Tunnel) Close() error {
 }
 
 // Sends an asynchronous message to the remote pair. Not reentrant (order).
-func (t *Tunnel) Send(msg []byte) error {
+func (t *Tunnel) Send(size int, chunk []byte) error {
 	// Create and encrypt the message
-	packet := &proto.Message{Data: msg}
+	packet := &proto.Message{
+		Head: proto.Header{
+			Meta: &dataHeader{size},
+		},
+		Data: chunk,
+	}
 	if err := packet.Encrypt(); err != nil {
 		return err
 	}
@@ -317,22 +328,22 @@ func (t *Tunnel) Send(msg []byte) error {
 
 // Retrieves a message waiting in the local queue. If none is available, the
 // call blocks until either one arrives or a timeout is reached.
-func (t *Tunnel) Recv(timeout time.Duration) ([]byte, error) {
+func (t *Tunnel) Recv(timeout time.Duration) (int, []byte, error) {
 	// Retrieve an encrypted packet from the tunnel link
 	select {
 	case packet, ok := <-t.conn.Recv:
 		// Terminate the tunnel if closed remotely
 		if !ok {
 			close(t.term)
-			return nil, ErrTerminating
+			return 0, nil, ErrTerminating
 		}
 		// Decrypt and pass upstream
 		if err := packet.Decrypt(); err != nil {
-			return nil, err
+			return 0, nil, err
 		}
-		return packet.Data, nil
+		return packet.Head.Meta.(*dataHeader).SizeOrCont, packet.Data, nil
 
 	case <-time.After(timeout):
-		return nil, ErrTimeout
+		return 0, nil, ErrTimeout
 	}
 }
