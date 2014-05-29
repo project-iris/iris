@@ -30,8 +30,7 @@ import (
 	"github.com/project-iris/iris/proto/iris"
 )
 
-// Forwards an app broadcast arriving from the Iris network to the attached app.
-// Any error is considered a protocol violation.
+// Forwards a broadcast arriving from the Iris network to the attached binding.
 func (r *relay) HandleBroadcast(msg []byte) {
 	if err := r.sendBroadcast(msg); err != nil {
 		log.Printf("relay: broadcast forward error: %v.", err)
@@ -39,8 +38,7 @@ func (r *relay) HandleBroadcast(msg []byte) {
 	}
 }
 
-// Forwards an app broadcast from the attached relay to the Iris network. Any
-// error is considered a protocol violation.
+// Forwards a broadcast from the attached binding to the Iris network.
 func (r *relay) handleBroadcast(app string, msg []byte) {
 	if err := r.iris.Broadcast(app, msg); err != nil {
 		log.Printf("relay: broadcast error: %v.", err)
@@ -130,15 +128,15 @@ func (r *relay) handleReply(id uint64, reply []byte, fault string) {
 	}
 }
 
-// Handler for a topic subscription. Forwards all published events to the app
-// attached.
+// Handler for a topic subscription. Forwards all published events to the
+// attached binding.
 type subscriptionHandler struct {
 	relay *relay
 	topic string
 }
 
-// Forwards the arriving event from the Iris network to the attached app. Any
-// error is considered a protocol violation.
+// Forwards an arriving topic event from the Iris network to the attached
+// binding.
 func (s *subscriptionHandler) HandleEvent(msg []byte) {
 	if err := s.relay.sendPublish(s.topic, msg); err != nil {
 		log.Printf("relay: publish forward error: %v.", err)
@@ -146,9 +144,8 @@ func (s *subscriptionHandler) HandleEvent(msg []byte) {
 	}
 }
 
-// Forwards a subscription event arriving from the attached app to the Iris node
-// and creates a new subscription handler to process the arriving events. Any
-// error is considered a protocol violation.
+// Forwards a topic subscription arriving from the attached binding to the Iris
+// node and creates a new subscription handler to process the published events.
 func (r *relay) handleSubscribe(topic string) {
 	// Create the event forwarder
 	handler := &subscriptionHandler{
@@ -162,20 +159,19 @@ func (r *relay) handleSubscribe(topic string) {
 	}
 }
 
-// Forwards a publish event arriving from the attached app to the Iris node. Any
-// error is considered a protocol violation.
-func (r *relay) handlePublish(topic string, msg []byte) {
-	if err := r.iris.Publish(topic, msg); err != nil {
-		log.Printf("relay: publish error: %v.", err)
+// Forwards a topic subscription removal arriving from the attached binding to
+// the Iris node.
+func (r *relay) handleUnsubscribe(topic string) {
+	if err := r.iris.Unsubscribe(topic); err != nil {
+		log.Printf("relay: unsubscription error: %v.", err)
 		r.drop()
 	}
 }
 
-// Forwards a subscription removel request arriving from the attached app to the
-// Iris node. Any error is considered a protocol violation.
-func (r *relay) handleUnsubscribe(topic string) {
-	if err := r.iris.Unsubscribe(topic); err != nil {
-		log.Printf("relay: unsubscription error: %v.", err)
+// Forwards a publish event arriving from the attached binding to the Iris node.
+func (r *relay) handlePublish(topic string, msg []byte) {
+	if err := r.iris.Publish(topic, msg); err != nil {
+		log.Printf("relay: publish error: %v.", err)
 		r.drop()
 	}
 }

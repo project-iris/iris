@@ -207,8 +207,8 @@ func (r *relay) sendReply(id uint64, reply []byte, fault string) error {
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a topic publish message into the relay.
-func (r *relay) sendPublish(topic string, msg []byte) error {
+// Sends a topic event delivery.
+func (r *relay) sendPublish(topic string, event []byte) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
@@ -218,7 +218,7 @@ func (r *relay) sendPublish(topic string, msg []byte) error {
 	if err := r.sendString(topic); err != nil {
 		return err
 	}
-	if err := r.sendBinary(msg); err != nil {
+	if err := r.sendBinary(event); err != nil {
 		return err
 	}
 	return r.sockBuf.Flush()
@@ -464,7 +464,7 @@ func (r *relay) procReply() error {
 	return nil
 }
 
-// Retrieves a subscription request and forwards it to the Iris network.
+// Retrieves a topic subscription.
 func (r *relay) procSubscribe() error {
 	topic, err := r.recvString()
 	if err != nil {
@@ -474,28 +474,27 @@ func (r *relay) procSubscribe() error {
 	return nil
 }
 
-// Retrieves a publish request and forwards it to the Iris network.
-func (r *relay) procPublish() error {
-	topic, err := r.recvString()
-	if err != nil {
-		return err
-	}
-	msg, err := r.recvBinary()
-	if err != nil {
-		return err
-	}
-	r.workers.Schedule(func() { r.handlePublish(topic, msg) })
-	return nil
-
-}
-
-// Retrieves a subscription removal event and forwards it to the Iris netowrk.
+// Retrieves a topic subscription removal.
 func (r *relay) procUnsubscribe() error {
 	topic, err := r.recvString()
 	if err != nil {
 		return err
 	}
 	r.workers.Schedule(func() { r.handleUnsubscribe(topic) })
+	return nil
+}
+
+// Retrieves a topic event publish.
+func (r *relay) procPublish() error {
+	topic, err := r.recvString()
+	if err != nil {
+		return err
+	}
+	event, err := r.recvBinary()
+	if err != nil {
+		return err
+	}
+	r.workers.Schedule(func() { r.handlePublish(topic, event) })
 	return nil
 }
 
