@@ -20,6 +20,7 @@
 package iris
 
 import (
+	"errors"
 	"log"
 	"math/big"
 	"math/rand"
@@ -104,7 +105,7 @@ func (o *Overlay) HandleDirect(src *big.Int, msg *proto.Message) {
 	// Pass the message to the connection to handle
 	switch head.Op {
 	case opRep:
-		conn.workers.Schedule(func() { conn.handleReply(head.ReqId, msg.Data) })
+		conn.workers.Schedule(func() { conn.handleReply(head.ReqId, head.ReqFail, msg.Data) })
 	default:
 		log.Printf("iris: invalid direct opcode: %v.", head.Op)
 	}
@@ -116,23 +117,31 @@ func (c *Connection) handleBroadcast(msg []byte) {
 }
 
 // Passes the request up to the application handler, also specifying the timeout
-// under which the reply must be sent back. Only a non-nil reply is forwarded to
-// the requester.
+// under which the reply must be sent back. Either a reply or a binding side
+// failure is forwarded to the remote node.
 func (c *Connection) handleRequest(srcNode *big.Int, srcConn uint64, reqId uint64, msg []byte, timeout time.Duration) {
-	if rep := c.handler.HandleRequest(msg, timeout); rep != nil {
-		c.iris.scribe.Direct(srcNode, c.assembleReply(srcConn, reqId, rep))
+	rep, err := c.handler.HandleRequest(msg, timeout)
+	if err == ErrTerminating || err == ErrTimeout {
+		return
 	}
+	c.iris.scribe.Direct(srcNode, c.assembleReply(srcConn, reqId, rep, err))
 }
 
 // Looks up the result channel for the pending request and inserts the reply. If
 // the channel doesn't exist any more the reply is silently dropped.
-func (c *Connection) handleReply(reqId uint64, rep []byte) {
+func (c *Connection) handleReply(reqId uint64, failed bool, data []byte) {
 	c.reqLock.RLock()
 	defer c.reqLock.RUnlock()
 
-	// Make sure the request is still alive and don't block if dying
-	if ch, ok := c.reqPend[reqId]; ok {
-		ch <- rep
+	// Interpret the data as either a reply or a failure string
+	if !failed {
+		if repc, ok := c.reqReps[reqId]; ok {
+			repc <- data
+		}
+	} else {
+		if errc, ok := c.reqErrs[reqId]; ok {
+			errc <- errors.New(string(data))
+		}
 	}
 }
 

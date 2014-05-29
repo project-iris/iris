@@ -22,6 +22,7 @@
 package relay
 
 import (
+	"errors"
 	"log"
 	"time"
 
@@ -47,61 +48,85 @@ func (r *relay) handleBroadcast(app string, msg []byte) {
 	}
 }
 
-// Forwards a request arriving from the Iris network to the attached app. Also a
+// Forwards a request arriving from the Iris network to the attached binding. A
 // local timer is started to ensure a faulty client doesn't fill the node with
-// stale requests. Any error is considered a protocol violation.
-func (r *relay) HandleRequest(req []byte, timeout time.Duration) []byte {
-	// Create a reply channel for the results
+// stale requests.
+func (r *relay) HandleRequest(request []byte, timeout time.Duration) ([]byte, error) {
+	// Create a reply and error channel for the results
+	repc := make(chan []byte, 1)
+	errc := make(chan error, 1)
+
 	r.reqLock.Lock()
-	reqCh := make(chan []byte, 1)
 	reqId := r.reqIdx
-	r.reqPend[reqId] = reqCh
 	r.reqIdx++
+	r.reqReps[reqId] = repc
+	r.reqErrs[reqId] = errc
 	r.reqLock.Unlock()
 
-	// Ensure no just is left after the function terminates
+	// Make sure the result channels are cleaned up
 	defer func() {
 		r.reqLock.Lock()
-		defer r.reqLock.Unlock()
-
-		delete(r.reqPend, reqId)
-		close(reqCh)
+		delete(r.reqReps, reqId)
+		delete(r.reqErrs, reqId)
+		close(repc)
+		close(errc)
+		r.reqLock.Unlock()
 	}()
-	// Send the request to the specified app
-	if err := r.sendRequest(reqId, req); err != nil {
+	// Send the request
+	if err := r.sendRequest(reqId, request, int(timeout.Nanoseconds()/1000000)); err != nil {
 		log.Printf("relay: request error: %v.", err)
 		r.drop()
+		return nil, err
 	}
-	// Retrieve the results or time out
+	// Retrieve the results or fail if terminating
 	select {
 	case <-r.term:
-		return nil
+		return nil, iris.ErrTerminating
 	case <-time.After(timeout):
-		return nil
-	case rep := <-reqCh:
-		return rep
+		return nil, iris.ErrTimeout
+	case reply := <-repc:
+		return reply, nil
+	case err := <-errc:
+		return nil, err
 	}
 }
 
-// Forwards a request arriving from the attached app to the Iris network, and
-// waits for a reply to arrive back which can be forwarded. If the request times
-// out, a reply is sent back accordingly.
-func (r *relay) handleRequest(app string, reqId uint64, req []byte, timeout time.Duration) {
-	if rep, err := r.iris.Request(app, req, timeout); err != nil {
-		r.sendReply(reqId, nil, true)
-	} else {
-		r.sendReply(reqId, rep, false)
+// Forwards a request arriving from the attached binding to the Iris network, and
+// waits for a reply to arrive back which can be forwarded.
+func (r *relay) handleRequest(cluster string, id uint64, request []byte, timeout time.Duration) {
+	reply, err := r.iris.Request(cluster, request, timeout)
+	switch {
+	case err == iris.ErrTimeout || err == iris.ErrTerminating:
+		r.sendReply(id, nil, "")
+	case err != nil:
+		r.sendReply(id, nil, err.Error())
+	default:
+		r.sendReply(id, reply, "")
 	}
 }
 
-// Forwards a reply arriving from the attached app to the Iris node by looking
-// up the pending request channel and if still live, inserting the results.
-func (r *relay) handleReply(reqId uint64, msg []byte) {
+// Forwards a reply arriving from the attached binding to the Iris network by
+// looking up the pending request channel and if still live, injecting the result.
+func (r *relay) handleReply(id uint64, reply []byte, fault string) {
 	r.reqLock.RLock()
 	defer r.reqLock.RUnlock()
 
-	if ch, ok := r.reqPend[reqId]; ok {
-		ch <- msg
+	// Fetch the result channels
+	repc, ok := r.reqReps[id]
+	if !ok {
+		return
+	}
+	errc, ok := r.reqErrs[id]
+	if !ok {
+		panic("reply channel available, error missing")
+	}
+	// Return either the reply or the fault
+	if reply == nil && len(fault) == 0 {
+		errc <- iris.ErrTimeout
+	} else if reply == nil {
+		errc <- errors.New(fault)
+	} else {
+		repc <- reply
 	}
 }
 
@@ -130,7 +155,7 @@ func (r *relay) handleSubscribe(topic string) {
 		relay: r,
 		topic: topic,
 	}
-	// Subscribe and drop conenction in case of an error
+	// Subscribe and drop connection in case of an error
 	if err := r.iris.Subscribe(topic, handler); err != nil {
 		log.Printf("relay: subscription error: %v.", err)
 		r.drop()

@@ -59,7 +59,7 @@ type ConnectionHandler interface {
 	// Handles the request, returning the reply that should be forwarded back to
 	// the caller. If the method crashes, nothing is returned and the caller will
 	// eventually time out.
-	HandleRequest(req []byte, timeout time.Duration) []byte
+	HandleRequest(req []byte, timeout time.Duration) ([]byte, error)
 
 	// Handles the request to open a direct tunnel.
 	HandleTunnel(tun *Tunnel)
@@ -80,8 +80,9 @@ type Connection struct {
 	iris    *Overlay          // Interface into the distributed carrier
 
 	reqIdx  uint64                 // Index to assign the next request
-	reqPend map[uint64]chan []byte // Active requests waiting for a reply
-	reqLock sync.RWMutex           // Mutex to protect the request map
+	reqReps map[uint64]chan []byte // Reply channels for active requests
+	reqErrs map[uint64]chan error  // Error channels for active requests
+	reqLock sync.RWMutex           // Mutex to protect the result channel maps
 
 	subLive map[string]SubscriptionHandler // Active subscriptions
 	subLock sync.RWMutex                   // Mutex to protect the subscription map
@@ -107,7 +108,8 @@ func (o *Overlay) Connect(cluster string, handler ConnectionHandler) (*Connectio
 		handler: handler,
 		iris:    o,
 
-		reqPend: make(map[uint64]chan []byte),
+		reqReps: make(map[uint64]chan []byte),
+		reqErrs: make(map[uint64]chan error),
 		subLive: make(map[string]SubscriptionHandler),
 		tunLive: make(map[uint64]*Tunnel),
 
@@ -145,21 +147,25 @@ func (c *Connection) Broadcast(cluster string, msg []byte) error {
 // Executes a synchronous request to cluster (load balanced between all active),
 // and returns the received reply, or an error if a timeout is reached.
 func (c *Connection) Request(cluster string, req []byte, timeout time.Duration) ([]byte, error) {
-	// Create a reply channel for the results
+	// Create a reply and error channel for the results
+	repc := make(chan []byte, 1)
+	errc := make(chan error, 1)
+
 	c.reqLock.Lock()
-	reqCh := make(chan []byte, 1)
 	reqId := c.reqIdx
 	c.reqIdx++
-	c.reqPend[reqId] = reqCh
+	c.reqReps[reqId] = repc
+	c.reqErrs[reqId] = errc
 	c.reqLock.Unlock()
 
-	// Make sure reply channel is cleaned up
+	// Make sure the result channels are cleaned up
 	defer func() {
 		c.reqLock.Lock()
-		defer c.reqLock.Unlock()
-
-		delete(c.reqPend, reqId)
-		close(reqCh)
+		delete(c.reqReps, reqId)
+		delete(c.reqErrs, reqId)
+		close(repc)
+		close(errc)
+		c.reqLock.Unlock()
 	}()
 	// Send the request
 	prefixIdx := int(reqId) % config.IrisClusterSplits
@@ -171,8 +177,10 @@ func (c *Connection) Request(cluster string, req []byte, timeout time.Duration) 
 		return nil, ErrTerminating
 	case <-time.After(timeout):
 		return nil, ErrTimeout
-	case rep := <-reqCh:
-		return rep, nil
+	case reply := <-repc:
+		return reply, nil
+	case err := <-errc:
+		return nil, err
 	}
 }
 

@@ -45,6 +45,7 @@ type header struct {
 
 	// Optional fields for requests and replies
 	ReqId   uint64        // Request/response identifier
+	ReqFail bool          // Flag whether a request failed
 	ReqTime time.Duration // Maximum amount of time spendable on the request
 
 	// Optional fields for tunnels
@@ -83,8 +84,12 @@ func (c *Connection) assembleRequest(reqId uint64, req []byte, timeout time.Dura
 
 // Assembles the reply message to an application request. It consists of the
 // reply opcode, the original request's id and the payload itself.
-func (c *Connection) assembleReply(dest uint64, reqId uint64, rep []byte) *proto.Message {
-	return c.assemblePacket(&header{Op: opRep, Dest: dest, ReqId: reqId}, rep)
+func (c *Connection) assembleReply(dest uint64, reqId uint64, rep []byte, err error) *proto.Message {
+	if err == nil {
+		return c.assemblePacket(&header{Op: opRep, Dest: dest, ReqId: reqId}, rep)
+	} else {
+		return c.assemblePacket(&header{Op: opRep, Dest: dest, ReqId: reqId, ReqFail: true}, []byte(err.Error()))
+	}
 }
 
 // Assembles an event message to be published in a topic. It consists of the

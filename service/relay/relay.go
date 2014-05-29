@@ -36,8 +36,9 @@ type relay struct {
 	iris *iris.Connection // Interface into the iris overlay
 
 	reqIdx  uint64                 // Index to assign the next request
-	reqPend map[uint64]chan []byte // Active requests waiting for a reply
-	reqLock sync.RWMutex           // Mutex to protect the request map
+	reqReps map[uint64]chan []byte // Reply channels for active requests
+	reqErrs map[uint64]chan error  // Error channels for active requests
+	reqLock sync.RWMutex           // Mutex to protect the result channel maps
 
 	tunIdx  uint64                   // Temporary index to assign the next inbound tunnel
 	tunPend map[uint64]*iris.Tunnel  // Tunnels pending app confirmation
@@ -63,7 +64,8 @@ type relay struct {
 func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 	// Create the relay object
 	rel := &relay{
-		reqPend: make(map[uint64]chan []byte),
+		reqReps: make(map[uint64]chan []byte),
+		reqErrs: make(map[uint64]chan error),
 		tunPend: make(map[uint64]*iris.Tunnel),
 		tunInit: make(map[uint64]chan struct{}),
 		tunLive: make(map[uint64]*tunnel),

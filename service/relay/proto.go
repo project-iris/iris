@@ -154,40 +154,54 @@ func (r *relay) sendBroadcast(message []byte) error {
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a request message into the relay.
-func (r *relay) sendRequest(reqId uint64, req []byte) error {
+// Sends an application request delivery.
+func (r *relay) sendRequest(id uint64, request []byte, timeout int) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opRequest); err != nil {
 		return err
 	}
-	if err := r.sendVarint(reqId); err != nil {
+	if err := r.sendVarint(id); err != nil {
 		return err
 	}
-	if err := r.sendBinary(req); err != nil {
+	if err := r.sendBinary(request); err != nil {
+		return err
+	}
+	if err := r.sendVarint(uint64(timeout)); err != nil {
 		return err
 	}
 	return r.sockBuf.Flush()
 }
 
-// Atomically sends a reply message into the relay.
-func (r *relay) sendReply(reqId uint64, rep []byte, timeout bool) error {
+// Sends an application reply delivery.
+func (r *relay) sendReply(id uint64, reply []byte, fault string) error {
 	r.sockLock.Lock()
 	defer r.sockLock.Unlock()
 
 	if err := r.sendByte(opReply); err != nil {
 		return err
 	}
-	if err := r.sendVarint(reqId); err != nil {
+	if err := r.sendVarint(id); err != nil {
 		return err
 	}
+	timeout := (reply == nil && len(fault) == 0)
 	if err := r.sendBool(timeout); err != nil {
 		return err
 	}
 	if !timeout {
-		if err := r.sendBinary(rep); err != nil {
+		success := (len(fault) == 0)
+		if err := r.sendBool(success); err != nil {
 			return err
+		}
+		if success {
+			if err := r.sendBinary(reply); err != nil {
+				return err
+			}
+		} else {
+			if err := r.sendString(fault); err != nil {
+				return err
+			}
 		}
 	}
 	return r.sockBuf.Flush()
@@ -402,17 +416,17 @@ func (r *relay) procBroadcast() error {
 	return nil
 }
 
-// Retrieves a local request from the relay and forwards to the Iris network.
+// Retrieves an application request initiation.
 func (r *relay) procRequest() error {
-	reqId, err := r.recvVarint()
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	app, err := r.recvString()
+	cluster, err := r.recvString()
 	if err != nil {
 		return err
 	}
-	req, err := r.recvBinary()
+	request, err := r.recvBinary()
 	if err != nil {
 		return err
 	}
@@ -420,21 +434,33 @@ func (r *relay) procRequest() error {
 	if err != nil {
 		return err
 	}
-	go r.handleRequest(app, reqId, req, time.Duration(timeout)*time.Millisecond)
+	go r.handleRequest(cluster, id, request, time.Duration(timeout)*time.Millisecond)
 	return nil
 }
 
-// Retrieves a local reply from the relay and forwards to the Iris network.
+// Retrieves an application reply delivery.
 func (r *relay) procReply() error {
-	reqId, err := r.recvVarint()
+	id, err := r.recvVarint()
 	if err != nil {
 		return err
 	}
-	rep, err := r.recvBinary()
+	success, err := r.recvBool()
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleReply(reqId, rep) })
+
+	var reply []byte
+	var fault string
+	if success {
+		if reply, err = r.recvBinary(); err != nil {
+			return err
+		}
+	} else {
+		if fault, err = r.recvString(); err != nil {
+			return err
+		}
+	}
+	r.workers.Schedule(func() { r.handleReply(id, reply, fault) })
 	return nil
 }
 
