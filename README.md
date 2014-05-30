@@ -13,6 +13,12 @@ There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf),
 ------------
 
  * Development:
+    - Fix race condition between tunnel construction and operation.
+    - Rewrite relay protocol to v1.0-draft2.
+       - Proper protocol negotiation (magic string, version numbers).
+       - Built in error fields to remote requests, no need for user wrappers.
+       - Tunnel data chunking to support arbitrarily large messages.
+       - Size based tunnel throttling opposed to the message count previously.
     - Migrate from github.com/karalabe to github.com/project-iris.
  * Version 0.2.0: **March 31, 2014**
     - Redesigned tunnels based on direct TCP connections.
