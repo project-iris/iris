@@ -18,6 +18,7 @@
 package relay
 
 import (
+	"fmt"
 	"log"
 	"sync"
 
@@ -76,6 +77,11 @@ func (t *tunnel) grantAllowance(space int) {
 
 // Buffers a binding message chunk to be sent to the remote endpoint.
 func (t *tunnel) sendChunk(size int, payload []byte) error {
+	// Make sure the chunk limit is not violated
+	if len(payload) > config.RelayTunnelChunkLimit {
+		return fmt.Errorf("chunk limit exceeded: %d > %d", len(payload), config.RelayTunnelChunkLimit)
+	}
+
 	t.atoiLock.Lock()
 	defer t.atoiLock.Unlock()
 
@@ -86,8 +92,6 @@ func (t *tunnel) sendChunk(size int, payload []byte) error {
 	case t.atoiSign <- struct{}{}:
 	default:
 	}
-
-	// TODO: check allowance
 	return nil
 }
 
