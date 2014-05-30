@@ -245,7 +245,6 @@ func (r *relay) handleTunnelInit(id uint64, cluster string, timeout time.Duratio
 // endpoint and starts the data flow.
 func (r *relay) handleTunnelConfirm(buildId uint64, tunId uint64) {
 	r.tunLock.Lock()
-	defer r.tunLock.Unlock()
 
 	// Create the new relay tunnel
 	tun, ok := r.tunPend[buildId]
@@ -260,14 +259,19 @@ func (r *relay) handleTunnelConfirm(buildId uint64, tunId uint64) {
 	if init, ok := r.tunInit[buildId]; ok {
 		init <- struct{}{}
 	}
-	// Grant the local data allowance
-	if err := r.sendTunnelAllowance(tunId, config.RelayTunnelBuffer); err != nil {
-		log.Printf("relay: tunnel allowance grant error: %v.", err)
-		r.drop()
-	}
-	// Start the data transfer
-	go tunnel.sender()
-	go tunnel.receiver()
+	r.tunLock.Unlock()
+
+	// Critical section over, finish the initialization on a new thread
+	r.workers.Schedule(func() {
+		// Grant the local data allowance
+		if err := r.sendTunnelAllowance(tunId, config.RelayTunnelBuffer); err != nil {
+			log.Printf("relay: tunnel allowance grant error: %v.", err)
+			r.drop()
+		}
+		// Start the data transfer
+		go tunnel.sender()
+		go tunnel.receiver()
+	})
 }
 
 // Grants some additional space allowance for the sender.
@@ -295,7 +299,7 @@ func (r *relay) handleTunnelSend(id uint64, size int, payload []byte) {
 }
 
 // Terminates the tunnel data transfer threads and notifies the remote endpoint.
-func (r *relay) handleTunnelClose(id uint64, local bool) {
+func (r *relay) handleTunnelClose(id uint64, local bool, reason string) {
 	// Remove the tunnel
 	r.tunLock.Lock()
 	tun, ok := r.tunLive[id]
@@ -311,7 +315,7 @@ func (r *relay) handleTunnelClose(id uint64, local bool) {
 		go tun.close()
 
 		// Signal the application of termination
-		if err := r.sendTunnelClose(id, ""); err != nil {
+		if err := r.sendTunnelClose(id, reason); err != nil {
 			log.Printf("relay: tunnel close notification failed: %v", err)
 			r.drop()
 		}

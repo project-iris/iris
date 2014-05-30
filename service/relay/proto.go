@@ -536,7 +536,7 @@ func (r *relay) procTunnelConfirm() error {
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleTunnelConfirm(buildId, tunId) })
+	r.handleTunnelConfirm(buildId, tunId) // Finalize tunnel state before accepting further messages
 	return nil
 }
 
@@ -578,7 +578,7 @@ func (r *relay) procTunnelClose() error {
 	if err != nil {
 		return err
 	}
-	r.workers.Schedule(func() { r.handleTunnelClose(id, true) })
+	r.workers.Schedule(func() { r.handleTunnelClose(id, true, "") })
 	return nil
 }
 

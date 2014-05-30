@@ -21,9 +21,8 @@ import (
 	"log"
 	"sync"
 
-	"github.com/project-iris/iris/container/queue"
-
 	"github.com/project-iris/iris/config"
+	"github.com/project-iris/iris/container/queue"
 	"github.com/project-iris/iris/proto/iris"
 )
 
@@ -56,8 +55,8 @@ func (r *relay) newTunnel(id uint64, tun *iris.Tunnel) *tunnel {
 
 		atoiSize: queue.New(),
 		atoiData: queue.New(),
-		atoiSign: make(chan struct{}),
-		itoaSign: make(chan struct{}),
+		atoiSign: make(chan struct{}, 1),
+		itoaSign: make(chan struct{}, 1),
 
 		quit: make(chan chan error),
 	}
@@ -170,26 +169,32 @@ func (t *tunnel) receiver() {
 		if chunk == nil {
 			size, chunk, rerr = t.tun.Recv(config.RelayTunnelPoll)
 			if rerr != nil && rerr != iris.ErrTimeout {
+				go t.rel.handleTunnelClose(t.id, false, "remote endpoint closed")
 				err = rerr
 				continue
 			}
 		}
-		// Send if any and there's enough space allowance already
-		if chunk != nil {
+		// If no message could be retrieved, check quit flag and loop
+		if chunk == nil {
+			select {
+			case errc = <-t.quit:
+			default:
+			}
+			continue
+		}
+		// If we have a chunk, loop until deliverable
+		for errc == nil && err == nil {
 			force := (size == 0)
 			if t.drainAllowance(len(chunk), force) {
 				err = t.rel.sendTunnelTransfer(t.id, size, chunk)
 				size, chunk = 0, nil
-				continue
+				break
 			}
-		}
-		// Wait for a potential allowance grant
-		select {
-		case errc = <-t.quit:
-			// Closing
-		case <-t.itoaSign:
-			// Potentially enough space allowance, retry
-			continue
+			// Wait for a potential allowance grant
+			select {
+			case errc = <-t.quit:
+			case <-t.itoaSign:
+			}
 		}
 	}
 	// Sync termination and send back any error
