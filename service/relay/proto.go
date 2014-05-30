@@ -626,9 +626,9 @@ func (r *relay) process() {
 		}
 	}
 	// Failure or deliberate close, clean up resources
+	r.workers.Terminate(false)
 	r.sock.Close()
 	r.iris.Close()
-	r.workers.Terminate(true)
 
 	// Signal termination to all blocked threads
 	close(r.term)

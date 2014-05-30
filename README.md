@@ -13,6 +13,7 @@ There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf),
 ------------
 
  * Development:
+    - Fix message loss caused by clearing scheduled messages during a relay close.
     - Fix race condition between tunnel construction and operation.
     - Rewrite relay protocol to v1.0-draft2.
        - Proper protocol negotiation (magic string, version numbers).
