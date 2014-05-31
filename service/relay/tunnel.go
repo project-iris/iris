@@ -167,7 +167,7 @@ func (t *tunnel) receiver() {
 	var errc chan error
 
 	// Loop until termination is requested
-	size, chunk, rerr := 0, []byte(nil), error(nil)
+	size, left, chunk, rerr := 0, 0, []byte(nil), error(nil)
 	for errc == nil && err == nil {
 		// Fetch a message to deliver if none pending
 		if chunk == nil {
@@ -188,7 +188,16 @@ func (t *tunnel) receiver() {
 		}
 		// If we have a chunk, loop until deliverable
 		for errc == nil && err == nil {
-			force := (size == 0)
+			// If the previous message has not completed, force send
+			force := false
+			switch {
+			case size == 0:
+				force, left = true, left-len(chunk)
+			case left != 0:
+				force, left = true, size-len(chunk)
+			default:
+				left = size - len(chunk)
+			}
 			if t.drainAllowance(len(chunk), force) {
 				err = t.rel.sendTunnelTransfer(t.id, size, chunk)
 				size, chunk = 0, nil
