@@ -83,7 +83,7 @@ func (r *Relay) Terminate() error {
 // Accepts inbound connections till the service is terminated. For each one it
 // starts a new handler and hands the socket over.
 func (r *Relay) acceptor() {
-	// Accept conenctions until termination request
+	// Accept connections until termination request
 	var errc chan error
 	for errc == nil {
 		select {

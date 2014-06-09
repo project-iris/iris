@@ -271,6 +271,19 @@ func (c *Connection) Tunnel(cluster string, timeout time.Duration) (*Tunnel, err
 	}
 }
 
+// Closes the service aspect of the connection, but leave the client alive.
+func (c *Connection) Unregister() error {
+	if c.cluster != "" {
+		// Remove the cluster subscriptions
+		for _, prefix := range clusterPrefixes {
+			c.iris.unsubscribe(c.id, prefix+c.cluster)
+		}
+		// Make sure the service is marked unregistered
+		c.cluster = ""
+	}
+	return nil
+}
+
 // Gracefully terminates the connection, all subscriptions and all tunnels.
 func (c *Connection) Close() error {
 	// Signal the connection as terminating
@@ -291,10 +304,8 @@ func (c *Connection) Close() error {
 	c.subLock.Unlock()
 
 	// Leave the cluster if it was a service connection
-	if c.cluster != "" {
-		for _, prefix := range clusterPrefixes {
-			c.iris.unsubscribe(c.id, prefix+c.cluster)
-		}
+	if err := c.Unregister(); err != nil {
+		return err
 	}
 	// Terminate the worker pool
 	c.workers.Terminate(true)

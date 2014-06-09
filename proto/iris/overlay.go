@@ -145,44 +145,46 @@ func (o *Overlay) subscribe(id uint64, topic string) error {
 // Unsubscribes a client from a topic, removing the scribe subscription too if
 // the last client.
 func (o *Overlay) unsubscribe(id uint64, topic string) error {
-	o.lock.Lock()
-	defer o.lock.Unlock()
+	o.lock.Lock() // Unlocked at 4 separate return points!
 
-	// Create a new subscription if non existed (mark as so)
-	cascade := false
-	if lock, ok := o.subLock[topic]; !ok {
+	// Look up the subscription to leave
+	lock, ok := o.subLock[topic]
+	if !ok {
 		// This should *not* happen
 		log.Printf("iris: unsubscribe from non-existent topic: %v.", topic)
-		return ErrNotSubscribed
-	} else {
-		// Remove the subscription
-		lock.Lock()
-		subs := o.subLive[topic]
-		done := false
-		for i, subId := range subs {
-			if id == subId {
-				subs = append(subs[:i], subs[i+1:]...)
-				done = true
-				break
-			}
-		}
-		o.subLive[topic] = subs
-		lock.Unlock()
 
-		// Actually check if anything was removed, just in case
-		if !done {
-			log.Printf("iris: remove non-existent subscription: %v:%v.", topic, id)
-			return ErrNotSubscribed
+		o.lock.Unlock()
+		return ErrNotSubscribed
+	}
+	// Remove the subscription
+	lock.Lock()
+	subs := o.subLive[topic]
+	done := false
+	for i, subId := range subs {
+		if id == subId {
+			subs = append(subs[:i], subs[i+1:]...)
+			done = true
+			break
 		}
-		if len(subs) == 0 {
-			delete(o.subLive, topic)
-			delete(o.subLock, topic)
-			cascade = true
-		}
+	}
+	o.subLive[topic] = subs
+	lock.Unlock()
+
+	// Actually check if anything was removed, just in case
+	if !done {
+		log.Printf("iris: remove non-existent subscription: %v:%v.", topic, id)
+
+		o.lock.Unlock()
+		return ErrNotSubscribed
 	}
 	// Dump the topic if all subscriptions are gone
-	if cascade {
+	if len(subs) == 0 {
+		delete(o.subLive, topic)
+		delete(o.subLock, topic)
+
+		o.lock.Unlock()
 		return o.scribe.Unsubscribe(topic)
 	}
+	o.lock.Unlock()
 	return nil
 }

@@ -616,6 +616,11 @@ func (r *relay) process() {
 				err = r.procTunnelClose()
 			case opClose:
 				if err = r.procClose(); err == nil {
+					// Graceful close, unregister from Iris and wait for pending ops
+					r.iris.Unregister()
+					r.workers.Terminate(false)
+
+					// Notify the binding of the closure, then Iris
 					if err = r.sendClose(""); err == nil {
 						closed = true
 					}
@@ -625,10 +630,13 @@ func (r *relay) process() {
 			}
 		}
 	}
-	// Failure or deliberate close, clean up resources
-	r.workers.Terminate(false)
-	r.sock.Close()
+	// If an error occurred, force stop execution
+	if err != nil {
+		r.workers.Terminate(true)
+	}
+	// Close both Iris and relay connections
 	r.iris.Close()
+	r.sock.Close()
 
 	// Signal termination to all blocked threads
 	close(r.term)
