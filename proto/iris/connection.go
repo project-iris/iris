@@ -315,5 +315,11 @@ func (c *Connection) Close() error {
 	}
 	// Terminate the worker pool
 	c.workers.Terminate(true)
+
+	// Drop the connection from the tracked list
+	c.iris.lock.Lock()
+	delete(c.iris.conns, c.id)
+	c.iris.lock.Unlock()
+
 	return nil
 }

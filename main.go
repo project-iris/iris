@@ -44,6 +44,7 @@ var clusterName = flag.String("net", "", "name of the cluster to join or create"
 var rsaKeyPath = flag.String("rsa", "", "path to the RSA private key to use for data security")
 
 var cpuProfile = flag.String("cpuprof", "", "path to CPU profiling results")
+var heapProfile = flag.String("heapprof", "", "path to memory heap profiling results")
 var blockProfile = flag.String("blockprof", "", "path to lock contention profiling results")
 
 // Prints the usage of the Iris command and its options.
@@ -151,6 +152,14 @@ func main() {
 		}
 		pprof.StartCPUProfile(prof)
 		defer pprof.StopCPUProfile()
+	}
+	// Check for memory profiling
+	if *heapProfile != "" {
+		prof, err := os.Create(*heapProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer pprof.Lookup("heap").WriteTo(prof, 0)
 	}
 	// Check for lock contention profiling
 	if *blockProfile != "" {

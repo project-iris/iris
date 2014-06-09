@@ -87,6 +87,8 @@ func (t *ThreadPool) Terminate(clear bool) {
 	for t.idle < t.total {
 		t.done.Wait()
 	}
+	// Zero out the task queue, which could have reached a significant size
+	t.tasks = nil
 }
 
 // Schedules a new task into the thread pool.
