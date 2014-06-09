@@ -39,11 +39,11 @@ func (r *requester) HandleBroadcast(msg []byte) {
 	panic("Broadcast passed to request handler")
 }
 
-func (r *requester) HandleRequest(req []byte, timeout time.Duration) []byte {
+func (r *requester) HandleRequest(req []byte, timeout time.Duration) ([]byte, error) {
 	if r.self != int(req[0]) {
 		atomic.AddUint32(&r.remote, 1)
 	}
-	return req
+	return req, nil
 }
 
 func (r *requester) HandleTunnel(tun *Tunnel) {

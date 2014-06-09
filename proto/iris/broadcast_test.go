@@ -41,7 +41,7 @@ func (b *broadcaster) HandleBroadcast(msg []byte) {
 	}
 }
 
-func (b *broadcaster) HandleRequest(req []byte, timeout time.Duration) []byte {
+func (b *broadcaster) HandleRequest(req []byte, timeout time.Duration) ([]byte, error) {
 	panic("Request passed to broadcast handler")
 }
 
