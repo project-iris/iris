@@ -22,7 +22,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/karalabe/iris/proto/stream"
+	"github.com/project-iris/iris/proto/stream"
 )
 
 var host = "localhost"

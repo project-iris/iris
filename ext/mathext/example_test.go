@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/karalabe/iris/ext/mathext"
+	"github.com/project-iris/iris/ext/mathext"
 )
 
 func ExampleMaxBigInt() {

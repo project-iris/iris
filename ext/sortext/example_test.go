@@ -22,7 +22,7 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/karalabe/iris/ext/sortext"
+	"github.com/project-iris/iris/ext/sortext"
 )
 
 func ExampleBigInts() {

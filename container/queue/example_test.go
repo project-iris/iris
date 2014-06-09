@@ -20,7 +20,7 @@ package queue_test
 import (
 	"fmt"
 
-	"github.com/karalabe/iris/container/queue"
+	"github.com/project-iris/iris/container/queue"
 )
 
 // Simple usage example that inserts the numbers 0, 1, 2 into a queue and then

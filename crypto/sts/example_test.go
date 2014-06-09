@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/karalabe/iris/crypto/sts"
+	"github.com/project-iris/iris/crypto/sts"
 )
 
 // Full STS communication example illustrated with two concurrent Go routines agreeing on a master key.
