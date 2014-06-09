@@ -100,8 +100,14 @@ type Connection struct {
 	term chan struct{}   // Channel to signal termination to blocked go-routines
 }
 
-// Connects to the iris overlay.
+// Connects to the iris overlay. The parameters can be either both specified, in
+// the case of a service registration, or both skipped in the case of a client
+// connection. Others combinations will fail.
 func (o *Overlay) Connect(cluster string, handler ConnectionHandler) (*Connection, error) {
+	// Make sure only valid argument combinations pass
+	if (cluster == "" && handler != nil) || (cluster != "" && handler == nil) {
+		return nil, fmt.Errorf("invalid connection arguments: cluster '%v', handler %v", cluster, handler)
+	}
 	// Create the connection object
 	c := &Connection{
 		cluster: cluster,
@@ -126,10 +132,12 @@ func (o *Overlay) Connect(cluster string, handler ConnectionHandler) (*Connectio
 	o.conns[c.id] = c
 	o.lock.Unlock()
 
-	// Subscribe to the multi-group
-	for _, prefix := range clusterPrefixes {
-		if err := c.iris.subscribe(c.id, prefix+cluster); err != nil {
-			return nil, err
+	// Subscribe to the multi-group if the connection is a service
+	if c.cluster != "" {
+		for _, prefix := range clusterPrefixes {
+			if err := c.iris.subscribe(c.id, prefix+cluster); err != nil {
+				return nil, err
+			}
 		}
 	}
 	c.workers.Start()
@@ -282,9 +290,11 @@ func (c *Connection) Close() error {
 	}
 	c.subLock.Unlock()
 
-	// Leave the cluster and close the carrier connection
-	for _, prefix := range clusterPrefixes {
-		c.iris.unsubscribe(c.id, prefix+c.cluster)
+	// Leave the cluster if it was a service connection
+	if c.cluster != "" {
+		for _, prefix := range clusterPrefixes {
+			c.iris.unsubscribe(c.id, prefix+c.cluster)
+		}
 	}
 	// Terminate the worker pool
 	c.workers.Terminate(true)

@@ -103,8 +103,12 @@ func (r *Relay) acceptRelay(sock net.Conn) (*relay, error) {
 		}
 		return nil, fmt.Errorf("relay: unsupported client protocol version: have %v, want %v", version, protoVersion)
 	}
-	// Connect to the Iris network
-	conn, err := r.iris.Connect(cluster, rel)
+	// Connect to the Iris network either as a service or as a client
+	var handler iris.ConnectionHandler
+	if cluster != "" {
+		handler = rel
+	}
+	conn, err := r.iris.Connect(cluster, handler)
 	if err != nil {
 		rel.drop()
 		return nil, err
