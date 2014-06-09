@@ -290,11 +290,17 @@ func (c *Connection) Close() error {
 	close(c.term)
 
 	// Close all open tunnels
-	/*c.tunLock.Lock()
+	c.tunLock.Lock()
+	closing := new(sync.WaitGroup)
 	for _, tun := range c.tunLive {
-		go tun.Close()
+		closing.Add(1)
+		go func() {
+			defer closing.Done()
+			tun.Close()
+		}()
 	}
-	c.tunLock.Unlock()*/
+	c.tunLock.Unlock()
+	closing.Wait()
 
 	// Remove all topic subscriptions
 	c.subLock.Lock()

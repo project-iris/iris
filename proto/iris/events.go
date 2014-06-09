@@ -168,3 +168,18 @@ func (c *Connection) handleTunnelRequest(conn uint64, id uint64, key []byte, add
 		c.handler.HandleTunnel(tun)
 	}
 }
+
+// Removes a closing tunnel from the list and returns whether it existed or not.
+// This flag is required to prevent simultaneous double closes.
+func (c *Connection) handleTunnelClose(id uint64) bool {
+	c.tunLock.Lock()
+	defer c.tunLock.Unlock()
+
+	// Make sure the tunnel has not been removed yet
+	if _, ok := c.tunLive[id]; !ok {
+		return false
+	}
+	// Remove the tunnel from the active list
+	delete(c.tunLive, id)
+	return true
+}

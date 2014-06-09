@@ -301,8 +301,10 @@ func (c *Connection) initClientTunnel(strm *stream.Stream, remote uint64, id uin
 
 // Closes the tunnel connection.
 func (t *Tunnel) Close() error {
-	// Terminate the encrypted link
-	return t.conn.Close()
+	if t.owner.handleTunnelClose(t.id) {
+		return t.conn.Close()
+	}
+	return errors.New("tunnel already closed")
 }
 
 // Sends an asynchronous message to the remote pair. Not reentrant (order).
@@ -334,6 +336,7 @@ func (t *Tunnel) Recv(timeout time.Duration) (int, []byte, error) {
 	case packet, ok := <-t.conn.Recv:
 		// Terminate the tunnel if closed remotely
 		if !ok {
+			t.Close()
 			close(t.term)
 			return 0, nil, ErrTerminating
 		}
