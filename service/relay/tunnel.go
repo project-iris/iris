@@ -174,11 +174,11 @@ func (t *tunnel) receiver() {
 			size, chunk, rerr = t.tun.Recv(config.RelayTunnelPoll)
 			if rerr != nil && rerr != iris.ErrTimeout {
 				// Report a terminated tunnel
-				reason = rerr.Error()
+				reason := rerr.Error()
 				if rerr == iris.ErrTerminating {
 					reason = ""
 				}
-				go t.rel.handleTunnelClose(t.id, false, rerr.Error())
+				go t.rel.handleTunnelClose(t.id, false, reason)
 
 				// Break out of the receiver loop
 				err = rerr
