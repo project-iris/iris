@@ -27,6 +27,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"code.google.com/p/go.crypto/hkdf"
@@ -121,6 +122,7 @@ type Tunnel struct {
 
 	init chan *link.Link // Channel to receive the reverse tunnel link
 	term chan struct{}   // Channel to signal termination to blocked go-routines
+	lock sync.Mutex      // Lock protecting the termination flag (init/close race)
 }
 
 // Initiates an outgoing tunnel to a remote cluster, by configuring a local
@@ -133,7 +135,7 @@ func (c *Connection) initiateTunnel(cluster string, timeout time.Duration) (*Tun
 		id:    tunId,
 		owner: c,
 
-		init: make(chan *link.Link, 1),
+		init: make(chan *link.Link),
 		term: make(chan struct{}),
 	}
 	c.tunIdx++
@@ -156,8 +158,19 @@ func (c *Connection) initiateTunnel(cluster string, timeout time.Duration) (*Tun
 		err = ErrTerminating
 	case <-time.After(timeout):
 		err = ErrTimeout
-	case tun.conn = <-tun.init:
-		// Clean up init fields
+	case conn := <-tun.init:
+		// Make sure we haven't terminated in the mean while (init/close race)
+		tun.lock.Lock()
+		defer tun.lock.Unlock()
+
+		select {
+		case <-tun.term:
+			conn.Close()
+			return nil, ErrTerminating
+		default:
+			tun.conn = conn
+		}
+		// Clean up init fields and return established tunnel
 		tun.secret, tun.init = nil, nil
 		return tun, nil
 	}
@@ -197,11 +210,23 @@ func (c *Connection) buildTunnel(remote uint64, id uint64, key []byte, addrs []s
 	}
 	// If no error occurred, initialize the client endpoint
 	if err == nil {
-		tun.conn, err = c.initClientTunnel(strm, remote, id, key, deadline)
+		var conn *link.Link
+		conn, err = c.initClientTunnel(strm, remote, id, key, deadline)
 		if err != nil {
 			if err := strm.Close(); err != nil {
 				log.Printf("iris: failed to close uninitialized client tunnel stream: %v.", err)
 			}
+		} else {
+			// Make sure the tunnel wasn't terminated since (init/close race)
+			tun.lock.Lock()
+			select {
+			case <-tun.term:
+				conn.Close()
+				err = ErrTerminating
+			default:
+				tun.conn = conn
+			}
+			tun.lock.Unlock()
 		}
 	}
 	// Tunneling failed, clean up and report error
@@ -259,8 +284,15 @@ func (o *Overlay) initServerTunnel(strm *stream.Stream) error {
 	conn.Start(config.IrisTunnelBuffer)
 
 	// Send back the initialized link to the pending tunnel
-	tun.init <- conn
-	return nil
+	select {
+	case tun.init <- conn:
+		// Connection handled by initiator
+		return nil
+	default:
+		// Initiator timed out or terminated, close
+		conn.Close()
+		return nil // No error, since tunnel was handled, albeit not as expected
+	}
 }
 
 // Initializes a stream into an encrypted tunnel link.
@@ -302,7 +334,16 @@ func (c *Connection) initClientTunnel(strm *stream.Stream, remote uint64, id uin
 // Closes the tunnel connection.
 func (t *Tunnel) Close() error {
 	if t.owner.handleTunnelClose(t.id) {
-		return t.conn.Close()
+		// Synchronize between close and finishing init
+		t.lock.Lock()
+		defer t.lock.Unlock()
+		close(t.term)
+
+		// Handle race between close and init
+		if t.conn != nil {
+			return t.conn.Close()
+		}
+		return nil
 	}
 	return errors.New("tunnel already closed")
 }
@@ -337,7 +378,6 @@ func (t *Tunnel) Recv(timeout time.Duration) (int, []byte, error) {
 		// Terminate the tunnel if closed remotely
 		if !ok {
 			t.Close()
-			close(t.term)
 			return 0, nil, ErrTerminating
 		}
 		// Decrypt and pass upstream

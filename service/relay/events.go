@@ -230,11 +230,13 @@ func (r *relay) handleTunnelInit(id uint64, cluster string, timeout time.Duratio
 	if err := r.sendTunnelResult(id, config.RelayTunnelChunkLimit); err != nil {
 		log.Printf("relay: tunnel success notification error: %v.", err)
 		r.drop()
+		return
 	}
 	// Grant the local data allowance
 	if err := r.sendTunnelAllowance(id, config.RelayTunnelBuffer); err != nil {
 		log.Printf("relay: tunnel allowance grant error: %v.", err)
 		r.drop()
+		return
 	}
 	// Start the data transfer
 	go tunnel.sender()
@@ -267,6 +269,7 @@ func (r *relay) handleTunnelConfirm(buildId uint64, tunId uint64) {
 		if err := r.sendTunnelAllowance(tunId, config.RelayTunnelBuffer); err != nil {
 			log.Printf("relay: tunnel allowance grant error: %v.", err)
 			r.drop()
+			return
 		}
 		// Start the data transfer
 		go tunnel.sender()
