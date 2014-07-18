@@ -25,6 +25,7 @@ package relay
 import (
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 )
 
@@ -98,6 +99,28 @@ func (r *relay) sendString(data string) error {
 	return r.sendBinary([]byte(data))
 }
 
+// Serializes a packet through a closure into the relay connection.
+func (r *relay) sendPacket(closure func() error) error {
+	// Increment the pending write count
+	atomic.AddInt32(&r.sockWait, 1)
+
+	// Acquire the socket lock
+	r.sockLock.Lock()
+	defer r.sockLock.Unlock()
+
+	// Send the packet itself
+	if err := closure(); err != nil {
+		// Decrement the pending count and error out
+		atomic.AddInt32(&r.sockWait, -1)
+		return err
+	}
+	// Flush the stream if no more messages are pending
+	if atomic.AddInt32(&r.sockWait, -1) == 0 {
+		return r.sockBuf.Flush()
+	}
+	return nil
+}
+
 // Sends a connection acceptance.
 func (r *relay) sendInit() error {
 	if err := r.sendByte(opInit); err != nil {
@@ -128,194 +151,154 @@ func (r *relay) sendDeny(reason string) error {
 
 // Sends a connection tear-down notification.
 func (r *relay) sendClose(reason string) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opClose); err != nil {
-		return err
-	}
-	if err := r.sendString(reason); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opClose); err != nil {
+			return err
+		}
+		return r.sendString(reason)
+	})
 }
 
 // Sends an application broadcast delivery.
 func (r *relay) sendBroadcast(message []byte) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opBroadcast); err != nil {
-		return err
-	}
-	if err := r.sendBinary(message); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opBroadcast); err != nil {
+			return err
+		}
+		return r.sendBinary(message)
+	})
 }
 
 // Sends an application request delivery.
 func (r *relay) sendRequest(id uint64, request []byte, timeout int) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opRequest); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	if err := r.sendBinary(request); err != nil {
-		return err
-	}
-	if err := r.sendVarint(uint64(timeout)); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opRequest); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		if err := r.sendBinary(request); err != nil {
+			return err
+		}
+		return r.sendVarint(uint64(timeout))
+	})
 }
 
 // Sends an application reply delivery.
 func (r *relay) sendReply(id uint64, reply []byte, fault string) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opReply); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	timeout := (reply == nil && len(fault) == 0)
-	if err := r.sendBool(timeout); err != nil {
-		return err
-	}
-	if !timeout {
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opReply); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		timeout := (reply == nil && len(fault) == 0)
+		if err := r.sendBool(timeout); err != nil {
+			return err
+		}
+		if timeout {
+			return nil
+		}
 		success := (len(fault) == 0)
 		if err := r.sendBool(success); err != nil {
 			return err
 		}
 		if success {
-			if err := r.sendBinary(reply); err != nil {
-				return err
-			}
+			return r.sendBinary(reply)
 		} else {
-			if err := r.sendString(fault); err != nil {
-				return err
-			}
+			return r.sendString(fault)
 		}
-	}
-	return r.sockBuf.Flush()
+	})
 }
 
 // Sends a topic event delivery.
 func (r *relay) sendPublish(topic string, event []byte) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opPublish); err != nil {
-		return err
-	}
-	if err := r.sendString(topic); err != nil {
-		return err
-	}
-	if err := r.sendBinary(event); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opPublish); err != nil {
+			return err
+		}
+		if err := r.sendString(topic); err != nil {
+			return err
+		}
+		return r.sendBinary(event)
+	})
 }
 
 // Sends a tunnel initiation.
 func (r *relay) sendTunnelInit(id uint64, chunkLimit int) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunInit); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	if err := r.sendVarint(uint64(chunkLimit)); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opTunInit); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		return r.sendVarint(uint64(chunkLimit))
+	})
 }
 
 // Sends a tunnel construction result.
 func (r *relay) sendTunnelResult(id uint64, chunkLimit int) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunConfirm); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	timeout := (chunkLimit == 0)
-	if err := r.sendBool(timeout); err != nil {
-		return err
-	}
-	if !timeout {
-		if err := r.sendVarint(uint64(chunkLimit)); err != nil {
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opTunConfirm); err != nil {
 			return err
 		}
-	}
-	return r.sockBuf.Flush()
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		timeout := (chunkLimit == 0)
+		if err := r.sendBool(timeout); err != nil {
+			return err
+		}
+		if timeout {
+			return nil
+		}
+		return r.sendVarint(uint64(chunkLimit))
+	})
 }
 
 // Sends a tunnel allowance message.
 func (r *relay) sendTunnelAllowance(id uint64, space int) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunAllow); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	if err := r.sendVarint(uint64(space)); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opTunAllow); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		return r.sendVarint(uint64(space))
+	})
 }
 
 // Sends a tunnel data exchange message.
 func (r *relay) sendTunnelTransfer(id uint64, size int, payload []byte) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunTransfer); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	if err := r.sendVarint(uint64(size)); err != nil {
-		return err
-	}
-	if err := r.sendBinary(payload); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opTunTransfer); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		if err := r.sendVarint(uint64(size)); err != nil {
+			return err
+		}
+		return r.sendBinary(payload)
+	})
 }
 
 // Atomically sends a tunnel close request into the relay.
 func (r *relay) sendTunnelClose(id uint64, reason string) error {
-	r.sockLock.Lock()
-	defer r.sockLock.Unlock()
-
-	if err := r.sendByte(opTunClose); err != nil {
-		return err
-	}
-	if err := r.sendVarint(id); err != nil {
-		return err
-	}
-	if err := r.sendString(reason); err != nil {
-		return err
-	}
-	return r.sockBuf.Flush()
+	return r.sendPacket(func() error {
+		if err := r.sendByte(opTunClose); err != nil {
+			return err
+		}
+		if err := r.sendVarint(id); err != nil {
+			return err
+		}
+		return r.sendString(reason)
+	})
 }
 
 // Retrieves a single byte from the relay connection.

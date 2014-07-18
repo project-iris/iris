@@ -50,6 +50,7 @@ type relay struct {
 	sock     net.Conn          // Network connection to the attached client
 	sockBuf  *bufio.ReadWriter // Buffered access to the network socket
 	sockLock sync.Mutex        // Mutex to atomize message sending
+	sockWait int32             // Counter for the pending writes (batch before flush)
 
 	// Quality of service fields
 	workers *pool.ThreadPool // Concurrent threads handling the connection
