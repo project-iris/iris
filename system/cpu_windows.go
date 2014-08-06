@@ -20,7 +20,7 @@
 package system
 
 /*
-#include <Windows.h>
+#include <windows.h>
 
 static FILETIME userTime;
 static FILETIME kernelTime;
