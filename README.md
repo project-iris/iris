@@ -13,6 +13,7 @@ There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf),
 ------------
 
  * Development:
+    - Work around upstream Go bug [#5395](http://code.google.com/p/go/issues/detail?id=5395) on Windows.
     - Fix memory leak caused by unreleased connection references.
     - Fix tunnel lingering caused by missing close invocation in Iris overlay.
     - Fix message loss caused by clearing scheduled messages during a relay close.
