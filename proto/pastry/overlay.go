@@ -24,6 +24,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"sync"
@@ -131,13 +132,27 @@ func (o *Overlay) Boot() (int, error) {
 		return 0, err
 	}
 	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok {
-			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				// Create a quit channel and start the acceptor
-				quit := make(chan chan error)
-				o.acceptQuit = append(o.acceptQuit, quit)
-				go o.acceptor(ipnet, quit)
+		// Workaround for upstream Go issue #5395, construct an IPNet if IPAddr is returned
+		var ipnet *net.IPNet
+		switch addr.(type) {
+		case *net.IPNet:
+			ipnet = addr.(*net.IPNet)
+		case *net.IPAddr:
+			log.Printf("pastry: OS returned no network mask, using defaults...")
+			ipnet = &net.IPNet{
+				IP:   addr.(*net.IPAddr).IP,
+				Mask: addr.(*net.IPAddr).IP.DefaultMask(),
 			}
+		default:
+			log.Printf("pastry: unknown interface address type for: %v.", addr)
+			continue
+		}
+
+		if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			// Create a quit channel and start the acceptor
+			quit := make(chan chan error)
+			o.acceptQuit = append(o.acceptQuit, quit)
+			go o.acceptor(ipnet, quit)
 		}
 	}
 	// Start the overlay processes

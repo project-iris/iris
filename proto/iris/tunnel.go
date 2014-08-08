@@ -60,11 +60,11 @@ func init() {
 	gob.Register(&dataHeader{})
 }
 
-func (o *Overlay) tunneler(ipnet *net.IPNet, live chan struct{}, quit chan chan error) {
+func (o *Overlay) tunneler(ip net.IP, live chan struct{}, quit chan chan error) {
 	// Listen for incoming streams on the given interface and random port.
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
-		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
+		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ip, err))
 	}
 	sock, err := stream.Listen(addr)
 	if err != nil {
