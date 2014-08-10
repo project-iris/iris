@@ -12,7 +12,7 @@ There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf),
   Compatibility
 -----------------
 
-Since from time to time, the relay protocol (network communication between Iris and client libraries) changes, the below compatibility matrix was introduced to make it easier to find which versions of the client libraries (columns) match with which versions of the Iris nodes (rows).
+Since from time to time the relay protocol changes (communication between Iris and client libraries), the below compatibility matrix was introduced to make it easier to find which versions of the client libraries (columns) match with which versions of the Iris node (rows).
 
 | | [iris-erl](https://github.com/project-iris/iris-erl) | [iris-go](https://github.com/project-iris/iris-go) |
 |:-:|:-:|:-:|
