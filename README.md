@@ -9,10 +9,22 @@ You can find further infos on the [Iris website](http://iris.karalabe.com) and d
 
 There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf), Google groups [project-iris](https://groups.google.com/group/project-iris) and GitHub [project-iris](https://github.com/project-iris).
 
+  Compatibility
+-----------------
+
+Since from time to time, the relay protocol (network communication between Iris and client libraries) changes, the below compatibility matrix was introduced to make it easier to find which versions of the client libraries (columns) match with which versions of the Iris nodes (rows).
+
+| | [iris-erl](https://github.com/project-iris/iris-erl) | [iris-go](https://github.com/project-iris/iris-go) |
+|:-:|:-:|:-:|
+| [**v0.3.0**](https://github.com/project-iris/iris/releases/tag/v0.3.0)       | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) |
+| [**v0.2.0**](https://github.com/project-iris/iris/releases/tag/v0.2.0)       | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
+| [**v0.1-pre2**](https://github.com/project-iris/iris/releases/tag/v0.1-pre2) | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
+| [**v0.1-pre**](https://github.com/project-iris/iris/releases/tag/v0.1-pre)   | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
+
   Releases
 ------------
 
- * Development:
+ * Version 0.3.0: **August 11, 2014**
     - Work around upstream Go bug [#5395](http://code.google.com/p/go/issues/detail?id=5395) on Windows.
     - Fix memory leak caused by unreleased connection references.
     - Fix tunnel lingering caused by missing close invocation in Iris overlay.
