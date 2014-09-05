@@ -24,6 +24,8 @@ Since from time to time the relay protocol changes (communication between Iris a
   Releases
 ------------
 
+ * Development
+    - Fix race condition between tunnel construction request and finalization.
  * Version 0.3.0: **August 11, 2014**
     - Work around upstream Go bug [#5395](http://code.google.com/p/go/issues/detail?id=5395) on Windows.
     - Fix memory leak caused by unreleased connection references.
