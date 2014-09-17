@@ -162,6 +162,12 @@ func (c *Connection) handlePublish(topic string, msg []byte) {
 // Accepts the inbound tunnel, notifies the remote endpoint of the success and
 // starts the local handler.
 func (c *Connection) handleTunnelRequest(conn uint64, id uint64, key []byte, addrs []string, timeout time.Duration) {
+	// Validate the remote address list
+	if len(addrs) == 0 {
+		log.Printf("iris: empty address list for tunnel request.")
+		return
+	}
+	// Try to establish the outbound tunnel
 	if tun, err := c.buildTunnel(conn, id, key, addrs, timeout); err != nil {
 		log.Printf("iris: failed to accept tunnel: %v.", err)
 	} else {

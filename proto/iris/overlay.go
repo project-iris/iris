@@ -71,17 +71,27 @@ func (o *Overlay) Boot() (int, error) {
 		return 0, err
 	}
 	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok {
-			if !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				// Create a quit channel
-				quit := make(chan chan error)
-				o.tunQuits = append(o.tunQuits, quit)
+		// Workaround for upstream Go issue #5395, extract IP from both IPNet and IPAddr
+		var ip net.IP
+		switch addr.(type) {
+		case *net.IPNet:
+			ip = addr.(*net.IPNet).IP
+		case *net.IPAddr:
+			ip = addr.(*net.IPAddr).IP
+		default:
+			log.Printf("iris: unknown interface address type for: %v.", addr)
+			continue
+		}
+		// Start the tunnel acceptor on non-localhost IPv4 networks
+		if !ip.IsLoopback() && ip.To4() != nil {
+			// Create a quit channel
+			quit := make(chan chan error)
+			o.tunQuits = append(o.tunQuits, quit)
 
-				// Start and sync the acceptor
-				live := make(chan struct{})
-				go o.tunneler(ipnet, live, quit)
-				<-live
-			}
+			// Start and sync the acceptor
+			live := make(chan struct{})
+			go o.tunneler(ip, live, quit)
+			<-live
 		}
 	}
 	return peers, nil

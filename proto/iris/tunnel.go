@@ -60,11 +60,11 @@ func init() {
 	gob.Register(&dataHeader{})
 }
 
-func (o *Overlay) tunneler(ipnet *net.IPNet, live chan struct{}, quit chan chan error) {
+func (o *Overlay) tunneler(ip net.IP, live chan struct{}, quit chan chan error) {
 	// Listen for incoming streams on the given interface and random port.
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
-		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
+		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ip, err))
 	}
 	sock, err := stream.Listen(addr)
 	if err != nil {
@@ -120,9 +120,11 @@ type Tunnel struct {
 	conn   *link.Link // Encrypted data link of the tunnel
 	secret []byte     // Master key from which to derive the link keys
 
-	init chan *link.Link // Channel to receive the reverse tunnel link
-	term chan struct{}   // Channel to signal termination to blocked go-routines
-	lock sync.Mutex      // Lock protecting the termination flag (init/close race)
+	initDone chan *link.Link // Channel to receive the reverse tunnel link
+	initStop chan struct{}   // Channel to signal initialization abortion
+
+	term chan struct{} // Channel to signal termination to blocked go-routines
+	lock sync.Mutex    // Lock protecting the termination flag (init/close race)
 }
 
 // Initiates an outgoing tunnel to a remote cluster, by configuring a local
@@ -135,7 +137,9 @@ func (c *Connection) initiateTunnel(cluster string, timeout time.Duration) (*Tun
 		id:    tunId,
 		owner: c,
 
-		init: make(chan *link.Link),
+		initDone: make(chan *link.Link),
+		initStop: make(chan struct{}),
+
 		term: make(chan struct{}),
 	}
 	c.tunIdx++
@@ -155,24 +159,26 @@ func (c *Connection) initiateTunnel(cluster string, timeout time.Duration) (*Tun
 	var err error
 	select {
 	case <-c.term:
+		close(tun.initStop)
 		err = ErrTerminating
 	case <-time.After(timeout):
+		close(tun.initStop)
 		err = ErrTimeout
-	case conn := <-tun.init:
+	case conn := <-tun.initDone:
 		// Make sure we haven't terminated in the mean while (init/close race)
 		tun.lock.Lock()
 		defer tun.lock.Unlock()
 
 		select {
 		case <-tun.term:
+			err = ErrTerminating
 			conn.Close()
 			return nil, ErrTerminating
 		default:
-			tun.conn = conn
+			// Finalize tunnel initiation and return
+			tun.conn, tun.secret, tun.initDone, tun.initStop = conn, nil, nil, nil
+			return tun, nil
 		}
-		// Clean up init fields and return established tunnel
-		tun.secret, tun.init = nil, nil
-		return tun, nil
 	}
 	// Tunneling failed, clean up and report error
 	c.tunLock.Lock()
@@ -285,10 +291,10 @@ func (o *Overlay) initServerTunnel(strm *stream.Stream) error {
 
 	// Send back the initialized link to the pending tunnel
 	select {
-	case tun.init <- conn:
+	case tun.initDone <- conn:
 		// Connection handled by initiator
 		return nil
-	default:
+	case <-tun.initStop:
 		// Initiator timed out or terminated, close
 		conn.Close()
 		return nil // No error, since tunnel was handled, albeit not as expected
