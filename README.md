@@ -25,6 +25,7 @@ Since from time to time the relay protocol changes (communication between Iris a
 ------------
 
  * Development
+    - Open local relay endpoint on both IPv4 and IPv6 (bindings can remain oblivious).
     - Fix race condition between tunnel construction request and finalization.
  * Version 0.3.0: **August 11, 2014**
     - Work around upstream Go bug [#5395](http://code.google.com/p/go/issues/detail?id=5395) on Windows.
