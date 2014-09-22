@@ -16,6 +16,7 @@ Since from time to time the relay protocol changes (communication between Iris a
 
 | | [iris-erl](https://github.com/project-iris/iris-erl) | [iris-go](https://github.com/project-iris/iris-go) |
 |:-:|:-:|:-:|
+| [**v0.3.1**](https://github.com/project-iris/iris/releases/tag/v0.3.1)       | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) |
 | [**v0.3.0**](https://github.com/project-iris/iris/releases/tag/v0.3.0)       | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) |
 | [**v0.2.0**](https://github.com/project-iris/iris/releases/tag/v0.2.0)       | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
 | [**v0.1-pre2**](https://github.com/project-iris/iris/releases/tag/v0.1-pre2) | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
@@ -24,7 +25,7 @@ Since from time to time the relay protocol changes (communication between Iris a
   Releases
 ------------
 
- * Development
+ * Version 0.3.1: **September 22, 2014**
     - Open local relay endpoint on both IPv4 and IPv6 (bindings can remain oblivious).
     - Fix bootstrap crash in case of single-host networks (host space < 2 bits).
     - Fix race condition between tunnel construction request and finalization.
