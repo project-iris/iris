@@ -81,6 +81,10 @@ type Bootstrapper struct {
 // is used to filter multiple Iris networks in the same physical network, while
 // the overlay is the TCP listener port of the DHT.
 func New(ipnet *net.IPNet, magic []byte, node *big.Int, overlay int) (*Bootstrapper, chan *Event, error) {
+	// Issue a warning if we have a single machine subnet
+	if ones, bits := ipnet.Mask.Size(); bits-ones < 2 {
+		log.Printf("bootstrap: WARNING! cannot search on interface %v, network mask covers the whole space", ipnet)
+	}
 	bs := &Bootstrapper{
 		magic: magic,
 		beats: make(chan *Event, config.BootBeatsBuffer),
@@ -230,15 +234,15 @@ func (bs *Bootstrapper) probe() {
 	// Set up some initial parameters
 	ones, bits := bs.mask.Size()
 
+	// Short circuit if malformed network (i.e. no space to probe)
+	if bits-ones < 2 {
+		errc := <-bs.quit
+		errc <- nil
+		return
+	}
 	// Probe random addresses until termination is requested
 	var errc chan error
 	for errc == nil {
-		if ones == bits {
-			log.Printf("bootstrap: WARNING! cannot probe on interface (%s) because of netmask (/%d)", bs.addr.IP.String(), ones)
-			errc = <-bs.quit
-			break
-		}
-
 		select {
 		case errc = <-bs.quit:
 			break
