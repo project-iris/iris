@@ -28,6 +28,7 @@ package bootstrap
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"math/big"
 	"math/rand"
 	"net"
@@ -232,6 +233,12 @@ func (bs *Bootstrapper) probe() {
 	// Probe random addresses until termination is requested
 	var errc chan error
 	for errc == nil {
+		if ones == bits {
+			log.Printf("bootstrap: WARNING! cannot probe on interface (%s) because of netmask (/%d)", bs.addr.IP.String(), ones)
+			errc = <-bs.quit
+			break
+		}
+
 		select {
 		case errc = <-bs.quit:
 			break
