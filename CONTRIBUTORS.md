@@ -11,6 +11,7 @@ The agreement for individuals can be filled out on the web.
 ----------------
 
  - Andrew Michael Bursavich <abursavich@gmail.com>
+ - Bas van Ooyen <basvanooyen@gmail.com>
  - Lőrinc Pap <paplorinc@yahoo.com>
  - Péter Szilágyi <peterke@gmail.com>
  - Philipp Brüll <bruell@simiatech.com>
