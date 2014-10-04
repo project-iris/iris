@@ -14,17 +14,17 @@ There is a growing community on Twitter [@iriscmf](https://twitter.com/iriscmf),
 
 Since from time to time the relay protocol changes (communication between Iris and client libraries), the below compatibility matrix was introduced to make it easier to find which versions of the client libraries (columns) match with which versions of the Iris node (rows).
 
-| | [iris-erl](https://github.com/project-iris/iris-erl) | [iris-go](https://github.com/project-iris/iris-go) |
-|:-:|:-:|:-:|
-| [**v0.3.1**](https://github.com/project-iris/iris/releases/tag/v0.3.1)       | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) |
-| [**v0.3.0**](https://github.com/project-iris/iris/releases/tag/v0.3.0)       | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) |
-| [**v0.2.0**](https://github.com/project-iris/iris/releases/tag/v0.2.0)       | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
-| [**v0.1-pre2**](https://github.com/project-iris/iris/releases/tag/v0.1-pre2) | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
-| [**v0.1-pre**](https://github.com/project-iris/iris/releases/tag/v0.1-pre)   | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) |
+| | [iris-erl](https://github.com/project-iris/iris-erl) | [iris-go](https://github.com/project-iris/iris-go) | [iris-java](https://github.com/project-iris/iris-java) | [iris-scala](https://github.com/project-iris/iris-scala) |
+|:-:|:-:|:-:|:-:|:-:|
+| **v0.3.x** | [v1](https://github.com/project-iris/iris-erl/tree/v1) | [v1](https://github.com/project-iris/iris-go/tree/v1) | [v1](https://github.com/project-iris/iris-java/tree/v1) | [v1](https://github.com/project-iris/iris-scala/tree/v1) |
+| **v0.2.x** | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) | - | - |
+| **v0.1.x** | [v0](https://github.com/project-iris/iris-erl/tree/v0) | [v0](https://github.com/project-iris/iris-go/tree/v0) | - | - |
 
   Releases
 ------------
 
+ * Version 0.3.2: **October 6, 2014**
+    - Use 4x available CPU cores by default (will need a flag for this later).
  * Version 0.3.1: **September 22, 2014**
     - Open local relay endpoint on both IPv4 and IPv6 (bindings can remain oblivious).
     - Fix bootstrap crash in case of single-host networks (host space < 2 bits).

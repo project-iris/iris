@@ -170,6 +170,8 @@ func main() {
 		runtime.SetBlockProfileRate(1)
 		defer pprof.Lookup("block").WriteTo(prof, 0)
 	}
+	// Set the concurrency level
+	runtime.GOMAXPROCS(4 * runtime.NumCPU())
 
 	// Create and boot a new carrier
 	log.Printf("main: booting iris overlay...")
