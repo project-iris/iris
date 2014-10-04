@@ -23,7 +23,7 @@ Since from time to time the relay protocol changes (communication between Iris a
   Releases
 ------------
 
- * Version 0.3.2: **October 6, 2014**
+ * Version 0.3.2: **October 4, 2014**
     - Use 4x available CPU cores by default (will need a flag for this later).
  * Version 0.3.1: **September 22, 2014**
     - Open local relay endpoint on both IPv4 and IPv6 (bindings can remain oblivious).
