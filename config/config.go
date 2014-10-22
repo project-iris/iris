@@ -175,6 +175,21 @@ var BootSlowProbe = 1000
 // Scanning interval during bootstrapping (ms).
 var BootScan = 100
 
+// CoreOS etcd server-to-server ports.
+var BootCoreOSPorts = []int{2380, 7001}
+
+// Interval for retrieving peer lists during booting.
+var BootCoreOSFastRescan = time.Second
+
+// Interval for retrieving peer lists after convergence.
+var BootCoreOSSlowRescan = time.Minute
+
+// Time to sleep in case of an etcd failure.
+var BootCoreOSFailSleep = time.Second
+
+// Number of times to try reaching etcd on failure before giving up.
+var BootCoreOSRetries = 3
+
 // Virtual address space (bits).
 var PastrySpace = 40
 

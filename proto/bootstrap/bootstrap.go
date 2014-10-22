@@ -76,6 +76,17 @@ type Bootstrapper struct {
 	fast bool
 }
 
+// Interface for seed generator algorithms.
+type seeder interface {
+	// Starts the seed generator. Suggested peers are reported through the sink
+	// channel, while the phase argument is used to switch between booting and
+	// convergence phases (0/1 values used only).
+	Start(sink chan *net.IPAddr, phase *uint32) error
+
+	// Terminates the seed generator, retuning any errors that occurred.
+	Close() error
+}
+
 // Creates a new bootstrapper, configuring to listen on the given interface for
 // for incoming requests and scan the same interface for other peers. The magic
 // is used to filter multiple Iris networks in the same physical network, while
