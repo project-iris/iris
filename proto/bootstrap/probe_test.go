@@ -25,24 +25,24 @@ import (
 	"gopkg.in/inconshreveable/log15.v2"
 )
 
-// Tests that the scanning ad-hoc seeder indeed generates IP addresses in the
-// correct order and range for well formed subnets.
-func TestScanSeeder(t *testing.T) {
+// Tests that the probing ad-hoc seeder indeed generates IP addresses in the
+// correct range for well formed subnets.
+func TestProbeSeeder(t *testing.T) {
 	addr, _ := net.ResolveIPAddr("ip", "192.168.0.100")
-	for subnet := 30; subnet >= 20; subnet-- {
-		testScanSeeder(t, subnet, addr)
+	for subnet := 30; subnet >= 22; subnet-- {
+		testProbeSeeder(t, subnet, addr)
 	}
 }
 
-// Tests that the scanning ad-hoc seeder indeed generates IP addresses in the
-// correct order and range for a specific ipnet configuration.
-func testScanSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
+// Tests that the probing ad-hoc seeder indeed generates IP addresses in the
+// correct range for a specific ipnet configuration.
+func testProbeSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 	// Create the IP net from the configurations
 	ipnet := &net.IPNet{
 		IP:   addr.IP,
 		Mask: net.CIDRMask(subnet, 32),
 	}
-	// Create the scanning seed generator
+	// Create the probing seed generator
 	seeder, err := newScanSeeder(ipnet, log15.New("ipnet", ipnet))
 	if err != nil {
 		t.Fatalf("failed to create seed generator: %v.", err)
@@ -54,10 +54,10 @@ func testScanSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 	if err := seeder.Start(sink, &phase); err != nil {
 		t.Fatalf("failed to start seed generator: %v.", err)
 	}
-	// Retrieve twice the possible host count, ensuring they are in range
-	valid := (1 << uint(32-subnet)) - 2
+	// Retrieve a large batch of random addresses, ensuring they are in range
+	iters := 100000
 	addrs := make(map[string]int)
-	for i := 0; i < 2*valid; i++ {
+	for i := 0; i < iters; i++ {
 		select {
 		case addr := <-sink:
 			if !ipnet.Contains(addr.IP) {
@@ -68,13 +68,12 @@ func testScanSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 			t.Fatalf("failed to retrieve next address")
 		}
 	}
-	// Verify that enough hosts were returned and the right multiplier
-	if len(addrs) != valid {
-		t.Fatalf("address variation mismatch: have %v, want %v.", len(addrs), valid)
-	}
+	// Verify that multipliers are within expected range
 	for _, count := range addrs {
-		if count != 2 {
-			t.Fatalf("address generation count mismatch: have %v, want %v.", count, 2)
+		lo := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 8
+		hi := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 12
+		if lo > count || count > hi {
+			t.Errorf("non uniform address count: have %v, want in [%v-%v].", count, lo, hi)
 		}
 	}
 	// Terminate the generator
@@ -85,23 +84,23 @@ func testScanSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 
 // Tests two particular cases of network configurations where the host space is
 // empty (used during point-to-point connections).
-func TestScanSeederEmpyHostSpace(t *testing.T) {
+func TestProbeSeederEmpyHostSpace(t *testing.T) {
 	addr, _ := net.ResolveIPAddr("ip", "192.168.0.100")
 	for subnet := 32; subnet >= 31; subnet-- {
-		testScanSeederEmpyHostSpace(t, subnet, addr)
+		testProbeSeederEmpyHostSpace(t, subnet, addr)
 	}
 }
 
 // Tests that the scanning ad-hoc seeder indeed generates IP addresses in the
 // correct order and range for a specific ipnet configuration.
-func testScanSeederEmpyHostSpace(t *testing.T, subnet int, addr *net.IPAddr) {
+func testProbeSeederEmpyHostSpace(t *testing.T, subnet int, addr *net.IPAddr) {
 	// Create the IP net from the configurations
 	ipnet := &net.IPNet{
 		IP:   addr.IP,
 		Mask: net.CIDRMask(subnet, 32),
 	}
-	// Create the scanning seed generator
-	seeder, err := newScanSeeder(ipnet, log15.New("ipnet", ipnet))
+	// Create the probing seed generator
+	seeder, err := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
 	if err != nil {
 		t.Fatalf("failed to create seed generator: %v.", err)
 	}
