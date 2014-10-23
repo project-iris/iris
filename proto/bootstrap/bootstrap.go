@@ -298,7 +298,7 @@ func (b *Bootstrapper) initiator() {
 			}
 			b.sock.WriteToUDP(b.request, addr)
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 	// Report termination and sync closer
 	b.log.Info("terminating initiator")
