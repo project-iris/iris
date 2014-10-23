@@ -30,18 +30,18 @@ import (
 
 // Ad-hoc address scanning seed generator.
 type scanSeeder struct {
-	ipnet *net.IPNet
-	quit  chan chan error
-	log   log15.Logger
+	ipnet *net.IPNet      // IP network assigned to the seed generator
+	quit  chan chan error // Quit channel to synchronize termination
+	log   log15.Logger    // Contextual logger with injected ipnet and algorithm
 }
 
 // Creates a new scanning seed generator.
-func newScanSeeder(ipnet *net.IPNet, logger log15.Logger) (seeder, error) {
+func newScanSeeder(ipnet *net.IPNet, logger log15.Logger) seeder {
 	return &scanSeeder{
 		ipnet: ipnet,
 		quit:  make(chan chan error),
 		log:   logger.New("algo", "scan"),
-	}, nil
+	}
 }
 
 // Starts the seed generator.
@@ -52,7 +52,7 @@ func (s *scanSeeder) Start(sink chan *net.IPAddr, phase *uint32) error {
 
 // Terminates the seed generator.
 func (s *scanSeeder) Close() error {
-	errc := make(chan error)
+	errc := make(chan error, 1)
 	s.quit <- errc
 	return <-errc
 }

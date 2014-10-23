@@ -26,6 +26,7 @@ import (
 	"github.com/project-iris/iris/config"
 )
 
+// Tests that ports are automatically selected from a range if conflicting.
 func TestPortSelection(t *testing.T) {
 	// Create the localhost IP net
 	ipnet := &net.IPNet{
@@ -34,13 +35,13 @@ func TestPortSelection(t *testing.T) {
 	}
 	// Make sure bootstrappers can select unused ports
 	for i := 0; i < len(config.BootPorts); i++ {
-		if bs, _, err := New(ipnet, []byte("magic"), big.NewInt(int64(i)), 11111); err != nil {
+		if booter, _, err := New(ipnet, []byte("magic"), big.NewInt(int64(i)), 11111); err != nil {
 			t.Fatalf("failed to create bootstrapper: %v.", err)
 		} else {
-			if err := bs.Boot(); err != nil {
+			if err := booter.Boot(); err != nil {
 				t.Fatalf("failed to boot bootstrapper: %v.", err)
 			}
-			defer bs.Terminate()
+			defer booter.Terminate()
 		}
 	}
 	// Ensure failure after all ports are used
@@ -49,7 +50,8 @@ func TestPortSelection(t *testing.T) {
 	}
 }
 
-func TestScan(t *testing.T) {
+// Tests that correctly configured bootstrappers can indeed find each other.
+func TestBootstrap(t *testing.T) {
 	// Define some local constants
 	over1, _ := net.ResolveTCPAddr("tcp", "127.0.0.3:33333")
 	over2, _ := net.ResolveTCPAddr("tcp", "127.0.0.5:55555")
@@ -88,7 +90,6 @@ func TestScan(t *testing.T) {
 	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
 		t.Fatalf("invalid address on second booter: have %v, want %v.", e2.Addr, over1)
 	}
-
 	// Each should report twice (foreign request + foreign response to local request)
 	e1, e2 = <-evs1, <-evs2
 	if !e1.Addr.IP.Equal(over2.IP) || e1.Addr.Port != over2.Port {
@@ -97,11 +98,9 @@ func TestScan(t *testing.T) {
 	if !e2.Addr.IP.Equal(over1.IP) || e2.Addr.Port != over1.Port {
 		t.Fatalf("invalid address on second booter: have %v, want %v.", e2.Addr, over1)
 	}
-
 	// Further beats shouldn't arrive (unless the probing catches us, should be rare)
-	timeout := time.Tick(250 * time.Millisecond)
 	select {
-	case <-timeout:
+	case <-time.After(100 * time.Millisecond):
 		// Do nothing
 	case a := <-evs1:
 		t.Fatalf("extra address on first booter: %v.", a)
@@ -142,9 +141,8 @@ func TestMagic(t *testing.T) {
 	defer bs2.Terminate()
 
 	// No beats should arrive since magic does not match
-	timeout := time.Tick(500 * time.Millisecond)
 	select {
-	case <-timeout:
+	case <-time.After(250 * time.Millisecond):
 		// Do nothing
 	case a := <-evs1:
 		t.Fatalf("extra address on first booter: %v.", a)
@@ -152,6 +150,3 @@ func TestMagic(t *testing.T) {
 		t.Fatalf("extra address on second booter: %v.", a)
 	}
 }
-
-// Missing test for probing. A bit complicated as a small subnet is needed with
-// scanning disabled. Delay for now.

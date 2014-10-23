@@ -161,7 +161,7 @@ var PacketCipher = aes.NewCipher
 var PacketCipherBits = 128
 
 // Bootstrapping ports to use.
-var BootPorts = []int{14142, 27182, 31415, 45654, 22222, 33333}
+var BootPorts = []int{14142, 27182, 31415}
 
 // Number of heartbeats to queue before blocking.
 var BootBeatsBuffer = 32
@@ -174,6 +174,9 @@ var BootSlowProbe = 1000
 
 // Scanning interval during bootstrapping (ms).
 var BootScan = 100
+
+// Number of seeded IP addresses to buffer before sleeping.
+var BootSeedSinkBuffer = 32
 
 // CoreOS etcd server-to-server ports.
 var BootCoreOSPorts = []int{2380, 7001}
@@ -263,7 +266,7 @@ var IrisTunnelBuffer = 256
 var AppParentId = []byte(nil)
 
 // Protocol version to ensure compatible connections.
-var ProtocolVersion = "v0.3"
+var ProtocolVersion = "v0.4"
 
 // Maximum number of handlers allowed concurrently per relay connection.
 var RelayHandlerThreads = 8

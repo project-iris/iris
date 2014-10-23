@@ -47,18 +47,18 @@ type coreOSMember struct {
 
 // CoreOS/etcd service based seed generator.
 type coreOSSeeder struct {
-	ipnet *net.IPNet
-	quit  chan chan error
-	log   log15.Logger
+	ipnet *net.IPNet      // IP network assigned to the seed generator
+	quit  chan chan error // Quit channel to synchronize termination
+	log   log15.Logger    // Contextual logger with injected ipnet and algorithm
 }
 
 // Creates a new CoreOS seed generator.
-func newCoreOSSeeder(ipnet *net.IPNet, logger log15.Logger) (seeder, error) {
+func newCoreOSSeeder(ipnet *net.IPNet, logger log15.Logger) seeder {
 	return &coreOSSeeder{
 		ipnet: ipnet,
 		quit:  make(chan chan error),
 		log:   logger.New("algo", "coreos"),
-	}, nil
+	}
 }
 
 // Starts the seed generator.
@@ -69,7 +69,7 @@ func (s *coreOSSeeder) Start(sink chan *net.IPAddr, phase *uint32) error {
 
 // Terminates the seed generator.
 func (s *coreOSSeeder) Close() error {
-	errc := make(chan error)
+	errc := make(chan error, 1)
 	s.quit <- errc
 	return <-errc
 }

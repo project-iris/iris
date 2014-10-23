@@ -42,14 +42,9 @@ func testProbeSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 		IP:   addr.IP,
 		Mask: net.CIDRMask(subnet, 32),
 	}
-	// Create the probing seed generator
-	seeder, err := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
-	if err != nil {
-		t.Fatalf("failed to create seed generator: %v.", err)
-	}
-	// Create a seed sink and start generating peers
-	sink := make(chan *net.IPAddr)
-	phase := uint32(0)
+	// Create the probing seed generator, address sink and boot it
+	seeder := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
+	sink, phase := make(chan *net.IPAddr), uint32(0)
 
 	if err := seeder.Start(sink, &phase); err != nil {
 		t.Fatalf("failed to start seed generator: %v.", err)
@@ -99,14 +94,9 @@ func testProbeSeederEmpyHostSpace(t *testing.T, subnet int, addr *net.IPAddr) {
 		IP:   addr.IP,
 		Mask: net.CIDRMask(subnet, 32),
 	}
-	// Create the probing seed generator
-	seeder, err := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
-	if err != nil {
-		t.Fatalf("failed to create seed generator: %v.", err)
-	}
-	// Create a seed sink and start generating peers
-	sink := make(chan *net.IPAddr)
-	phase := uint32(0)
+	// Create the probing seed generator, address sink and boot it
+	seeder := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
+	sink, phase := make(chan *net.IPAddr), uint32(0)
 
 	if err := seeder.Start(sink, &phase); err != nil {
 		t.Fatalf("failed to start seed generator: %v.", err)
