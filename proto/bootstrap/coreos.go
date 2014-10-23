@@ -83,50 +83,54 @@ func (s *coreOSSeeder) run(sink chan *net.IPAddr, phase *uint32) {
 	var err error
 
 	// Loop until an error occurs or closure is requested
-	trials := 0
-	for err == nil && errc == nil {
+	for trials := 0; err == nil && errc == nil; {
+		// Assemble a list of all possible etcd endpoints
+		endpoints := []string{}
+		for _, ip := range []string{"127.0.0.1", "[::1]"} {
+			for _, port := range config.BootCoreOSPorts {
+				endpoints = append(endpoints, fmt.Sprintf("%s:%d", ip, port))
+			}
+		}
 		// Try and retrieve membership infos from all probable etcd endpoints
 		errs, peers := []error{}, make(map[string]struct{})
-		for _, port := range config.BootCoreOSPorts {
-			for _, ip := range []string{"127.0.0.1", "[::1]"} {
-				// Try and retrieve the member list from etcd
-				res, err := http.Get(fmt.Sprintf("http://%s:%d/v2/admin/machines", ip, port))
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				// Read and parse the returned list
-				body, err := ioutil.ReadAll(res.Body)
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				var members []coreOSMember
-				if err := json.Unmarshal(body, &members); err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				// Extract the remote IP addresses
-				for _, member := range members {
-					match := peerPattern.FindStringSubmatch(member.PeerUrl)
-					if len(match) == 2 {
-						peers[match[1]] = struct{}{}
-					}
+		for _, addr := range endpoints {
+			// Try and retrieve the member list from etcd
+			res, err := http.Get(fmt.Sprintf("http://%s/v2/admin/machines", addr))
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			// Read and parse the returned list
+			body, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			var members []coreOSMember
+			if err := json.Unmarshal(body, &members); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			// Extract the remote IP addresses
+			for _, member := range members {
+				match := peerPattern.FindStringSubmatch(member.PeerUrl)
+				if len(match) == 2 {
+					peers[match[1]] = struct{}{}
 				}
 			}
 		}
-		// If no IPs have been found, allow a few trial, then error out
+		// If no IPs have been found, log a message and retry after a while
 		if len(peers) == 0 {
 			trials++
-			if trials <= config.BootCoreOSRetries {
-				sleep := time.Duration(trials) * config.BootCoreOSFailSleep
-				s.log.Warn("fetching etcd membership failed", "sleep", sleep, "retries", config.BootCoreOSRetries-trials)
-				select {
-				case <-time.After(sleep):
-				case errc = <-s.quit:
-				}
-			} else {
-				err = fmt.Errorf("etcd failure: %v", errs)
+			sleep := time.Duration(trials) * config.BootCoreOSSleepIncrement
+			if sleep > config.BootCoreOSSleepLimit {
+				sleep = config.BootCoreOSSleepLimit
+			}
+			s.log.Warn("fetching etcd members failed, sleeping", "tried", endpoints, "sleep", sleep)
+
+			select {
+			case <-time.After(sleep):
+			case errc = <-s.quit:
 			}
 			continue
 		}

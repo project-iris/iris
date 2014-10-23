@@ -184,11 +184,11 @@ var BootCoreOSFastRescan = time.Second
 // Interval for retrieving peer lists after convergence.
 var BootCoreOSSlowRescan = time.Minute
 
-// Time to sleep in case of an etcd failure.
-var BootCoreOSFailSleep = time.Second
+// Time increment to sleep after consecutive failures.
+var BootCoreOSSleepIncrement = time.Second
 
-// Number of times to try reaching etcd on failure before giving up.
-var BootCoreOSRetries = 3
+// Maximum sleep time for retrying after a failure.
+var BootCoreOSSleepLimit = time.Minute
 
 // Virtual address space (bits).
 var PastrySpace = 40

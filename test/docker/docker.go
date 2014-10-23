@@ -20,6 +20,9 @@ package docker
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -66,4 +69,32 @@ func StartContainer(args []string, image string, params ...string) (string, erro
 // Forcefully terminates a docker container.
 func CloseContainer(container string) error {
 	return exec.Command(docker, "rm", "-f", container).Run()
+}
+
+// Retrieves the IP address of a running container.
+func FetchIPAddress(container string) (string, error) {
+	// Some temporary types to extract the IP address
+	type networkSettings struct {
+		IPAddress string
+	}
+	type containerSettings struct {
+		NetworkSettings networkSettings
+	}
+	// Fetch the container settings and extract the IP path
+	out, err := exec.Command(docker, "inspect", container).Output()
+	if err != nil {
+		return "", err
+	}
+	var containers []containerSettings
+	if err := json.Unmarshal(out, &containers); err != nil {
+		return "", err
+	}
+	// Return the IP, or fail with some reason
+	if count := len(containers); count != 1 {
+		return "", fmt.Errorf("invalid inspection count: %v", count)
+	}
+	if ip := containers[0].NetworkSettings.IPAddress; ip != "" {
+		return ip, nil
+	}
+	return "", errors.New("IP not found")
 }

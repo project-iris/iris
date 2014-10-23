@@ -49,17 +49,17 @@ func TestCoreOSSeeder(t *testing.T) {
 			t.Fatalf("failed to pull etcd container: %v.", err)
 		}
 	}
-	// Start the CoreOS etcd service and ensure cleanup
+	// Start the CoreOS/etcd service and ensure cleanup
 	flags := []string{}
 	for _, port := range config.BootCoreOSPorts {
 		flags = append(flags, "-p")
 		flags = append(flags, fmt.Sprintf("%d:%d", port, port))
 	}
-	id, err := docker.StartContainer(flags, etcd)
+	container, err := docker.StartContainer(flags, etcd)
 	if err != nil {
 		t.Fatalf("failed to start etcd container: %v.", err)
 	}
-	defer docker.CloseContainer(id)
+	defer docker.CloseContainer(container)
 
 	// Get the IPNet of the localhost
 	addr, _ := net.ResolveIPAddr("ip", "127.0.0.1")
