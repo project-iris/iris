@@ -281,11 +281,15 @@ func (b *Bootstrapper) initiator() {
 			}
 		}
 		// Discard self addresses
+		self := 0
 		if b.ipnet.IP.String() == addr.IP.String() {
-			continue
+			self = b.addr.Port
 		}
 		// Send a bootstrap request on all configured ports
 		for _, port := range config.BootPorts {
+			if port == self {
+				continue
+			}
 			host := net.JoinHostPort(addr.String(), strconv.Itoa(port))
 
 			addr, err := net.ResolveUDPAddr("udp", host)
