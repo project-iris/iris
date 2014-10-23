@@ -43,7 +43,7 @@ func testProbeSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 		Mask: net.CIDRMask(subnet, 32),
 	}
 	// Create the probing seed generator
-	seeder, err := newScanSeeder(ipnet, log15.New("ipnet", ipnet))
+	seeder, err := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
 	if err != nil {
 		t.Fatalf("failed to create seed generator: %v.", err)
 	}
@@ -70,10 +70,10 @@ func testProbeSeeder(t *testing.T, subnet int, addr *net.IPAddr) {
 	}
 	// Verify that multipliers are within expected range
 	for _, count := range addrs {
-		lo := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 8
-		hi := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 12
+		lo := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 5
+		hi := (iters / ((1 << uint(32-subnet)) - 2)) / 10 * 15
 		if lo > count || count > hi {
-			t.Errorf("non uniform address count: have %v, want in [%v-%v].", count, lo, hi)
+			t.Fatalf("non uniform address count: have %v, want in [%v-%v].", count, lo, hi)
 		}
 	}
 	// Terminate the generator
