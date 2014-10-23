@@ -70,7 +70,7 @@ func TestCoreOSSeeder(t *testing.T) {
 		Mask: addr.IP.DefaultMask(),
 	}
 	// Create the CoreOS seed generator, address sink and boot it
-	seeder := newProbeSeeder(ipnet, log15.New("ipnet", ipnet))
+	seeder := newCoreOSSeeder(ipnet, log15.New("ipnet", ipnet))
 	sink, phase := make(chan *net.IPAddr), uint32(0)
 
 	if err := seeder.Start(sink, &phase); err != nil {
