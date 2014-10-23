@@ -31,6 +31,8 @@ import (
 // Docker container of the CoreOS etcd service
 const etcd = "coreos/etcd"
 
+// Tests that the CoreOS seeder can indeed retrieve membership lists from a
+// locally running etcd service and filter them by bootstrap interface.
 func TestCoreOSSeeder(t *testing.T) {
 	// Skip test in short mode (i.e. no docker, no test)
 	if testing.Short() {
@@ -68,7 +70,7 @@ func TestCoreOSSeeder(t *testing.T) {
 		Mask: addr.IP.DefaultMask(),
 	}
 	// Create the CoreOS seed generator
-	seeder, err := newCoreOSSeeder(ipnet, log15.New())
+	seeder, err := newCoreOSSeeder(ipnet, log15.New("ipnet", ipnet))
 	if err != nil {
 		t.Fatalf("failed to create seed generator: %v.", err)
 	}
