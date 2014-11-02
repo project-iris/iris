@@ -24,6 +24,7 @@ Since from time to time the relay protocol changes (communication between Iris a
 ------------
 
  * Development:
+    - Fix Google Compute Engine netmask issue (i.e. retrieve real network configs).
     - Seamlessly use local CoreOS/etcd service as bootstrap seed server.
  * Version 0.3.2: **October 4, 2014**
     - Use 4x available CPU cores by default (will need a flag for this later).

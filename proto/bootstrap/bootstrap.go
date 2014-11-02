@@ -103,6 +103,18 @@ func New(ipnet *net.IPNet, magic []byte, owner *big.Int, endpoint int) (*Bootstr
 	gobber := gobber.New()
 	gobber.Init(new(Message))
 
+	// Do some environment dependent IP black magic
+	if detectGoogleComputeEngine() {
+		// Google Compute Engine issues /32 addresses, find real subnet
+		logger.Info("detected GCE, retrieving real netmask")
+		old := ipnet.String()
+		if err := updateIPNet(ipnet); err != nil {
+			logger.Error("failed to retrieve netmask, defaulting", "error", err)
+			ipnet.Mask = ipnet.IP.DefaultMask()
+		}
+		logger.Info("network subnet mask replaced", "old", old, "new", ipnet)
+		logger = log15.New("subsys", "bootstrap", "ipnet", ipnet)
+	}
 	b := &Bootstrapper{
 		ipnet: ipnet,
 		magic: magic,
