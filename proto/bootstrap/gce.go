@@ -30,6 +30,7 @@ import (
 	"path"
 
 	"code.google.com/p/goauth2/compute/serviceaccount"
+	"google.golang.org/api/compute/v1"
 )
 
 const gceMetadataUrl = "http://metadata.google.internal/computeMetadata/v1"
