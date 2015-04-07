@@ -31,7 +31,7 @@ import (
 
 // The load balancer for a single topic.
 type Balancer struct {
-	members  entitySlice  // Entries to which to balace to
+	members  entitySlice  // Entries to which to balance to
 	capacity int          // Total message capacity of the topic
 	lock     sync.RWMutex // Mutex to allow reentrant balancing
 }
