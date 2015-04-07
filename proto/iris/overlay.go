@@ -58,17 +58,26 @@ func New(overId string, key *rsa.PrivateKey) *Overlay {
 	return o
 }
 
-// Boots the overlay, returning the number of remote peers.
-func (o *Overlay) Boot() (int, error) {
+// Boot starts up the overlay, returning the number of remote peers.
+func (o *Overlay) Boot(interfaceAddr string) (int, error) {
 	// Boot the underlay and wait until it converges
-	peers, err := o.scribe.Boot()
+	peers, err := o.scribe.Boot(interfaceAddr)
 	if err != nil {
 		return 0, err
 	}
-	// Start a tunnel acceptor on each network interface
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return 0, err
+	var addrs []net.Addr
+	if interfaceAddr == "" {
+		// Start a tunnel acceptor on each network interface
+		if addrs, err = net.InterfaceAddrs(); err != nil {
+			return 0, err
+		}
+	} else {
+		// Start a tunnel acceptor on the specified network interface
+		_, addr, err := net.ParseCIDR(interfaceAddr)
+		if err != nil {
+			return 0, err
+		}
+		addrs = append(addrs, addr)
 	}
 	for _, addr := range addrs {
 		// Workaround for upstream Go issue #5395, extract IP from both IPNet and IPAddr
