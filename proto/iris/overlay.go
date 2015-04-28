@@ -59,7 +59,7 @@ func New(overId string, key *rsa.PrivateKey) *Overlay {
 }
 
 // Boot starts up the overlay, returning the number of remote peers.
-func (o *Overlay) Boot(ifAddr net.Addr) (int, error) {
+func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
 	// Boot the underlay and wait until it converges
 	peers, err := o.scribe.Boot(ifAddr)
 	if err != nil {

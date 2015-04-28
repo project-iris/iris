@@ -79,7 +79,7 @@ func usage() {
 }
 
 // Parses the command line flags and checks their validity
-func parseFlags() (int, string, *rsa.PrivateKey, net.Addr) {
+func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet) {
 	var (
 		rsaKey *rsa.PrivateKey
 		ifAddr *net.IPNet

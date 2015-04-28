@@ -72,7 +72,7 @@ func New(overId string, key *rsa.PrivateKey, app Callback) *Overlay {
 }
 
 // Boots the overlay, returning the number of remote peers.
-func (o *Overlay) Boot(ifAddr net.Addr) (int, error) {
+func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
 	log.Printf("scribe: booting with id %v.", o.pastry.Self())
 
 	// Start the heartbeat first since convergence can last long
