@@ -23,6 +23,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"log"
+	"net"
 	"math/big"
 	"sync"
 
@@ -71,14 +72,14 @@ func New(overId string, key *rsa.PrivateKey, app Callback) *Overlay {
 }
 
 // Boots the overlay, returning the number of remote peers.
-func (o *Overlay) Boot(interfaceAddr string) (int, error) {
+func (o *Overlay) Boot(ifAddr net.Addr) (int, error) {
 	log.Printf("scribe: booting with id %v.", o.pastry.Self())
 
 	// Start the heartbeat first since convergence can last long
 	o.heart.Start()
 
 	// Boot the overlay and wait until it converges
-	peers, err := o.pastry.Boot(interfaceAddr)
+	peers, err := o.pastry.Boot(ifAddr)
 	if err != nil {
 		return 0, err
 	}

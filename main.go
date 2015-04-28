@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	rng "math/rand"
 	"os"
 	"os/signal"
@@ -78,8 +79,11 @@ func usage() {
 }
 
 // Parses the command line flags and checks their validity
-func parseFlags() (int, string, *rsa.PrivateKey, string) {
-	var rsaKey *rsa.PrivateKey
+func parseFlags() (int, string, *rsa.PrivateKey, net.Addr) {
+	var (
+		rsaKey *rsa.PrivateKey
+		ifAddr *net.IPNet
+	)
 
 	// Read the command line arguments
 	flag.Usage = usage
@@ -139,13 +143,25 @@ func parseFlags() (int, string, *rsa.PrivateKey, string) {
 				}
 			}
 		}
+		if *interfaceAddr != "" {
+			var (
+				ip net.IP
+				err error
+			)
+			ip, ifAddr, err = net.ParseCIDR(*interfaceAddr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to parse the interface address.\n")
+				os.Exit(-1)
+			}
+			ifAddr.IP = ip
+		}
 	}
-	return *relayPort, *clusterName, rsaKey, *interfaceAddr
+	return *relayPort, *clusterName, rsaKey, ifAddr
 }
 
 func main() {
 	// Extract the command line arguments
-	relayPort, clusterId, rsaKey, interfaceAddr := parseFlags()
+	relayPort, clusterId, rsaKey, ifAddr := parseFlags()
 
 	// Check for CPU profiling
 	if *cpuProfile != "" {
@@ -179,7 +195,7 @@ func main() {
 	// Create and boot a new carrier
 	log.Printf("main: booting iris overlay...")
 	overlay := iris.New(clusterId, rsaKey)
-	if peers, err := overlay.Boot(interfaceAddr); err != nil {
+	if peers, err := overlay.Boot(ifAddr); err != nil {
 		log.Fatalf("main: failed to boot iris overlay: %v.", err)
 	} else {
 		log.Printf("main: iris overlay converged with %v remote connections.", peers)
