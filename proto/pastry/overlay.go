@@ -126,12 +126,17 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 // Boots the overlay network: it starts up boostrappers and connection acceptors
 // on all local IPv4 interfaces, after which the overlay management is booted.
 // The method returns the number of remote peers after convergence is reached.
-func (o *Overlay) Boot() (int, error) {
-	// Start the individual acceptors
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return 0, err
+func (o *Overlay) Boot(ifAddr net.Addr) (int, error) {
+	var addrs []net.Addr
+	if ifAddr == nil {
+		var err error
+		if addrs, err = net.InterfaceAddrs(); err != nil {
+			return 0, err
+		}
+	} else {
+		addrs = append(addrs, ifAddr)
 	}
+
 	for _, addr := range addrs {
 		// Workaround for upstream Go issue #5395, construct an IPNet if IPAddr is returned
 		var ipnet *net.IPNet
