@@ -26,8 +26,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net"
 	rng "math/rand"
+	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -45,6 +45,8 @@ var (
 	clusterName   = flag.String("net", "", "name of the cluster to join or create")
 	rsaKeyPath    = flag.String("rsa", "", "path to the RSA private key to use for data security")
 	interfaceAddr = flag.String("if_addr", "", "ip/mask of the interface which is used to search for other nodes. if nothing is specified, all interfaces will be used.")
+	pastryPort    = flag.Int("pastry_port", 0, "port for incoming pastry connections. a value of 0 triggers makes iris choose a random port.")
+	tunnelPort    = flag.Int("tunnel_port", 0, "port for incoming tunnel connections. a value of 0 triggers makes iris choose a random port.")
 
 	cpuProfile   = flag.String("cpuprof", "", "path to CPU profiling results")
 	heapProfile  = flag.String("heapprof", "", "path to memory heap profiling results")
@@ -79,7 +81,7 @@ func usage() {
 }
 
 // Parses the command line flags and checks their validity
-func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet) {
+func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet, int, int) {
 	var (
 		rsaKey *rsa.PrivateKey
 		ifAddr *net.IPNet
@@ -145,7 +147,7 @@ func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet) {
 		}
 		if *interfaceAddr != "" {
 			var (
-				ip net.IP
+				ip  net.IP
 				err error
 			)
 			ip, ifAddr, err = net.ParseCIDR(*interfaceAddr)
@@ -156,12 +158,12 @@ func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet) {
 			ifAddr.IP = ip
 		}
 	}
-	return *relayPort, *clusterName, rsaKey, ifAddr
+	return *relayPort, *clusterName, rsaKey, ifAddr, *pastryPort, *tunnelPort
 }
 
 func main() {
 	// Extract the command line arguments
-	relayPort, clusterId, rsaKey, ifAddr := parseFlags()
+	relayPort, clusterId, rsaKey, ifAddr, pastryPort, tunnelPort := parseFlags()
 
 	// Check for CPU profiling
 	if *cpuProfile != "" {
@@ -195,7 +197,7 @@ func main() {
 	// Create and boot a new carrier
 	log.Printf("main: booting iris overlay...")
 	overlay := iris.New(clusterId, rsaKey)
-	if peers, err := overlay.Boot(ifAddr); err != nil {
+	if peers, err := overlay.Boot(ifAddr, pastryPort, tunnelPort); err != nil {
 		log.Fatalf("main: failed to boot iris overlay: %v.", err)
 	} else {
 		log.Printf("main: iris overlay converged with %v remote connections.", peers)

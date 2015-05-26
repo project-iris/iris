@@ -125,7 +125,7 @@ func New(id string, key *rsa.PrivateKey, app Callback) *Overlay {
 // Boots the overlay network: it starts up boostrappers and connection acceptors
 // on all local IPv4 interfaces, after which the overlay management is booted.
 // The method returns the number of remote peers after convergence is reached.
-func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
+func (o *Overlay) Boot(ifAddr *net.IPNet, port int) (int, error) {
 	var addrs []net.Addr
 	if ifAddr == nil {
 		var err error
@@ -133,7 +133,6 @@ func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
 			return 0, err
 		}
 	} else {
-		log.Printf("ip net %#v", ifAddr)
 		addrs = append(addrs, ifAddr)
 	}
 
@@ -158,7 +157,7 @@ func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
 			// Create a quit channel and start the acceptor
 			quit := make(chan chan error)
 			o.acceptQuit = append(o.acceptQuit, quit)
-			go o.acceptor(ipnet, quit)
+			go o.acceptor(ipnet, port, quit)
 		}
 	}
 	// Start the overlay processes

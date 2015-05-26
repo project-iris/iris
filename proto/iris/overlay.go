@@ -59,9 +59,9 @@ func New(overId string, key *rsa.PrivateKey) *Overlay {
 }
 
 // Boot starts up the overlay, returning the number of remote peers.
-func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
+func (o *Overlay) Boot(ifAddr *net.IPNet, pastryPort, tunnelPort int) (int, error) {
 	// Boot the underlay and wait until it converges
-	peers, err := o.scribe.Boot(ifAddr)
+	peers, err := o.scribe.Boot(ifAddr, pastryPort)
 	if err != nil {
 		return 0, err
 	}
@@ -94,7 +94,7 @@ func (o *Overlay) Boot(ifAddr *net.IPNet) (int, error) {
 
 			// Start and sync the acceptor
 			live := make(chan struct{})
-			go o.tunneler(ip, live, quit)
+			go o.tunneler(ip, tunnelPort, live, quit)
 			<-live
 		}
 	}
