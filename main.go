@@ -28,6 +28,7 @@ import (
 	"io/ioutil"
 	"log"
 	rng "math/rand"
+	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -39,14 +40,19 @@ import (
 )
 
 // Command line flags
-var devMode = flag.Bool("dev", false, "start in local developer mode (random cluster and key)")
-var relayPort = flag.Int("port", 55555, "relay endpoint for locally connecting clients")
-var clusterName = flag.String("net", "", "name of the cluster to join or create")
-var rsaKeyPath = flag.String("rsa", "", "path to the RSA private key to use for data security")
+var (
+	devMode       = flag.Bool("dev", false, "start in local developer mode (random cluster and key)")
+	relayPort     = flag.Int("port", 55555, "relay endpoint for locally connecting clients")
+	clusterName   = flag.String("net", "", "name of the cluster to join or create")
+	rsaKeyPath    = flag.String("rsa", "", "path to the RSA private key to use for data security")
+	interfaceAddr = flag.String("if_addr", "", "ip/mask of the interface which is used to search for other nodes. if nothing is specified, all interfaces will be used.")
+	pastryPort    = flag.Int("pastry_port", 0, "port for incoming pastry connections. a value of 0 triggers makes iris choose a random port.")
+	tunnelPort    = flag.Int("tunnel_port", 0, "port for incoming tunnel connections. a value of 0 triggers makes iris choose a random port.")
 
-var cpuProfile = flag.String("cpuprof", "", "path to CPU profiling results")
-var heapProfile = flag.String("heapprof", "", "path to memory heap profiling results")
-var blockProfile = flag.String("blockprof", "", "path to lock contention profiling results")
+	cpuProfile   = flag.String("cpuprof", "", "path to CPU profiling results")
+	heapProfile  = flag.String("heapprof", "", "path to memory heap profiling results")
+	blockProfile = flag.String("blockprof", "", "path to lock contention profiling results")
+)
 
 // Prints the usage of the Iris command and its options.
 func usage() {
@@ -76,8 +82,11 @@ func usage() {
 }
 
 // Parses the command line flags and checks their validity
-func parseFlags() (int, string, *rsa.PrivateKey) {
-	var rsaKey *rsa.PrivateKey
+func parseFlags() (int, string, *rsa.PrivateKey, *net.IPNet, int, int) {
+	var (
+		rsaKey *rsa.PrivateKey
+		ifAddr *net.IPNet
+	)
 
 	// Read the command line arguments
 	flag.Usage = usage
@@ -137,13 +146,25 @@ func parseFlags() (int, string, *rsa.PrivateKey) {
 				}
 			}
 		}
+		if *interfaceAddr != "" {
+			var (
+				ip  net.IP
+				err error
+			)
+			ip, ifAddr, err = net.ParseCIDR(*interfaceAddr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to parse the interface address.\n")
+				os.Exit(-1)
+			}
+			ifAddr.IP = ip
+		}
 	}
-	return *relayPort, *clusterName, rsaKey
+	return *relayPort, *clusterName, rsaKey, ifAddr, *pastryPort, *tunnelPort
 }
 
 func main() {
 	// Extract the command line arguments
-	relayPort, clusterId, rsaKey := parseFlags()
+	relayPort, clusterId, rsaKey, ifAddr, pastryPort, tunnelPort := parseFlags()
 
 	// Check for CPU profiling
 	if *cpuProfile != "" {
@@ -177,7 +198,7 @@ func main() {
 	// Create and boot a new carrier
 	log.Printf("main: booting iris overlay...")
 	overlay := iris.New(clusterId, rsaKey)
-	if peers, err := overlay.Boot(); err != nil {
+	if peers, err := overlay.Boot(ifAddr, pastryPort, tunnelPort); err != nil {
 		log.Fatalf("main: failed to boot iris overlay: %v.", err)
 	} else {
 		log.Printf("main: iris overlay converged with %v remote connections.", peers)

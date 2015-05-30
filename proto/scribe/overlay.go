@@ -25,6 +25,7 @@ import (
 	"errors"
 	"log"
 	"math/big"
+	"net"
 	"sync"
 
 	"github.com/project-iris/iris/config"
@@ -72,14 +73,14 @@ func New(overId string, key *rsa.PrivateKey, app Callback) *Overlay {
 }
 
 // Boots the overlay, returning the number of remote peers.
-func (o *Overlay) Boot() (int, error) {
+func (o *Overlay) Boot(ifAddr *net.IPNet, pastryPort int) (int, error) {
 	log.Printf("scribe: booting with id %v.", o.pastry.Self())
 
 	// Start the heartbeat first since convergence can last long
 	o.heart.Start()
 
 	// Boot the overlay and wait until it converges
-	peers, err := o.pastry.Boot()
+	peers, err := o.pastry.Boot(ifAddr, pastryPort)
 	if err != nil {
 		return 0, err
 	}

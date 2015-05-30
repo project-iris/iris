@@ -50,9 +50,9 @@ func init() {
 
 // Starts up the overlay networking on a specified interface and fans in all the
 // inbound connections into the overlay-global channels.
-func (o *Overlay) acceptor(ipnet *net.IPNet, quit chan chan error) {
+func (o *Overlay) acceptor(ipnet *net.IPNet, port int, quit chan chan error) {
 	// Listen for incoming session on the given interface and random port.
-	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), "0"))
+	addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(ipnet.IP.String(), fmt.Sprintf("%d", port)))
 	if err != nil {
 		panic(fmt.Sprintf("failed to resolve interface (%v): %v.", ipnet.IP, err))
 	}
