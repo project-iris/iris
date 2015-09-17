@@ -30,8 +30,8 @@ import (
 	"sort"
 	"sync"
 	"time"
-
-	"code.google.com/p/go.crypto/hkdf"
+	"golang.org/x/crypto/hkdf"
+	//"code.google.com/p/go.crypto/hkdf"
 	"github.com/project-iris/iris/config"
 	"github.com/project-iris/iris/proto"
 	"github.com/project-iris/iris/proto/link"
