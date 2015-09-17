@@ -42,8 +42,8 @@ import (
 	"hash"
 	"io"
 	"math/big"
-
-	"code.google.com/p/go.crypto/hkdf"
+	"golang.org/x/crypto/hkdf"
+	//"code.google.com/p/go.crypto/hkdf"
 )
 
 // Current step in the protocol to prevent user errors
